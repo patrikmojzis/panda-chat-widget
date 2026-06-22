@@ -1,0 +1,19 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/server: {}
+
+  apps/widget-ui: {}
+
+  examples/basic-html: {}
+
+  packages/loader: {}
+
+  packages/shared: {}
