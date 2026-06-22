@@ -3,7 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "check": "echo \"TODO: add widget UI checks\"",
-    "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add widget UI TypeScript sources\"; fi'"
+    "dev": "echo \"TODO: dev command not implemented yet for @panda-chat-widget/widget-ui\"",
+    "build": "echo \"TODO: build command not implemented yet for @panda-chat-widget/widget-ui\"",
+    "test": "echo \"TODO: tests not implemented yet for @panda-chat-widget/widget-ui\"",
+    "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add widget UI TypeScript sources\"; fi'",
+    "lint": "echo \"TODO: lint command not implemented yet for @panda-chat-widget/widget-ui\"",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   }
 }
