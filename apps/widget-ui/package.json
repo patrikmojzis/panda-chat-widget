@@ -3,11 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "echo \"TODO: dev command not implemented yet for @panda-chat-widget/widget-ui\"",
-    "build": "echo \"TODO: build command not implemented yet for @panda-chat-widget/widget-ui\"",
-    "test": "echo \"TODO: tests not implemented yet for @panda-chat-widget/widget-ui\"",
+    "dev": "echo \"TODO: dev command not implemented yet for iframe React widget UI\"",
+    "build": "echo \"TODO: build command not implemented yet for iframe React widget UI\"",
+    "test": "echo \"TODO: tests not implemented yet for iframe React widget UI\"",
     "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add widget UI TypeScript sources\"; fi'",
-    "lint": "echo \"TODO: lint command not implemented yet for @panda-chat-widget/widget-ui\"",
+    "lint": "echo \"TODO: lint command not implemented yet for iframe React widget UI\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
-  }
+  },
+  "description": "Owns the future iframe React widget UI."
 }

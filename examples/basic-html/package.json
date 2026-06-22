@@ -3,11 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "echo \"TODO: dev command not implemented yet for @panda-chat-widget/basic-html\"",
-    "build": "echo \"TODO: build command not implemented yet for @panda-chat-widget/basic-html\"",
-    "test": "echo \"TODO: tests not implemented yet for @panda-chat-widget/basic-html\"",
+    "dev": "echo \"TODO: dev command not implemented yet for basic HTML host-page example\"",
+    "build": "echo \"TODO: build command not implemented yet for basic HTML host-page example\"",
+    "test": "echo \"TODO: tests not implemented yet for basic HTML host-page example\"",
     "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add basic HTML TypeScript sources\"; fi'",
-    "lint": "echo \"TODO: lint command not implemented yet for @panda-chat-widget/basic-html\"",
+    "lint": "echo \"TODO: lint command not implemented yet for basic HTML host-page example\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
-  }
+  },
+  "description": "Owns the future basic HTML host-page example."
 }

@@ -3,11 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "echo \"TODO: dev command not implemented yet for @panda-chat-widget/shared\"",
-    "build": "echo \"TODO: build command not implemented yet for @panda-chat-widget/shared\"",
-    "test": "echo \"TODO: tests not implemented yet for @panda-chat-widget/shared\"",
+    "dev": "echo \"TODO: dev command not implemented yet for shared API/theme types package\"",
+    "build": "echo \"TODO: build command not implemented yet for shared API/theme types package\"",
+    "test": "echo \"TODO: tests not implemented yet for shared API/theme types package\"",
     "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add shared TypeScript sources\"; fi'",
-    "lint": "echo \"TODO: lint command not implemented yet for @panda-chat-widget/shared\"",
+    "lint": "echo \"TODO: lint command not implemented yet for shared API/theme types package\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
-  }
+  },
+  "description": "Owns future cross-boundary API and theme types."
 }
