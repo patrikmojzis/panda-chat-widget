@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "check": "echo \"TODO: add server checks\""
+    "check": "echo \"TODO: add server checks\"",
+    "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add server TypeScript sources\"; fi'"
   }
 }

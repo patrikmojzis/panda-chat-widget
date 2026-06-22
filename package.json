@@ -13,5 +13,9 @@
     "lint": "pnpm -r --if-present lint",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "typescript": "^6.0.3"
   }
 }
