@@ -3,9 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "echo \"TODO: dev command not implemented yet for basic HTML host-page example\"",
-    "build": "echo \"TODO: build command not implemented yet for basic HTML host-page example\"",
-    "test": "echo \"TODO: tests not implemented yet for basic HTML host-page example\"",
+    "dev": "python3 -m http.server 4173 --bind 127.0.0.1 --directory .",
+    "build": "pnpm --filter @panda-chat-widget/loader build && mkdir -p vendor && cp ../../packages/loader/dist/panda-chat-widget-loader.js vendor/panda-chat-widget-loader.js",
+    "test": "node --test \"test/**/*.test.mjs\"",
     "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add basic HTML TypeScript sources\"; fi'",
     "lint": "echo \"TODO: lint command not implemented yet for basic HTML host-page example\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
