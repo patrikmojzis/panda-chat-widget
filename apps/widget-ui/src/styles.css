@@ -6,23 +6,48 @@
   background: #ffffff;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
+  min-width: 0;
+  min-height: 100%;
+  overflow: hidden;
   background: #ffffff;
 }
 
 .widget-shell {
-  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 100%;
   display: grid;
-  align-content: center;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
   gap: 12px;
-  padding: 24px;
+  padding:
+    max(16px, env(safe-area-inset-top, 0px))
+    max(16px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(16px, env(safe-area-inset-left, 0px));
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.widget-shell > * {
+  min-width: 0;
+}
+
+.widget-shell > :last-child {
+  align-self: center;
 }
 
 .widget-shell__eyebrow,
@@ -38,9 +63,13 @@ body {
 .widget-shell h1,
 .widget-shell p {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .widget-welcome {
+  width: 100%;
+  max-width: 336px;
+  justify-self: center;
   display: grid;
   gap: 12px;
   padding: 20px;
@@ -84,6 +113,21 @@ body {
 
 .widget-welcome--mode-dark .widget-welcome__empty {
   color: #cbd5e1;
+}
+
+@media (max-width: 359px), (max-height: 420px) {
+  .widget-shell {
+    gap: 10px;
+    padding:
+      max(12px, env(safe-area-inset-top, 0px))
+      max(12px, env(safe-area-inset-right, 0px))
+      max(12px, env(safe-area-inset-bottom, 0px))
+      max(12px, env(safe-area-inset-left, 0px));
+  }
+
+  .widget-welcome {
+    padding: 16px;
+  }
 }
 
 @media (prefers-color-scheme: dark) {

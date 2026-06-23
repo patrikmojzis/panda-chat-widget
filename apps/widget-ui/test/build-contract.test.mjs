@@ -93,6 +93,23 @@ test('widget UI renders bootstrap loading, missing, and error placeholders only'
   assert.doesNotMatch(`${mainSource}\n${appSource}`, /XMLHttpRequest|postMessage|composer|send/i);
 });
 
+test('widget UI shell sizing stays inside iframe bounds responsively', () => {
+  assert.match(stylesSource, /html,\s*\nbody,\s*\n#root \{\s*height: 100%;/);
+  assert.match(stylesSource, /body \{[\s\S]*min-width: 0;[\s\S]*min-height: 100%;[\s\S]*overflow: hidden;/);
+  assert.match(stylesSource, /\.widget-shell \{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*height: 100%;[\s\S]*min-height: 100%;/);
+  assert.match(stylesSource, /grid-template-rows: auto minmax\(0, 1fr\);/);
+  assert.match(stylesSource, /overflow-x: hidden;/);
+  assert.match(stylesSource, /overflow-y: auto;/);
+  assert.match(stylesSource, /env\(safe-area-inset-top, 0px\)/);
+  assert.match(stylesSource, /env\(safe-area-inset-right, 0px\)/);
+  assert.match(stylesSource, /env\(safe-area-inset-bottom, 0px\)/);
+  assert.match(stylesSource, /env\(safe-area-inset-left, 0px\)/);
+  assert.match(stylesSource, /@media \(max-width: 359px\), \(max-height: 420px\)/);
+  assert.match(stylesSource, /overflow-wrap: anywhere;/);
+  assert.match(stylesSource, /\.widget-welcome \{[\s\S]*width: 100%;[\s\S]*max-width: 336px;[\s\S]*justify-self: center;/);
+  assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
+});
+
 test('loaded bootstrap renders config-driven welcome text safely', () => {
   assert.match(appSource, /<WelcomeState bootstrap=\{state\.bootstrap\} \/>/);
   assert.match(appSource, /assistant\.displayName/);
