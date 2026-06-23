@@ -2,6 +2,7 @@
   "name": "@panda-chat-widget/shared",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "echo \"TODO: dev command not implemented yet for shared API/theme types package\"",
     "build": "echo \"TODO: build command not implemented yet for shared API/theme types package\"",

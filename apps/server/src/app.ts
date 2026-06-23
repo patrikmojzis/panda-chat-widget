@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 
 import type { DatabaseClient } from './db.ts';
 import { registerHealthRoutes } from './health.ts';
+import { registerVisitorSessionRoutes } from './visitor-session.ts';
 import { registerWidgetBootstrapRoutes } from './widget-bootstrap.ts';
 
 export type BuildAppOptions = FastifyServerOptions & {
@@ -16,6 +17,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (database) {
     registerWidgetBootstrapRoutes(app, { database });
+    registerVisitorSessionRoutes(app, { database });
   }
 
   return app;
