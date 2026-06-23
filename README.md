@@ -13,11 +13,12 @@ In scope today:
 - TypeScript configuration presets for Node and browser packages
 - root commands that future agents and humans can run consistently
 - Fastify server seam with `GET /healthz`
+- local-only Postgres compose seam for future DB work
 
 Current non-goals:
 
 - server functionality beyond the minimal `/healthz` route
-- database/Kysely or SSE runtime behavior
+- server database/Kysely integration, schema, migrations, or SSE runtime behavior
 - React/Vite widget UI implementation
 - host-page loader runtime behavior
 - Docker, CLI, deployments, or production packaging
@@ -92,6 +93,41 @@ Server env knobs:
 | `SERVER_LOGGER` | `true` | Accepts `true`, `false`, `1`, or `0`. Use `false` for quieter local smoke runs. |
 
 There is no production `start`/build artifact yet. Use `pnpm --filter @panda-chat-widget/server dev` for the current local server and `pnpm check` for validation.
+
+## Local Postgres runbook
+
+The repository includes a local-only Postgres compose service for future DB slices. The server does not connect to it yet.
+
+Start Postgres from the repository root:
+
+```sh
+docker compose up -d postgres
+```
+
+Stop it without deleting data:
+
+```sh
+docker compose down
+```
+
+Reset it and delete the local named volume:
+
+```sh
+docker compose down -v
+```
+
+Default local connection values:
+
+| Setting | Value |
+| --- | --- |
+| Host | `127.0.0.1` |
+| Port | `5432` |
+| Database | `panda_chat_widget` |
+| User | `panda_chat_widget` |
+| Password | `panda_chat_widget` |
+| URL | `postgresql://panda_chat_widget:panda_chat_widget@127.0.0.1:5432/panda_chat_widget` |
+
+These credentials are non-production local development defaults only. Do not reuse them for deployed environments.
 
 ## Public planning context
 
