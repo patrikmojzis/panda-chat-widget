@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "moduleDetection": "legacy",
+    "sourceMap": false,
+    "removeComments": true,
+    "types": []
+  },
+  "include": ["src/panda-chat-widget-loader.ts"]
+}
