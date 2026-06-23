@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import { registerConversationRoutes } from './conversation.ts';
 import type { DatabaseClient } from './db.ts';
 import { registerHealthRoutes } from './health.ts';
+import { registerVisitorMessageRoutes } from './visitor-message.ts';
 import { registerVisitorSessionRoutes } from './visitor-session.ts';
 import { registerWidgetBootstrapRoutes } from './widget-bootstrap.ts';
 
@@ -20,6 +21,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerWidgetBootstrapRoutes(app, { database });
     registerVisitorSessionRoutes(app, { database });
     registerConversationRoutes(app, { database });
+    registerVisitorMessageRoutes(app, { database });
   }
 
   return app;
