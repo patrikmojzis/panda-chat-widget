@@ -11,9 +11,10 @@ if (!rootElement) {
 }
 
 const widgetPublicKey = readWidgetPublicKey(window.location.search);
+const bootstrapBaseHref = window.location.href;
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App widgetPublicKey={widgetPublicKey} />
+    <App widgetPublicKey={widgetPublicKey} bootstrapBaseHref={bootstrapBaseHref} />
   </StrictMode>,
 );
