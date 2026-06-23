@@ -14,12 +14,12 @@ In scope today:
 - root commands that future agents and humans can run consistently
 - Fastify server seam with `GET /healthz`
 - local-only Postgres compose seam for future DB work
-- Kysely/Postgres connection seam, explicit migration runner, and initial widget tables
+- Kysely/Postgres connection seam, explicit migration runner, initial widget tables, and local demo seed
 
 Current non-goals:
 
 - server functionality beyond the minimal `/healthz` route
-- server DB usage from app startup/API routes, seed data, or SSE runtime behavior
+- server DB usage from app startup/API routes, production seed data, or SSE runtime behavior
 - React/Vite widget UI implementation
 - host-page loader runtime behavior
 - Docker, CLI, deployments, or production packaging
@@ -113,6 +113,14 @@ pnpm --filter @panda-chat-widget/server db:migrate
 ```
 
 The migration runner applies the initial widget tables from `apps/server/src/migrations/0001_initial_widget_tables.ts`. Server startup does not run migrations automatically.
+
+Seed local demo data after migrations:
+
+```sh
+pnpm --filter @panda-chat-widget/server db:seed
+```
+
+The seed is idempotent. It creates or updates `Demo Local Site`, `Demo Local Widget`, public widget key `demo-local-widget`, and allowed domains `localhost` and `127.0.0.1`. Server startup does not seed automatically.
 
 Stop it without deleting data:
 
