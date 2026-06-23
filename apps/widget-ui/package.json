@@ -3,12 +3,21 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "echo \"TODO: dev command not implemented yet for iframe React widget UI\"",
-    "build": "echo \"TODO: build command not implemented yet for iframe React widget UI\"",
-    "test": "echo \"TODO: tests not implemented yet for iframe React widget UI\"",
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -p tsconfig.json --noEmit --pretty false && vite build",
+    "test": "node --test \"test/**/*.test.mjs\"",
     "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add widget UI TypeScript sources\"; fi'",
     "lint": "echo \"TODO: lint command not implemented yet for iframe React widget UI\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
-  "description": "Owns the future iframe React widget UI."
+  "description": "Owns the future iframe React widget UI.",
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "vite": "^8.0.16"
+  }
 }
