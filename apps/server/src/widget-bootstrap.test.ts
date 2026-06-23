@@ -269,6 +269,29 @@ test('GET /api/widgets/:publicKey/bootstrap rejects invalid origins', async () =
   }
 });
 
+test('GET /api/widgets/:publicKey/bootstrap rejects disabled allowed-domain records', async () => {
+  const fake = createFakeDatabase({
+    widget: enabledDemoWidget(),
+    allowedDomains: [{ domain: 'localhost', enabled: false }],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/bootstrap`,
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.deepEqual(response.json(), { error: 'origin_not_allowed', reason: 'domain_not_allowed' });
+    assert.deepEqual(fake.allowedDomainWidgetLookups, ['widget-id']);
+    assert.deepEqual(fake.enabledDomainFilters, [true]);
+  } finally {
+    await app.close();
+  }
+});
+
 test('GET /api/widgets/:publicKey/bootstrap rejects disallowed origins', async () => {
   const fake = createFakeDatabase({
     widget: enabledDemoWidget(),
