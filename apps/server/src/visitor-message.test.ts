@@ -834,11 +834,11 @@ test('GET /api/widgets/:publicKey/messages filters messages after seq', async ()
 });
 
 
-test('GET /api/widgets/:publicKey/messages/events returns missed messages as SSE', async () => {
+test('GET /api/widgets/:publicKey/messages/events treats afterSeq as reconnect catch-up without leaking conversations', async () => {
   const fake = createEnabledFakeDatabase({
     messages: [
       messageRow({ id: 'message-3', conversationId: CONVERSATION_ID_A, seq: 3, body: 'Follow-up' }),
-      messageRow({ id: 'other-message-1', conversationId: CONVERSATION_ID_B, seq: 1, body: 'Other' }),
+      messageRow({ id: 'other-message-1', conversationId: CONVERSATION_ID_B, seq: 4, body: 'Other conversation' }),
       messageRow({ id: 'message-1', conversationId: CONVERSATION_ID_A, seq: 1, body: 'Already read' }),
       messageRow({ id: 'message-2', conversationId: CONVERSATION_ID_A, seq: 2, sender: 'agent', body: 'Fake reply' }),
     ],
@@ -872,6 +872,7 @@ test('GET /api/widgets/:publicKey/messages/events returns missed messages as SSE
         { event: 'message', seq: 3, sender: 'visitor', body: 'Follow-up' },
       ],
     );
+    assert.doesNotMatch(response.body, /Other conversation/);
     assert.deepEqual(fake.messageReadLookups, [{ conversationId: CONVERSATION_ID_A, afterSeq: 1 }]);
     assert.deepEqual(fake.messageInserts, []);
   } finally {
