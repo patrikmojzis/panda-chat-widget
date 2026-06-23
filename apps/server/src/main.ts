@@ -1,15 +1,12 @@
 import { buildApp } from './app.ts';
-import { listen, type ListenOptions } from './listen.ts';
+import { loadConfig } from './config.ts';
+import { listen } from './listen.ts';
 
-const defaultListenOptions = {
-  host: '127.0.0.1',
-  port: 3000,
-} satisfies ListenOptions;
-
-const app = buildApp({ logger: true });
+const config = loadConfig();
+const app = buildApp({ logger: config.logger });
 
 try {
-  await listen(app, defaultListenOptions);
+  await listen(app, config.listen);
 } catch (error) {
   app.log.error({ err: error }, 'server failed to start');
   process.exitCode = 1;
