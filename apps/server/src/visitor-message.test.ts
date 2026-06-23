@@ -638,6 +638,89 @@ test('POST /api/widgets/:publicKey/messages scopes duplicate client ids to a con
   }
 });
 
+
+test('GET /api/widgets/:publicKey/messages returns inserted visitor message then fake reply', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const postResponse = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: validMessagePayload(),
+    });
+
+    const postMessage = postResponse.json().message;
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: messageListUrl(),
+      headers: { origin: 'http://localhost:5173' },
+    });
+    const afterVisitorResponse = await app.inject({
+      method: 'GET',
+      url: `${messageListUrl()}&afterSeq=${postMessage.seq}`,
+      headers: { origin: 'http://localhost:5173' },
+    });
+    const afterReplyResponse = await app.inject({
+      method: 'GET',
+      url: `${messageListUrl()}&afterSeq=${postMessage.seq + 1}`,
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(postResponse.statusCode, 200);
+    assert.equal(listResponse.statusCode, 200);
+    assert.equal(afterVisitorResponse.statusCode, 200);
+    assert.equal(afterReplyResponse.statusCode, 200);
+    assert.deepEqual(
+      listResponse.json().messages.map((message: { seq: number; sender: string; clientMessageId: string | null; body: string }) => ({
+        seq: message.seq,
+        sender: message.sender,
+        clientMessageId: message.clientMessageId,
+        body: message.body,
+      })),
+      [
+        {
+          seq: 1,
+          sender: 'visitor',
+          clientMessageId: 'client-message-1',
+          body: 'Hello from visitor',
+        },
+        {
+          seq: 2,
+          sender: 'agent',
+          clientMessageId: null,
+          body: createFakeResponderReply({ visitorMessage: { body: 'Hello from visitor' } }).body,
+        },
+      ],
+    );
+    assert.deepEqual(
+      afterVisitorResponse.json().messages.map((message: { seq: number; sender: string; body: string }) => ({
+        seq: message.seq,
+        sender: message.sender,
+        body: message.body,
+      })),
+      [
+        {
+          seq: 2,
+          sender: 'agent',
+          body: createFakeResponderReply({ visitorMessage: { body: 'Hello from visitor' } }).body,
+        },
+      ],
+    );
+    assert.deepEqual(afterReplyResponse.json().messages, []);
+    assert.deepEqual(fake.messageReadLookups, [
+      { conversationId: CONVERSATION_ID_A },
+      { conversationId: CONVERSATION_ID_A, afterSeq: 1 },
+      { conversationId: CONVERSATION_ID_A, afterSeq: 2 },
+    ]);
+    assert.equal(fake.messageInserts.length, 2);
+  } finally {
+    await app.close();
+  }
+});
+
 test('GET /api/widgets/:publicKey/messages returns conversation messages in seq order', async () => {
   const fake = createEnabledFakeDatabase({
     messages: [
