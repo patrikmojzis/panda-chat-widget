@@ -4,6 +4,7 @@ import {
   type WidgetBootstrapLoadState,
   type WidgetBootstrapResponse,
 } from './widget-bootstrap';
+import { resolveWidgetTheme } from './widget-theme';
 import type { WidgetPublicKeyState } from './widget-public-key';
 
 type AppProps = {
@@ -81,10 +82,17 @@ type WelcomeStateProps = {
 };
 
 function WelcomeState({ bootstrap }: WelcomeStateProps) {
-  const { assistant, welcome } = bootstrap.config;
+  const { assistant, theme: themeConfig, welcome } = bootstrap.config;
+  const theme = resolveWidgetTheme(themeConfig);
 
   return (
-    <section className="widget-welcome" aria-label={`${assistant.displayName} welcome`}>
+    <section
+      className={`widget-welcome ${theme.className}`}
+      aria-label={`${assistant.displayName} welcome`}
+      data-color-mode={theme.colorMode}
+      data-accent={theme.accent}
+      data-radius={theme.radius}
+    >
       <p className="widget-welcome__assistant">{assistant.displayName}</p>
       <h1>{welcome.title}</h1>
       <p>{welcome.subtitle}</p>

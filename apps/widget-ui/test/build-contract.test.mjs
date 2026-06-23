@@ -12,6 +12,7 @@ const stylesSource = await readFile(new URL('../src/styles.css', import.meta.url
 const viteEnvSource = await readFile(new URL('../src/vite-env.d.ts', import.meta.url), 'utf8');
 const publicKeySource = await readFile(new URL('../src/widget-public-key.ts', import.meta.url), 'utf8');
 const bootstrapSource = await readFile(new URL('../src/widget-bootstrap.ts', import.meta.url), 'utf8');
+const themeSource = await readFile(new URL('../src/widget-theme.ts', import.meta.url), 'utf8');
 
 function compileTypeScript(source) {
   return ts.transpileModule(source, {
@@ -46,6 +47,7 @@ function jsonSafe(value) {
 
 const compiledPublicKeyModule = compileTypeScript(publicKeySource);
 const compiledBootstrapModule = compileTypeScript(bootstrapSource);
+const compiledThemeModule = compileTypeScript(themeSource);
 
 function sampleBootstrap(publicKey = 'demo-local-widget') {
   return {
@@ -88,7 +90,7 @@ test('widget UI renders bootstrap loading, missing, and error placeholders only'
   assert.match(appSource, /data-state=\{bootstrapState\.status\}/);
   assert.match(stylesSource, /\.widget-shell/);
   assert.match(viteEnvSource, /vite\/client/);
-  assert.doesNotMatch(`${mainSource}\n${appSource}`, /XMLHttpRequest|postMessage|theme|composer|send/i);
+  assert.doesNotMatch(`${mainSource}\n${appSource}`, /XMLHttpRequest|postMessage|composer|send/i);
 });
 
 test('loaded bootstrap renders config-driven welcome text safely', () => {
@@ -96,12 +98,57 @@ test('loaded bootstrap renders config-driven welcome text safely', () => {
   assert.match(appSource, /assistant\.displayName/);
   assert.match(appSource, /welcome\.title/);
   assert.match(appSource, /welcome\.subtitle/);
+  assert.match(appSource, /resolveWidgetTheme\(themeConfig\)/);
+  assert.match(appSource, /theme\.className/);
+  assert.match(appSource, /data-color-mode=\{theme\.colorMode\}/);
+  assert.match(appSource, /data-accent=\{theme\.accent\}/);
+  assert.match(appSource, /data-radius=\{theme\.radius\}/);
   assert.match(appSource, /\{assistant\.displayName\}/);
   assert.match(appSource, /\{welcome\.title\}/);
   assert.match(appSource, /\{welcome\.subtitle\}/);
   assert.match(appSource, /The chat will appear here when the conversation UI is ready/);
   assert.match(stylesSource, /\.widget-welcome/);
-  assert.doesNotMatch(`${appSource}\n${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|theme\./);
+  assert.match(stylesSource, /\.widget-welcome--mode-light/);
+  assert.match(stylesSource, /\.widget-welcome--mode-dark/);
+  assert.match(stylesSource, /\.widget-welcome--mode-system/);
+  assert.match(stylesSource, /\.widget-welcome--accent-blue/);
+  assert.match(stylesSource, /\.widget-welcome--radius-md/);
+  assert.doesNotMatch(`${appSource}\n${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
+});
+
+test('widget theme resolver maps configured tokens to safe classes', () => {
+  const { resolveWidgetTheme } = loadModule(compiledThemeModule);
+
+  assert.deepEqual(jsonSafe(resolveWidgetTheme({ colorMode: 'dark', accent: 'blue', radius: 'md' })), {
+    colorMode: 'dark',
+    accent: 'blue',
+    radius: 'md',
+    className: 'widget-welcome--mode-dark widget-welcome--accent-blue widget-welcome--radius-md',
+  });
+});
+
+test('widget theme resolver falls back safely for unknown runtime tokens', () => {
+  const { resolveWidgetTheme } = loadModule(compiledThemeModule);
+
+  const resolvedTheme = resolveWidgetTheme({
+    colorMode: 'dark; background: red',
+    accent: 'url(javascript:alert(1))',
+    radius: '999px',
+  });
+
+  assert.deepEqual(jsonSafe(resolvedTheme), {
+    colorMode: 'system',
+    accent: 'blue',
+    radius: 'md',
+    className: 'widget-welcome--mode-system widget-welcome--accent-blue widget-welcome--radius-md',
+  });
+  assert.doesNotMatch(resolvedTheme.className, /background|javascript|999px|url/);
+  assert.deepEqual(jsonSafe(resolveWidgetTheme()), {
+    colorMode: 'system',
+    accent: 'blue',
+    radius: 'md',
+    className: 'widget-welcome--mode-system widget-welcome--accent-blue widget-welcome--radius-md',
+  });
 });
 
 test('widget public key parser reads configured, encoded, and missing keys', () => {

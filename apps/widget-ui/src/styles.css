@@ -43,8 +43,61 @@ body {
 .widget-welcome {
   display: grid;
   gap: 12px;
+  padding: 20px;
+  border: 1px solid #dbe4f0;
+  background: #ffffff;
+}
+
+.widget-welcome--mode-light {
+  color: #0f172a;
+  background: #ffffff;
+  border-color: #dbe4f0;
+}
+
+.widget-welcome--mode-dark {
+  color: #e5edf8;
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+.widget-welcome--mode-system {
+  color: #0f172a;
+  background: #ffffff;
+  border-color: #dbe4f0;
+}
+
+.widget-welcome--accent-blue .widget-welcome__assistant {
+  color: #2563eb;
+}
+
+.widget-welcome--mode-dark.widget-welcome--accent-blue .widget-welcome__assistant {
+  color: #93c5fd;
+}
+
+.widget-welcome--radius-md {
+  border-radius: 16px;
 }
 
 .widget-welcome__empty {
   color: #475569;
+}
+
+.widget-welcome--mode-dark .widget-welcome__empty {
+  color: #cbd5e1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .widget-welcome--mode-system {
+    color: #e5edf8;
+    background: #0f172a;
+    border-color: #1e293b;
+  }
+
+  .widget-welcome--mode-system.widget-welcome--accent-blue .widget-welcome__assistant {
+    color: #93c5fd;
+  }
+
+  .widget-welcome--mode-system .widget-welcome__empty {
+    color: #cbd5e1;
+  }
 }
