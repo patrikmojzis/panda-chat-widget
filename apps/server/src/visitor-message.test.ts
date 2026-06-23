@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { buildApp } from './app.ts';
+import { createFakeResponderReply } from './fake-responder.ts';
 import type { ConversationStatus, DatabaseClient, MessageSender } from './db.ts';
 import type { AllowedDomainRecord } from './origin-domain.ts';
 import { DEMO_SEED_DATA } from './seed-data.ts';
@@ -407,7 +408,7 @@ function createEnabledFakeDatabase(options: Omit<FakeDatabaseOptions, 'widget' |
   return createFakeDatabase(fakeOptions);
 }
 
-test('POST /api/widgets/:publicKey/messages stores one visitor message with the next seq', async () => {
+test('POST /api/widgets/:publicKey/messages stores a visitor message then a fake agent reply', async () => {
   const fake = createEnabledFakeDatabase({
     messages: [
       messageRow({
@@ -437,6 +438,7 @@ test('POST /api/widgets/:publicKey/messages stores one visitor message with the 
     const body = response.json();
 
     assert.equal(response.statusCode, 200);
+    assert.deepEqual(Object.keys(body), ['message']);
     assert.equal(typeof body.message.createdAt, 'string');
     assert.deepEqual({ ...body.message, createdAt: '<iso-date>' }, {
       id: 'message-2',
@@ -454,7 +456,10 @@ test('POST /api/widgets/:publicKey/messages stores one visitor message with the 
     assert.deepEqual(fake.conversationLookups, [
       { id: CONVERSATION_ID_A, widgetId: 'widget-id', visitorSessionId: VISITOR_SESSION_ID_A },
     ]);
-    assert.deepEqual(fake.messageSeqLookups, [CONVERSATION_ID_A]);
+    assert.deepEqual(fake.messageClientMessageLookups, [
+      { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
+    ]);
+    assert.deepEqual(fake.messageSeqLookups, [CONVERSATION_ID_A, CONVERSATION_ID_A]);
     assert.deepEqual(
       fake.messageInserts.map((values) => ({
         conversation_id: values.conversation_id,
@@ -470,6 +475,13 @@ test('POST /api/widgets/:publicKey/messages stores one visitor message with the 
           sender: 'visitor',
           client_message_id: 'client-message-1',
           body: 'Hello from visitor',
+        },
+        {
+          conversation_id: CONVERSATION_ID_A,
+          seq: 3,
+          sender: 'agent',
+          client_message_id: null,
+          body: createFakeResponderReply({ visitorMessage: { body: 'Hello from visitor' } }).body,
         },
       ],
     );
@@ -509,8 +521,18 @@ test('POST /api/widgets/:publicKey/messages replays the original visitor message
       { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
       { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
     ]);
-    assert.deepEqual(fake.messageSeqLookups, [CONVERSATION_ID_A]);
-    assert.equal(fake.messageInserts.length, 1);
+    assert.deepEqual(fake.messageSeqLookups, [CONVERSATION_ID_A, CONVERSATION_ID_A]);
+    assert.deepEqual(
+      fake.messageInserts.map((values) => ({ sender: values.sender, seq: values.seq, body: values.body })),
+      [
+        { sender: 'visitor', seq: 1, body: 'Hello from visitor' },
+        {
+          sender: 'agent',
+          seq: 2,
+          body: createFakeResponderReply({ visitorMessage: { body: 'Hello from visitor' } }).body,
+        },
+      ],
+    );
   } finally {
     await app.close();
   }
@@ -569,8 +591,48 @@ test('POST /api/widgets/:publicKey/messages scopes duplicate client ids to a con
       { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
       { conversationId: CONVERSATION_ID_B, clientMessageId: 'client-message-1' },
     ]);
-    assert.deepEqual(fake.messageSeqLookups, [CONVERSATION_ID_A, CONVERSATION_ID_B]);
-    assert.equal(fake.messageInserts.length, 2);
+    assert.deepEqual(fake.messageSeqLookups, [
+      CONVERSATION_ID_A,
+      CONVERSATION_ID_A,
+      CONVERSATION_ID_B,
+      CONVERSATION_ID_B,
+    ]);
+    assert.deepEqual(
+      fake.messageInserts.map((values) => ({
+        conversation_id: values.conversation_id,
+        seq: values.seq,
+        sender: values.sender,
+        body: values.body,
+      })),
+      [
+        {
+          conversation_id: CONVERSATION_ID_A,
+          seq: 1,
+          sender: 'visitor',
+          body: 'Hello from visitor',
+        },
+        {
+          conversation_id: CONVERSATION_ID_A,
+          seq: 2,
+          sender: 'agent',
+          body: createFakeResponderReply({ visitorMessage: { body: 'Hello from visitor' } }).body,
+        },
+        {
+          conversation_id: CONVERSATION_ID_B,
+          seq: 1,
+          sender: 'visitor',
+          body: 'Same client id in another conversation',
+        },
+        {
+          conversation_id: CONVERSATION_ID_B,
+          seq: 2,
+          sender: 'agent',
+          body: createFakeResponderReply({
+            visitorMessage: { body: 'Same client id in another conversation' },
+          }).body,
+        },
+      ],
+    );
   } finally {
     await app.close();
   }
@@ -970,15 +1032,18 @@ test('findConversationForVisitorMessage distinguishes open, closed, and wrong-ow
   }), { status: 'not_found' });
 });
 
-test('visitor message route has no fake reply, streaming, Gateway, or UI behavior', () => {
+test('visitor message route uses the fake responder without streaming, Gateway, or UI behavior', () => {
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages/);
   assert.match(visitorMessageSource, /app\.get/);
+  assert.match(visitorMessageSource, /createFakeResponderReply/);
+  assert.match(visitorMessageSource, /insertVisitorConversationMessage/);
   assert.match(visitorMessageSource, /insertConversationMessage/);
+  assert.match(visitorMessageSource, /sender: 'agent'/);
   assert.match(visitorMessageSource, /readMessagesForConversation/);
   assert.match(visitorMessageSource, /clientMessageId/);
   assert.doesNotMatch(
     visitorMessageSource,
-    /assistant|agent|system|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|fake/i,
+    /sender: 'system'|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|setInterval/i,
   );
 });
 

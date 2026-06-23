@@ -6,6 +6,7 @@ import type { DatabaseClient, MessageSender } from './db.ts';
 import {
   getNextMessageSeq,
   insertConversationMessage,
+  insertVisitorConversationMessage,
   readMessagesForConversation,
 } from './message.ts';
 
@@ -352,6 +353,52 @@ test('insertConversationMessage keeps visitor client message ids scoped to a con
   assert.equal(fake.messageInserts.length, 1);
 });
 
+
+test('insertVisitorConversationMessage reports whether the visitor message was newly inserted', async () => {
+  const fake = createFakeDatabase([
+    messageRow({
+      id: 'message-1',
+      conversationId: 'conversation-a',
+      seq: 1,
+      clientMessageId: 'client-message-1',
+      body: 'Original body',
+    }),
+  ]);
+
+  const replay = await insertVisitorConversationMessage(fake.database, {
+    conversationId: 'conversation-a',
+    sender: 'visitor',
+    clientMessageId: 'client-message-1',
+    body: 'Conflicting retry body',
+  });
+  const inserted = await insertVisitorConversationMessage(fake.database, {
+    conversationId: 'conversation-a',
+    sender: 'visitor',
+    clientMessageId: 'client-message-2',
+    body: 'Fresh visitor message',
+    now: SECOND_CREATED_AT,
+  });
+
+  assert.equal(replay.inserted, false);
+  assert.equal(replay.message.body, 'Original body');
+  assert.equal(inserted.inserted, true);
+  assert.deepEqual(inserted.message, {
+    id: 'message-2',
+    conversationId: 'conversation-a',
+    seq: 2,
+    sender: 'visitor',
+    clientMessageId: 'client-message-2',
+    body: 'Fresh visitor message',
+    createdAt: SECOND_CREATED_AT,
+  });
+  assert.deepEqual(fake.messageClientMessageLookups, [
+    { conversationId: 'conversation-a', clientMessageId: 'client-message-1' },
+    { conversationId: 'conversation-a', clientMessageId: 'client-message-2' },
+  ]);
+  assert.deepEqual(fake.messageSelects, [{ conversationId: 'conversation-a', order: 'desc', limit: 1 }]);
+  assert.equal(fake.messageInserts.length, 1);
+});
+
 test('readMessagesForConversation returns messages in deterministic seq order', async () => {
   const fake = createFakeDatabase([
     messageRow({ id: 'message-3', conversationId: 'conversation-a', seq: 3, body: 'Third' }),
@@ -395,6 +442,7 @@ test('readMessagesForConversation can return only messages after a seq', async (
 test('message seam has no HTTP route, onConflict, streaming, fake reply, or UI behavior', () => {
   assert.match(messageSource, /selectFrom\('messages'\)/);
   assert.match(messageSource, /insertInto\('messages'\)/);
+  assert.match(messageSource, /insertVisitorConversationMessage/);
   assert.match(messageSource, /where\('client_message_id', '=', input\.clientMessageId\)/);
   assert.match(messageSource, /where\('seq', '>', options\.afterSeq\)/);
   assert.match(messageSource, /orderBy\('seq', 'asc'\)/);

@@ -5,8 +5,10 @@ import {
   type ConversationErrorResponse,
 } from './conversation.ts';
 import type { ConversationStatus, DatabaseClient } from './db.ts';
+import { createFakeResponderReply } from './fake-responder.ts';
 import {
   insertConversationMessage,
+  insertVisitorConversationMessage,
   readMessagesForConversation,
   type ConversationMessage,
 } from './message.ts';
@@ -149,14 +151,24 @@ export function registerVisitorMessageRoutes(app: FastifyInstance, options: Visi
       return reply.status(409).send({ error: 'conversation_closed' });
     }
 
-    const message = await insertConversationMessage(options.database, {
+    const messageResult = await insertVisitorConversationMessage(options.database, {
       conversationId: conversation.conversationId,
       sender: 'visitor',
       clientMessageId: messageRequest.request.clientMessageId,
       body: messageRequest.request.body,
     });
 
-    return reply.send({ message });
+    if (messageResult.inserted) {
+      const fakeReply = createFakeResponderReply({ visitorMessage: { body: messageResult.message.body } });
+
+      await insertConversationMessage(options.database, {
+        conversationId: conversation.conversationId,
+        sender: 'agent',
+        body: fakeReply.body,
+      });
+    }
+
+    return reply.send({ message: messageResult.message });
   });
 
   app.get<VisitorMessageListRoute>('/api/widgets/:publicKey/messages', async (request, reply) => {
