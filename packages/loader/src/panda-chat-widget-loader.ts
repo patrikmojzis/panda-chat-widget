@@ -31,7 +31,14 @@
   const LAUNCHER_CONTAINER_ID = 'panda-chat-widget-launcher';
   const LAUNCHER_CONTAINER_CLASS = 'panda-chat-widget-launcher-container';
   const LAUNCHER_BUTTON_CLASS = 'panda-chat-widget-launcher-button';
+  const PANEL_ID = 'panda-chat-widget-panel';
+  const PANEL_CLASS = 'panda-chat-widget-panel';
+  const PANEL_PLACEHOLDER_CLASS = 'panda-chat-widget-panel-placeholder';
+  const PANEL_CLOSE_BUTTON_CLASS = 'panda-chat-widget-panel-close';
   const LAUNCHER_LABEL = 'Chat';
+  const PANEL_LABEL = 'Chat widget shell';
+  const PANEL_PLACEHOLDER_TEXT = 'Chat widget shell placeholder';
+  const CLOSE_LABEL = 'Close chat';
 
   function normalizeConfigValue(value: string | null | undefined): string | undefined {
     const trimmedValue = value?.trim();
@@ -117,7 +124,40 @@
   right: 20px;
   bottom: 20px;
   z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLASS} {
+  width: 320px;
+  min-height: 160px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 16px;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  padding: 16px;
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLASS}[hidden] {
+  display: none;
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_PLACEHOLDER_CLASS} {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS} {
+  appearance: none;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 9999px;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
 }
 #${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS} {
   appearance: none;
@@ -159,13 +199,52 @@
     containerElement.id = LAUNCHER_CONTAINER_ID;
     containerElement.className = LAUNCHER_CONTAINER_CLASS;
 
+    const panelElement = hostDocument.createElement('div');
+    panelElement.id = PANEL_ID;
+    panelElement.className = PANEL_CLASS;
+    panelElement.hidden = true;
+    panelElement.setAttribute('role', 'dialog');
+    panelElement.setAttribute('aria-label', PANEL_LABEL);
+
+    const panelPlaceholderElement = hostDocument.createElement('div');
+    panelPlaceholderElement.className = PANEL_PLACEHOLDER_CLASS;
+    panelPlaceholderElement.textContent = PANEL_PLACEHOLDER_TEXT;
+
+    const closeButtonElement = hostDocument.createElement('button');
+    closeButtonElement.className = PANEL_CLOSE_BUTTON_CLASS;
+    closeButtonElement.textContent = 'Close';
+    closeButtonElement.setAttribute('type', 'button');
+    closeButtonElement.setAttribute('aria-label', CLOSE_LABEL);
+
     const buttonElement = hostDocument.createElement('button');
     buttonElement.className = LAUNCHER_BUTTON_CLASS;
     buttonElement.textContent = LAUNCHER_LABEL;
     buttonElement.setAttribute('type', 'button');
     buttonElement.setAttribute('aria-label', LAUNCHER_LABEL);
+    buttonElement.setAttribute('aria-controls', PANEL_ID);
 
+    let isOpen = false;
+
+    function setOpen(nextIsOpen: boolean): void {
+      isOpen = nextIsOpen;
+      panelElement.hidden = !isOpen;
+      containerElement.setAttribute('data-state', isOpen ? 'open' : 'closed');
+      buttonElement.setAttribute('aria-expanded', String(isOpen));
+    }
+
+    buttonElement.addEventListener('click', () => {
+      setOpen(!isOpen);
+    });
+
+    closeButtonElement.addEventListener('click', () => {
+      setOpen(false);
+    });
+
+    panelElement.appendChild(panelPlaceholderElement);
+    panelElement.appendChild(closeButtonElement);
+    containerElement.appendChild(panelElement);
     containerElement.appendChild(buttonElement);
+    setOpen(false);
     hostDocument.body.appendChild(containerElement);
   }
 

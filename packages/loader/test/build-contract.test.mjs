@@ -18,16 +18,29 @@ class FakeElement {
   attributes = {};
   children = [];
   className = '';
+  hidden = false;
   id = '';
+  listeners = {};
   textContent = '';
 
   constructor(tagName) {
     this.tagName = tagName;
   }
 
+  addEventListener(type, listener) {
+    this.listeners[type] = this.listeners[type] ?? [];
+    this.listeners[type].push(listener);
+  }
+
   appendChild(child) {
     this.children.push(child);
     return child;
+  }
+
+  click() {
+    for (const listener of this.listeners.click ?? []) {
+      listener({ currentTarget: this, type: 'click' });
+    }
   }
 
   getAttribute(name) {
@@ -84,6 +97,7 @@ function snapshotElement(element) {
     tagName: element.tagName,
     id: element.id,
     className: element.className,
+    hidden: element.hidden,
     textContent: element.textContent,
     attributes: element.attributes,
     children: element.children.map(snapshotElement),
@@ -122,15 +136,18 @@ test('loader package builds one browser script artifact from the TypeScript entr
   assert.equal(buildConfig.compilerOptions.outDir, './dist');
 });
 
-test('loader entry reads config and only creates launcher DOM', () => {
+test('loader entry reads config and only creates launcher shell DOM', () => {
   assert.match(source, /resolveLoaderConfig/);
   assert.match(source, /mountLauncher/);
+  assert.match(source, /setOpen/);
+  assert.match(source, /aria-expanded/);
   assert.match(source, /panda-chat-widget-launcher/);
   assert.match(source, /panda-chat-widget-launcher-button/);
+  assert.match(source, /panda-chat-widget-panel/);
   assert.match(source, /data-site-key/);
   assert.match(source, /PandaChatWidgetConfig/);
   assert.match(source, /PandaChatWidgetLoader/);
-  assert.doesNotMatch(source, /iframe|fetch\(|addEventListener|onclick|postMessage/);
+  assert.doesNotMatch(source, /iframe|fetch\(|onclick|postMessage/);
 });
 
 test('loader resolves a site key from current script data attributes', () => {
@@ -181,15 +198,55 @@ test('loader mounts one fixed bottom-right launcher for configured widgets', () 
     tagName: 'div',
     id: 'panda-chat-widget-launcher',
     className: 'panda-chat-widget-launcher-container',
+    hidden: false,
     textContent: '',
-    attributes: {},
+    attributes: {
+      'data-state': 'closed',
+    },
     children: [
+      {
+        tagName: 'div',
+        id: 'panda-chat-widget-panel',
+        className: 'panda-chat-widget-panel',
+        hidden: true,
+        textContent: '',
+        attributes: {
+          'aria-label': 'Chat widget shell',
+          role: 'dialog',
+        },
+        children: [
+          {
+            tagName: 'div',
+            id: '',
+            className: 'panda-chat-widget-panel-placeholder',
+            hidden: false,
+            textContent: 'Chat widget shell placeholder',
+            attributes: {},
+            children: [],
+          },
+          {
+            tagName: 'button',
+            id: '',
+            className: 'panda-chat-widget-panel-close',
+            hidden: false,
+            textContent: 'Close',
+            attributes: {
+              'aria-label': 'Close chat',
+              type: 'button',
+            },
+            children: [],
+          },
+        ],
+      },
       {
         tagName: 'button',
         id: '',
         className: 'panda-chat-widget-launcher-button',
+        hidden: false,
         textContent: 'Chat',
         attributes: {
+          'aria-controls': 'panda-chat-widget-panel',
+          'aria-expanded': 'false',
           'aria-label': 'Chat',
           type: 'button',
         },
@@ -199,4 +256,45 @@ test('loader mounts one fixed bottom-right launcher for configured widgets', () 
   });
   assert.deepEqual(document.head.children.map((element) => element.id), ['panda-chat-widget-loader-styles']);
   assert.deepEqual(document.body.children.map((element) => element.id), ['panda-chat-widget-launcher']);
+});
+
+test('loader toggles the launcher panel open and closed', () => {
+  const { document } = runLoader({ attributes: { 'data-site-key': 'demo-local-widget' } });
+  const containerElement = document.getElementById('panda-chat-widget-launcher');
+  const panelElement = document.getElementById('panda-chat-widget-panel');
+  const launcherButton = containerElement.children[1];
+
+  assert.equal(containerElement.attributes['data-state'], 'closed');
+  assert.equal(panelElement.hidden, true);
+  assert.equal(launcherButton.attributes['aria-expanded'], 'false');
+
+  launcherButton.click();
+
+  assert.equal(containerElement.attributes['data-state'], 'open');
+  assert.equal(panelElement.hidden, false);
+  assert.equal(launcherButton.attributes['aria-expanded'], 'true');
+
+  launcherButton.click();
+
+  assert.equal(containerElement.attributes['data-state'], 'closed');
+  assert.equal(panelElement.hidden, true);
+  assert.equal(launcherButton.attributes['aria-expanded'], 'false');
+});
+
+test('loader panel close button returns the launcher to closed state', () => {
+  const { document } = runLoader({ attributes: { 'data-site-key': 'demo-local-widget' } });
+  const containerElement = document.getElementById('panda-chat-widget-launcher');
+  const panelElement = document.getElementById('panda-chat-widget-panel');
+  const closeButton = panelElement.children[1];
+  const launcherButton = containerElement.children[1];
+
+  launcherButton.click();
+  assert.equal(containerElement.attributes['data-state'], 'open');
+  assert.equal(panelElement.hidden, false);
+
+  closeButton.click();
+
+  assert.equal(containerElement.attributes['data-state'], 'closed');
+  assert.equal(panelElement.hidden, true);
+  assert.equal(launcherButton.attributes['aria-expanded'], 'false');
 });
