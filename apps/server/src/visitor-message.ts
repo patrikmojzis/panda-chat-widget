@@ -6,6 +6,7 @@ import {
 } from './conversation.ts';
 import type { ConversationStatus, DatabaseClient } from './db.ts';
 import { createFakeResponderReply } from './fake-responder.ts';
+import type { ConversationMessageEventEmitter } from './message-events.ts';
 import {
   insertConversationMessage,
   insertVisitorConversationMessage,
@@ -18,6 +19,7 @@ import { findWidgetByPublicKey } from './widget-lookup.ts';
 
 export type VisitorMessageRouteOptions = {
   database: DatabaseClient;
+  messageEvents: ConversationMessageEventEmitter;
 };
 
 export type VisitorMessageCreateRequest = {
@@ -168,12 +170,14 @@ export function registerVisitorMessageRoutes(app: FastifyInstance, options: Visi
 
     if (messageResult.inserted) {
       const fakeReply = createFakeResponderReply({ visitorMessage: { body: messageResult.message.body } });
-
-      await insertConversationMessage(options.database, {
+      const fakeReplyMessage = await insertConversationMessage(options.database, {
         conversationId: conversation.conversationId,
         sender: 'agent',
         body: fakeReply.body,
       });
+
+      options.messageEvents.emit(messageResult.message);
+      options.messageEvents.emit(fakeReplyMessage);
     }
 
     return reply.send({ message: messageResult.message });

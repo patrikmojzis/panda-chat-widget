@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { buildApp } from './app.ts';
 import { createFakeResponderReply } from './fake-responder.ts';
+import { createConversationMessageEventEmitter } from './message-events.ts';
 import type { ConversationStatus, DatabaseClient, MessageSender } from './db.ts';
 import type { AllowedDomainRecord } from './origin-domain.ts';
 import { DEMO_SEED_DATA } from './seed-data.ts';
@@ -420,7 +421,18 @@ test('POST /api/widgets/:publicKey/messages stores a visitor message then a fake
       }),
     ],
   });
-  const app = buildApp({ database: fake.database });
+  const messageEvents = createConversationMessageEventEmitter();
+  const emittedMessages: Array<{ event: string; seq: number; sender: string; clientMessageId: string | null; body: string }> = [];
+  const subscription = messageEvents.subscribe(CONVERSATION_ID_A, (event) => {
+    emittedMessages.push({
+      event: event.event,
+      seq: event.message.seq,
+      sender: event.message.sender,
+      clientMessageId: event.message.clientMessageId,
+      body: event.message.body,
+    });
+  });
+  const app = buildApp({ database: fake.database, messageEvents });
 
   try {
     const response = await app.inject({
@@ -485,7 +497,24 @@ test('POST /api/widgets/:publicKey/messages stores a visitor message then a fake
         },
       ],
     );
+    assert.deepEqual(emittedMessages, [
+      {
+        event: 'message',
+        seq: 2,
+        sender: 'visitor',
+        clientMessageId: 'client-message-1',
+        body: 'Hello from visitor',
+      },
+      {
+        event: 'message',
+        seq: 3,
+        sender: 'agent',
+        clientMessageId: null,
+        body: createFakeResponderReply({ visitorMessage: { body: 'Hello from visitor' } }).body,
+      },
+    ]);
   } finally {
+    subscription.close();
     await app.close();
   }
 });
@@ -1314,11 +1343,12 @@ test('findConversationForVisitorMessage distinguishes open, closed, and wrong-ow
   }), { status: 'not_found' });
 });
 
-test('visitor message route has finite SSE shape without live broadcaster, Gateway, or UI behavior', () => {
+test('visitor message route has finite SSE shape and local event emission without Gateway or UI behavior', () => {
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages/);
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages\/events/);
   assert.match(visitorMessageSource, /text\/event-stream/);
   assert.match(visitorMessageSource, /serializeVisitorMessageEvents/);
+  assert.match(visitorMessageSource, /messageEvents\.emit/);
   assert.match(visitorMessageSource, /createFakeResponderReply/);
   assert.match(visitorMessageSource, /insertVisitorConversationMessage/);
   assert.match(visitorMessageSource, /insertConversationMessage/);
@@ -1327,7 +1357,7 @@ test('visitor message route has finite SSE shape without live broadcaster, Gatew
   assert.match(visitorMessageSource, /clientMessageId/);
   assert.doesNotMatch(
     visitorMessageSource,
-    /sender: 'system'|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|setInterval|broadcast|subscribe|queue/i,
+    /sender: 'system'|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|setInterval|durable|queue/i,
   );
 });
 
