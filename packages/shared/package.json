@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "echo \"TODO: dev command not implemented yet for shared API/theme types package\"",
     "build": "echo \"TODO: build command not implemented yet for shared API/theme types package\"",
-    "test": "echo \"TODO: tests not implemented yet for shared API/theme types package\"",
+    "test": "node --test \"test/**/*.test.mjs\"",
     "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add shared TypeScript sources\"; fi'",
     "lint": "echo \"TODO: lint command not implemented yet for shared API/theme types package\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
