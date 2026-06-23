@@ -105,6 +105,14 @@ Start Postgres from the repository root:
 docker compose up -d postgres
 ```
 
+Run migrations explicitly after Postgres is reachable:
+
+```sh
+pnpm --filter @panda-chat-widget/server db:migrate
+```
+
+The migration runner currently has no product table migrations; with a live database it only uses Kysely migration metadata. Server startup does not run migrations automatically.
+
 Stop it without deleting data:
 
 ```sh

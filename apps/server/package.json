@@ -8,7 +8,8 @@
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add server TypeScript sources\"; fi'",
     "lint": "echo \"TODO: lint command not implemented yet for server API/DB/SSE service\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "db:migrate": "node src/migrate.ts"
   },
   "description": "Owns the future API, database, and SSE service for the chat widget.",
   "dependencies": {
