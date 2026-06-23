@@ -38,3 +38,10 @@ body {
 .widget-shell p {
   margin: 0;
 }
+
+
+.widget-shell code {
+  background: #e2e8f0;
+  border-radius: 6px;
+  padding: 2px 6px;
+}
