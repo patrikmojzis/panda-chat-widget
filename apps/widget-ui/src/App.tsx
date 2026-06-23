@@ -91,20 +91,37 @@ type BootstrapPlaceholderProps = {
   bootstrapBaseHref: string;
 };
 
+type WidgetStateMessageProps = {
+  tone: 'loading' | 'empty' | 'error';
+  title: string;
+  body: string;
+  role?: 'status' | 'alert';
+};
+
 function BootstrapPlaceholder({ state, bootstrapBaseHref }: BootstrapPlaceholderProps) {
   if (state.status === 'missing_key') {
-    return <p>Missing widget key. Add a non-empty publicKey query parameter to configure this placeholder.</p>;
+    return <WidgetStateMessage tone="error" title="Chat is not ready" body="Please try again later." role="alert" />;
   }
 
   if (state.status === 'loading') {
-    return <p>Loading widget configuration…</p>;
+    return <WidgetStateMessage tone="loading" title="Loading chat…" body="This should only take a moment." />;
   }
 
   if (state.status === 'error') {
-    return <p>Widget configuration could not be loaded. The widget is unavailable for this site.</p>;
+    return <WidgetStateMessage tone="error" title="Chat is unavailable" body="Please try again later." role="alert" />;
   }
 
   return <WelcomeState bootstrap={state.bootstrap} bootstrapBaseHref={bootstrapBaseHref} />;
+}
+
+function WidgetStateMessage({ tone, title, body, role = 'status' }: WidgetStateMessageProps) {
+  return (
+    <section className={`widget-state widget-state--${tone}`} role={role} aria-live={role === 'alert' ? 'assertive' : 'polite'}>
+      <span className="widget-state__icon" aria-hidden="true" />
+      <h2>{title}</h2>
+      <p>{body}</p>
+    </section>
+  );
 }
 
 type WelcomeStateProps = {
@@ -232,11 +249,11 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   }
 
   if (chatState.status === 'loading') {
-    return <p className="widget-welcome__empty">Starting chat…</p>;
+    return <WidgetStateMessage tone="loading" title="Starting chat…" body="Connecting you now." />;
   }
 
   if (chatState.status === 'error') {
-    return <p className="widget-welcome__empty">Chat could not be started. Please try again later.</p>;
+    return <WidgetStateMessage tone="error" title="Chat couldn’t start" body="Please refresh or try again later." role="alert" />;
   }
 
   const isSending = chatState.sendStatus === 'sending';
@@ -244,7 +261,7 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   const composerStatus = isSending
     ? 'Sending your message…'
     : chatState.sendStatus === 'error'
-      ? 'Message could not be sent. Try again.'
+      ? 'Couldn’t send. Try again.'
       : 'Press Enter to send.';
   const composerStatusRole = chatState.sendStatus === 'error' ? 'alert' : 'status';
 
@@ -252,7 +269,7 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     <div className="widget-chat" aria-label={`${assistantName} conversation`}>
       <div className="widget-chat__messages" aria-live="polite">
         {chatState.messageState.messages.length === 0 ? (
-          <p className="widget-chat__empty">Send a message to start the conversation.</p>
+          <WidgetStateMessage tone="empty" title="No messages yet" body="Send a message below to start the conversation." />
         ) : (
           <ol className="widget-chat__message-list">
             {chatState.messageState.messages.map((message) => (

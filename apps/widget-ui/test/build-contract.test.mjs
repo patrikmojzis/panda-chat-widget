@@ -133,9 +133,9 @@ test('widget UI has a Vite HTML entry and React render root', () => {
 });
 
 test('widget UI renders bootstrap states and a minimal live chat shell', () => {
-  assert.match(appSource, /Loading widget configuration/);
-  assert.match(appSource, /Missing widget key/);
-  assert.match(appSource, /Widget configuration could not be loaded/);
+  assert.match(appSource, /Loading chat/);
+  assert.match(appSource, /Chat is not ready/);
+  assert.match(appSource, /Chat is unavailable/);
   assert.match(appSource, /data-state=\{bootstrapState\.status\}/);
   assert.match(appSource, /getOrCreateWidgetVisitorKey/);
   assert.match(appSource, /createWidgetVisitorSession/);
@@ -144,7 +144,7 @@ test('widget UI renders bootstrap states and a minimal live chat shell', () => {
   assert.match(appSource, /subscribeToWidgetMessages/);
   assert.match(appSource, /sendWidgetMessage/);
   assert.match(appSource, /Starting chat/);
-  assert.match(appSource, /Send a message to start the conversation/);
+  assert.match(appSource, /No messages yet/);
   assert.match(stylesSource, /\.widget-shell/);
   assert.match(viteEnvSource, /vite\/client/);
   assert.doesNotMatch(`${mainSource}
@@ -169,9 +169,28 @@ test('widget UI shell sizing stays inside iframe bounds responsively', () => {
   assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
 });
 
+test('widget state copy is friendly, compact, and avoids runtime jargon', () => {
+  assert.match(appSource, /type WidgetStateMessageProps = \{[\s\S]*tone: 'loading' \| 'empty' \| 'error';/);
+  assert.match(appSource, /function WidgetStateMessage\(\{ tone, title, body, role = 'status' \}: WidgetStateMessageProps\)/);
+  assert.match(appSource, /className=\{`widget-state widget-state--\$\{tone\}`\}/);
+  assert.match(appSource, /aria-live=\{role === 'alert' \? 'assertive' : 'polite'\}/);
+  assert.match(appSource, /title="Loading chat…" body="This should only take a moment\."/);
+  assert.match(appSource, /title="Starting chat…" body="Connecting you now\."/);
+  assert.match(appSource, /title="No messages yet" body="Send a message below to start the conversation\."/);
+  assert.match(appSource, /title="Chat couldn’t start" body="Please refresh or try again later\." role="alert"/);
+  assert.match(appSource, /title="Chat is unavailable" body="Please try again later\." role="alert"/);
+  assert.match(stylesSource, /\.widget-state \{[\s\S]*max-width: 336px;[\s\S]*min-height: 148px;[\s\S]*text-align: center;/);
+  assert.match(stylesSource, /\.widget-state__icon \{[\s\S]*border-radius: 999px;[\s\S]*background: #2563eb;/);
+  assert.match(stylesSource, /\.widget-state--empty \{[\s\S]*border-style: dashed;/);
+  assert.match(stylesSource, /\.widget-state--error \{[\s\S]*border-color: #fecaca;[\s\S]*background: #fef2f2;/);
+  assert.doesNotMatch(appSource, /Loading widget configuration|Missing widget key|Widget configuration|publicKey query parameter|Gateway|backend|runtime/);
+  assert.doesNotMatch(`${appSource}
+${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
+});
+
 test('chat panel message layout keeps messages scrollable and wrapped', () => {
   assert.match(appSource, /className="widget-chat__messages" aria-live="polite"/);
-  assert.match(appSource, /className="widget-chat__empty"/);
+  assert.match(appSource, /<WidgetStateMessage tone="empty" title="No messages yet"/);
   assert.match(appSource, /className="widget-chat__message-list"/);
   assert.match(appSource, /data-sender=\{message\.sender\}/);
   assert.match(stylesSource, /\.widget-chat \{[\s\S]*min-height: 0;[\s\S]*grid-template-rows: minmax\(0, 1fr\) auto;/);
@@ -191,7 +210,7 @@ test('composer interaction exposes form submit affordance and accessible states'
   assert.match(appSource, /const canSend = !isSending && draftMessage\.trim\(\)\.length > 0;/);
   assert.match(appSource, /Press Enter to send\./);
   assert.match(appSource, /Sending your message/);
-  assert.match(appSource, /Message could not be sent\. Try again\./);
+  assert.match(appSource, /Couldn’t send\. Try again\./);
   assert.match(appSource, /<form[\s\S]*className="widget-chat__composer"[\s\S]*onSubmit=\{handleSubmit\}[\s\S]*data-send-status=\{chatState\.sendStatus\}[\s\S]*aria-busy=\{isSending\}/);
   assert.match(appSource, /htmlFor="widget-chat-message-input"/);
   assert.match(appSource, /id="widget-chat-message-input"/);
