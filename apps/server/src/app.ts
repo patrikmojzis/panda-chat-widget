@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
+import { registerConversationRoutes } from './conversation.ts';
 import type { DatabaseClient } from './db.ts';
 import { registerHealthRoutes } from './health.ts';
 import { registerVisitorSessionRoutes } from './visitor-session.ts';
@@ -18,6 +19,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   if (database) {
     registerWidgetBootstrapRoutes(app, { database });
     registerVisitorSessionRoutes(app, { database });
+    registerConversationRoutes(app, { database });
   }
 
   return app;
