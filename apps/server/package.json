@@ -12,7 +12,12 @@
   },
   "description": "Owns the future API, database, and SSE service for the chat widget.",
   "dependencies": {
-    "fastify": "^5.8.5"
+    "fastify": "^5.8.5",
+    "kysely": "^0.29.2",
+    "pg": "^8.22.0"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
+  }
 }

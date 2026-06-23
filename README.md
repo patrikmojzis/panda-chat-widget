@@ -84,19 +84,20 @@ Expected response:
 
 Stop the dev server with `Ctrl-C`.
 
-Server env knobs:
+Server package env knobs:
 
 | Env | Default | Notes |
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Must be non-empty. |
 | `PORT` | `3000` | Must be an integer from `1` to `65535`. |
 | `SERVER_LOGGER` | `true` | Accepts `true`, `false`, `1`, or `0`. Use `false` for quieter local smoke runs. |
+| `DATABASE_URL` | `postgresql://panda_chat_widget:panda_chat_widget@127.0.0.1:5432/panda_chat_widget` | Parsed for future DB callers; the server does not connect to it on startup yet. |
 
 There is no production `start`/build artifact yet. Use `pnpm --filter @panda-chat-widget/server dev` for the current local server and `pnpm check` for validation.
 
 ## Local Postgres runbook
 
-The repository includes a local-only Postgres compose service for future DB slices. The server does not connect to it yet.
+The repository includes a local-only Postgres compose service for future DB slices. `DATABASE_URL` defaults to this local service, but the server does not connect to it yet.
 
 Start Postgres from the repository root:
 

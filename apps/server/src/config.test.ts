@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { loadConfig } from './config.ts';
+import { DEFAULT_DATABASE_URL, loadConfig, loadDatabaseConfig } from './config.ts';
 
 function env(values: Record<string, string | undefined>): NodeJS.ProcessEnv {
   return values;
@@ -58,4 +58,31 @@ test('loadConfig rejects invalid SERVER_LOGGER values', () => {
     () => loadConfig(env({ SERVER_LOGGER: 'sometimes' })),
     /Invalid SERVER_LOGGER: expected true, false, 1, or 0/,
   );
+});
+
+test('loadDatabaseConfig uses the local Postgres default', () => {
+  assert.deepEqual(loadDatabaseConfig(env({})), {
+    url: DEFAULT_DATABASE_URL,
+  });
+});
+
+test('loadDatabaseConfig parses DATABASE_URL overrides', () => {
+  assert.deepEqual(loadDatabaseConfig(env({ DATABASE_URL: ' postgresql://user:pass@db.example.test:5432/widget ' })), {
+    url: 'postgresql://user:pass@db.example.test:5432/widget',
+  });
+});
+
+test('loadDatabaseConfig accepts postgres URL aliases', () => {
+  assert.deepEqual(loadDatabaseConfig(env({ DATABASE_URL: 'postgres://user:pass@localhost:5432/widget' })), {
+    url: 'postgres://user:pass@localhost:5432/widget',
+  });
+});
+
+test('loadDatabaseConfig rejects invalid DATABASE_URL values', () => {
+  for (const databaseUrl of ['', ' ', 'not a url', 'http://localhost:5432/widget']) {
+    assert.throws(
+      () => loadDatabaseConfig(env({ DATABASE_URL: databaseUrl })),
+      /Invalid DATABASE_URL: expected a postgres:\/\/ or postgresql:\/\/ URL/,
+    );
+  }
 });
