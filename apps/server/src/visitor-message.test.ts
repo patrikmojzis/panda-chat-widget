@@ -804,6 +804,205 @@ test('GET /api/widgets/:publicKey/messages filters messages after seq', async ()
   }
 });
 
+
+test('GET /api/widgets/:publicKey/messages/events returns missed messages as SSE', async () => {
+  const fake = createEnabledFakeDatabase({
+    messages: [
+      messageRow({ id: 'message-3', conversationId: CONVERSATION_ID_A, seq: 3, body: 'Follow-up' }),
+      messageRow({ id: 'other-message-1', conversationId: CONVERSATION_ID_B, seq: 1, body: 'Other' }),
+      messageRow({ id: 'message-1', conversationId: CONVERSATION_ID_A, seq: 1, body: 'Already read' }),
+      messageRow({ id: 'message-2', conversationId: CONVERSATION_ID_A, seq: 2, sender: 'agent', body: 'Fake reply' }),
+    ],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `${messageEventsUrl()}&afterSeq=1`,
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(String(response.headers['content-type']), /^text\/event-stream/);
+    assert.equal(response.headers['cache-control'], 'no-cache, no-transform');
+    assert.equal(response.headers.connection, 'keep-alive');
+    assert.deepEqual(
+      parseServerSentEvents(response.body).map((event) => {
+        const data = event.data as { message: { seq: number; sender: string; body: string } };
+
+        return {
+          event: event.event,
+          seq: data.message.seq,
+          sender: data.message.sender,
+          body: data.message.body,
+        };
+      }),
+      [
+        { event: 'message', seq: 2, sender: 'agent', body: 'Fake reply' },
+        { event: 'message', seq: 3, sender: 'visitor', body: 'Follow-up' },
+      ],
+    );
+    assert.deepEqual(fake.messageReadLookups, [{ conversationId: CONVERSATION_ID_A, afterSeq: 1 }]);
+    assert.deepEqual(fake.messageInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages/events returns a ready event when no messages are missed', async () => {
+  const fake = createEnabledFakeDatabase({
+    messages: [messageRow({ id: 'message-1', conversationId: CONVERSATION_ID_A, seq: 1, body: 'Already read' })],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `${messageEventsUrl()}&afterSeq=1`,
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(String(response.headers['content-type']), /^text\/event-stream/);
+    assert.deepEqual(parseServerSentEvents(response.body), [{ event: 'ready', data: {} }]);
+    assert.deepEqual(fake.messageReadLookups, [{ conversationId: CONVERSATION_ID_A, afterSeq: 1 }]);
+    assert.deepEqual(fake.messageInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages/events rejects missing or invalid query before lookup', async () => {
+  const cases = [
+    [`/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages/events?conversationId=${CONVERSATION_ID_A}`, 'missing_visitor_session_id'],
+    [
+      `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages/events?visitorSessionId=${VISITOR_SESSION_ID_A}&conversationId=`,
+      'missing_conversation_id',
+    ],
+    [`${messageEventsUrl()}&afterSeq=-1`, 'invalid_after_seq'],
+    [`${messageEventsUrl()}&afterSeq=1.5`, 'invalid_after_seq'],
+    [`${messageEventsUrl()}&afterSeq=abc`, 'invalid_after_seq'],
+  ] as const;
+
+  for (const [url, reason] of cases) {
+    const fake = createEnabledFakeDatabase();
+    const app = buildApp({ database: fake.database });
+
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url,
+        headers: { origin: 'http://localhost:5173' },
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.deepEqual(response.json(), { error: 'invalid_message_request', reason });
+      assert.deepEqual(fake.publicKeyLookups, []);
+      assert.deepEqual(fake.messageReadLookups, []);
+      assert.deepEqual(fake.messageInserts, []);
+    } finally {
+      await app.close();
+    }
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages/events rejects visitor sessions outside the widget before streaming', async () => {
+  const fake = createEnabledFakeDatabase({
+    visitorSessions: [{ id: VISITOR_SESSION_ID_A, widget_id: 'other-widget-id' }],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageEventsUrl(),
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(response.json(), { error: 'visitor_session_not_found' });
+    assert.deepEqual(fake.conversationLookups, []);
+    assert.deepEqual(fake.messageReadLookups, []);
+    assert.deepEqual(fake.messageInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages/events rejects conversations outside the visitor session before streaming', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageEventsUrl({ conversationId: CONVERSATION_ID_B }),
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(response.json(), { error: 'conversation_not_found' });
+    assert.deepEqual(fake.conversationLookups, [
+      { id: CONVERSATION_ID_B, widgetId: 'widget-id', visitorSessionId: VISITOR_SESSION_ID_A },
+    ]);
+    assert.deepEqual(fake.messageReadLookups, []);
+    assert.deepEqual(fake.messageInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages/events rejects closed conversations before streaming', async () => {
+  const fake = createEnabledFakeDatabase({
+    conversations: [
+      {
+        id: CONVERSATION_ID_A,
+        widget_id: 'widget-id',
+        visitor_session_id: VISITOR_SESSION_ID_A,
+        status: 'closed',
+      },
+    ],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageEventsUrl(),
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 409);
+    assert.deepEqual(response.json(), { error: 'conversation_closed' });
+    assert.deepEqual(fake.messageReadLookups, []);
+    assert.deepEqual(fake.messageInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages/events rejects disallowed origins before streaming', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageEventsUrl(),
+      headers: { origin: 'https://example.com' },
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.deepEqual(response.json(), { error: 'origin_not_allowed', reason: 'domain_not_allowed' });
+    assert.deepEqual(fake.visitorSessionLookups, []);
+    assert.deepEqual(fake.messageReadLookups, []);
+    assert.deepEqual(fake.messageInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
 test('GET /api/widgets/:publicKey/messages rejects missing or invalid query before lookup', async () => {
   const cases = [
     [`/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages?conversationId=${CONVERSATION_ID_A}`, 'missing_visitor_session_id'],
@@ -1115,9 +1314,11 @@ test('findConversationForVisitorMessage distinguishes open, closed, and wrong-ow
   }), { status: 'not_found' });
 });
 
-test('visitor message route uses the fake responder without streaming, Gateway, or UI behavior', () => {
+test('visitor message route has finite SSE shape without live broadcaster, Gateway, or UI behavior', () => {
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages/);
-  assert.match(visitorMessageSource, /app\.get/);
+  assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages\/events/);
+  assert.match(visitorMessageSource, /text\/event-stream/);
+  assert.match(visitorMessageSource, /serializeVisitorMessageEvents/);
   assert.match(visitorMessageSource, /createFakeResponderReply/);
   assert.match(visitorMessageSource, /insertVisitorConversationMessage/);
   assert.match(visitorMessageSource, /insertConversationMessage/);
@@ -1126,7 +1327,7 @@ test('visitor message route uses the fake responder without streaming, Gateway, 
   assert.match(visitorMessageSource, /clientMessageId/);
   assert.doesNotMatch(
     visitorMessageSource,
-    /sender: 'system'|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|setInterval/i,
+    /sender: 'system'|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|setInterval|broadcast|subscribe|queue/i,
   );
 });
 
@@ -1138,6 +1339,42 @@ function messageListUrl(options: { visitorSessionId?: string; conversationId?: s
 
   return `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages?${query}`;
 }
+
+function messageEventsUrl(options: { visitorSessionId?: string; conversationId?: string } = {}): string {
+  const visitorSessionId = options.visitorSessionId ?? VISITOR_SESSION_ID_A;
+  const conversationId = options.conversationId ?? CONVERSATION_ID_A;
+  const query = new URLSearchParams({ visitorSessionId, conversationId });
+
+  return `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages/events?${query}`;
+}
+
+type ParsedServerSentEvent = {
+  event: string;
+  data: unknown;
+};
+
+function parseServerSentEvents(body: string): ParsedServerSentEvent[] {
+  return body
+    .trim()
+    .split('\n\n')
+    .filter((block) => block.length > 0)
+    .map((block) => {
+      const [eventLine, dataLine] = block.split('\n');
+
+      if (eventLine === undefined || dataLine === undefined) {
+        throw new Error('invalid SSE event block');
+      }
+
+      assert.match(eventLine, /^event: /);
+      assert.match(dataLine, /^data: /);
+
+      return {
+        event: eventLine.slice('event: '.length),
+        data: JSON.parse(dataLine.slice('data: '.length)),
+      };
+    });
+}
+
 
 function validMessagePayload(): Record<string, string> {
   return {

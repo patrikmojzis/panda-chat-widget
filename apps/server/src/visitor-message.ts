@@ -84,6 +84,14 @@ type VisitorMessageListRoute = {
   Reply: VisitorMessageListResponse | VisitorMessageErrorResponse;
 };
 
+type VisitorMessageEventsRoute = {
+  Params: {
+    publicKey: string;
+  };
+  Querystring: unknown;
+  Reply: string | VisitorMessageErrorResponse;
+};
+
 type VisitorMessageRequestValues = Partial<Record<keyof VisitorMessageCreateRequest | 'afterSeq', unknown>>;
 
 type ConversationOwnershipRow = {
@@ -224,6 +232,86 @@ export function registerVisitorMessageRoutes(app: FastifyInstance, options: Visi
 
     return reply.send({ messages });
   });
+
+  app.get<VisitorMessageEventsRoute>('/api/widgets/:publicKey/messages/events', async (request, reply) => {
+    const messageRequest = parseVisitorMessageListQuery(request.query);
+
+    if (messageRequest.status === 'invalid') {
+      return reply.status(400).send({ error: 'invalid_message_request', reason: messageRequest.reason });
+    }
+
+    const widgetLookup = await findWidgetByPublicKey(options.database, request.params.publicKey);
+
+    if (widgetLookup.status === 'not_found') {
+      return reply.status(404).send({ error: 'widget_not_found' });
+    }
+
+    if (widgetLookup.status === 'disabled') {
+      return reply.status(403).send({ error: 'widget_disabled', reason: widgetLookup.reason });
+    }
+
+    const allowedDomains = await loadEnabledAllowedDomains(options.database, widgetLookup.widget.id);
+    const originMatch = matchOriginToAllowedDomains(request.headers.origin, allowedDomains);
+
+    if (!originMatch.allowed) {
+      return reply.status(403).send({ error: 'origin_not_allowed', reason: originMatch.reason });
+    }
+
+    const visitorSession = await findVisitorSessionForWidget(options.database, {
+      widgetId: widgetLookup.widget.id,
+      visitorSessionId: messageRequest.request.visitorSessionId,
+    });
+
+    if (!visitorSession) {
+      return reply.status(404).send({ error: 'visitor_session_not_found' });
+    }
+
+    const conversation = await findConversationForVisitorMessage(options.database, {
+      widgetId: widgetLookup.widget.id,
+      visitorSessionId: visitorSession.visitorSessionId,
+      conversationId: messageRequest.request.conversationId,
+    });
+
+    if (conversation.status === 'not_found') {
+      return reply.status(404).send({ error: 'conversation_not_found' });
+    }
+
+    if (conversation.status === 'closed') {
+      return reply.status(409).send({ error: 'conversation_closed' });
+    }
+
+    const readOptions =
+      messageRequest.request.afterSeq === undefined ? {} : { afterSeq: messageRequest.request.afterSeq };
+    const messages = await readMessagesForConversation(options.database, conversation.conversationId, readOptions);
+
+    return reply
+      .header('content-type', 'text/event-stream; charset=utf-8')
+      .header('cache-control', 'no-cache, no-transform')
+      .header('connection', 'keep-alive')
+      .send(serializeVisitorMessageEvents(messages));
+  });
+}
+
+function serializeVisitorMessageEvents(messages: ConversationMessage[]): string {
+  if (messages.length === 0) {
+    return serializeServerSentEvent({ event: 'ready', data: {} });
+  }
+
+  return messages
+    .map((message) => serializeServerSentEvent({ event: 'message', data: { message } }))
+    .join('');
+}
+
+type ServerSentEventInput = {
+  event: string;
+  data: unknown;
+};
+
+function serializeServerSentEvent(input: ServerSentEventInput): string {
+  return `event: ${input.event}
+data: ${JSON.stringify(input.data)}
+
+`;
 }
 
 export type FindConversationForVisitorMessageInput = {
