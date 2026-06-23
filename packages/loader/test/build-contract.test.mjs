@@ -104,8 +104,12 @@ function snapshotElement(element) {
   };
 }
 
-function runLoader({ attributes = {}, initConfig } = {}) {
-  const windowObject = {};
+function runLoader({
+  attributes = {},
+  initConfig,
+  locationHref = 'https://host.example/support/page?from=test#top',
+} = {}) {
+  const windowObject = { location: { href: locationHref } };
   const documentObject = createFakeDocument(attributes);
 
   if (initConfig !== undefined) {
@@ -116,6 +120,7 @@ function runLoader({ attributes = {}, initConfig } = {}) {
     compiledLoader,
     {
       document: documentObject,
+      URL,
       window: windowObject,
     },
     { timeout: 1000 },
@@ -136,18 +141,22 @@ test('loader package builds one browser script artifact from the TypeScript entr
   assert.equal(buildConfig.compilerOptions.outDir, './dist');
 });
 
-test('loader entry reads config and only creates launcher shell DOM', () => {
+test('loader entry reads config and creates a URL-built iframe shell', () => {
   assert.match(source, /resolveLoaderConfig/);
+  assert.match(source, /buildWidgetIframeUrl/);
+  assert.match(source, /new URL/);
+  assert.match(source, /searchParams\.set\('publicKey'/);
   assert.match(source, /mountLauncher/);
   assert.match(source, /setOpen/);
   assert.match(source, /aria-expanded/);
   assert.match(source, /panda-chat-widget-launcher/);
   assert.match(source, /panda-chat-widget-launcher-button/);
   assert.match(source, /panda-chat-widget-panel/);
+  assert.match(source, /panda-chat-widget-frame/);
   assert.match(source, /data-site-key/);
   assert.match(source, /PandaChatWidgetConfig/);
   assert.match(source, /PandaChatWidgetLoader/);
-  assert.doesNotMatch(source, /iframe|fetch\(|onclick|postMessage/);
+  assert.doesNotMatch(source, /fetch\(|innerHTML|onclick|postMessage/);
 });
 
 test('loader resolves a site key from current script data attributes', () => {
@@ -216,15 +225,6 @@ test('loader mounts one fixed bottom-right launcher for configured widgets', () 
         },
         children: [
           {
-            tagName: 'div',
-            id: '',
-            className: 'panda-chat-widget-panel-placeholder',
-            hidden: false,
-            textContent: 'Chat widget shell placeholder',
-            attributes: {},
-            children: [],
-          },
-          {
             tagName: 'button',
             id: '',
             className: 'panda-chat-widget-panel-close',
@@ -233,6 +233,18 @@ test('loader mounts one fixed bottom-right launcher for configured widgets', () 
             attributes: {
               'aria-label': 'Close chat',
               type: 'button',
+            },
+            children: [],
+          },
+          {
+            tagName: 'iframe',
+            id: '',
+            className: 'panda-chat-widget-frame',
+            hidden: false,
+            textContent: '',
+            attributes: {
+              src: 'https://host.example/widget.html?publicKey=demo-local-widget',
+              title: 'Panda chat widget',
             },
             children: [],
           },
@@ -285,7 +297,7 @@ test('loader panel close button returns the launcher to closed state', () => {
   const { document } = runLoader({ attributes: { 'data-site-key': 'demo-local-widget' } });
   const containerElement = document.getElementById('panda-chat-widget-launcher');
   const panelElement = document.getElementById('panda-chat-widget-panel');
-  const closeButton = panelElement.children[1];
+  const closeButton = panelElement.children[0];
   const launcherButton = containerElement.children[1];
 
   launcherButton.click();
@@ -297,4 +309,21 @@ test('loader panel close button returns the launcher to closed state', () => {
   assert.equal(containerElement.attributes['data-state'], 'closed');
   assert.equal(panelElement.hidden, true);
   assert.equal(launcherButton.attributes['aria-expanded'], 'false');
+});
+
+test('loader iframe URL uses host origin and encodes the public key search param', () => {
+  const publicKey = 'demo key/with?chars';
+  const { document } = runLoader({
+    attributes: { 'data-site-key': publicKey },
+    locationHref: 'https://customer.example/help/articles?utm=keep#section',
+  });
+  const iframeElement = document.getElementById('panda-chat-widget-panel').children[1];
+  const iframeUrl = new URL(iframeElement.attributes.src);
+
+  assert.equal(iframeElement.tagName, 'iframe');
+  assert.equal(iframeElement.attributes.src, 'https://customer.example/widget.html?publicKey=demo+key%2Fwith%3Fchars');
+  assert.equal(iframeUrl.origin, 'https://customer.example');
+  assert.equal(iframeUrl.pathname, '/widget.html');
+  assert.equal(iframeUrl.searchParams.get('publicKey'), publicKey);
+  assert.equal(iframeUrl.searchParams.size, 1);
 });

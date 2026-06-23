@@ -5,11 +5,13 @@
     siteKey?: string | null | undefined;
   };
 
+  type ConfiguredLoaderConfig = {
+    status: 'configured';
+    publicKey: string;
+  };
+
   type LoaderConfigResult =
-    | {
-        status: 'configured';
-        publicKey: string;
-      }
+    | ConfiguredLoaderConfig
     | {
         status: 'missing_key';
       };
@@ -33,11 +35,12 @@
   const LAUNCHER_BUTTON_CLASS = 'panda-chat-widget-launcher-button';
   const PANEL_ID = 'panda-chat-widget-panel';
   const PANEL_CLASS = 'panda-chat-widget-panel';
-  const PANEL_PLACEHOLDER_CLASS = 'panda-chat-widget-panel-placeholder';
   const PANEL_CLOSE_BUTTON_CLASS = 'panda-chat-widget-panel-close';
+  const IFRAME_CLASS = 'panda-chat-widget-frame';
   const LAUNCHER_LABEL = 'Chat';
   const PANEL_LABEL = 'Chat widget shell';
-  const PANEL_PLACEHOLDER_TEXT = 'Chat widget shell placeholder';
+  const IFRAME_TITLE = 'Panda chat widget';
+  const WIDGET_IFRAME_PATH = '/widget.html';
   const CLOSE_LABEL = 'Close chat';
 
   function normalizeConfigValue(value: string | null | undefined): string | undefined {
@@ -64,6 +67,13 @@
     }
 
     return { status: 'configured', publicKey };
+  }
+
+  function buildWidgetIframeUrl(config: ConfiguredLoaderConfig, baseHref: string): string {
+    const iframeUrl = new URL(WIDGET_IFRAME_PATH, baseHref);
+    iframeUrl.searchParams.set('publicKey', config.publicKey);
+
+    return iframeUrl.toString();
   }
 
   function readScriptConfig(script: LoaderScript | null): LoaderConfigInput {
@@ -138,15 +148,20 @@
   background: #ffffff;
   color: #0f172a;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLASS}[hidden] {
   display: none;
 }
-#${LAUNCHER_CONTAINER_ID} .${PANEL_PLACEHOLDER_CLASS} {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 12px;
+#${LAUNCHER_CONTAINER_ID} .${IFRAME_CLASS} {
+  border: 0;
+  display: block;
+  flex: 1 1 auto;
+  min-height: 320px;
+  width: 100%;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS} {
   appearance: none;
@@ -184,7 +199,7 @@
     hostDocument.head.appendChild(styleElement);
   }
 
-  function mountLauncher(hostDocument: Document | null, config: LoaderConfigResult): void {
+  function mountLauncher(hostDocument: Document | null, config: LoaderConfigResult, baseHref: string): void {
     if (!hostDocument || !hostDocument.head || !hostDocument.body || config.status !== 'configured') {
       return;
     }
@@ -206,9 +221,10 @@
     panelElement.setAttribute('role', 'dialog');
     panelElement.setAttribute('aria-label', PANEL_LABEL);
 
-    const panelPlaceholderElement = hostDocument.createElement('div');
-    panelPlaceholderElement.className = PANEL_PLACEHOLDER_CLASS;
-    panelPlaceholderElement.textContent = PANEL_PLACEHOLDER_TEXT;
+    const iframeElement = hostDocument.createElement('iframe');
+    iframeElement.className = IFRAME_CLASS;
+    iframeElement.setAttribute('src', buildWidgetIframeUrl(config, baseHref));
+    iframeElement.setAttribute('title', IFRAME_TITLE);
 
     const closeButtonElement = hostDocument.createElement('button');
     closeButtonElement.className = PANEL_CLOSE_BUTTON_CLASS;
@@ -240,8 +256,8 @@
       setOpen(false);
     });
 
-    panelElement.appendChild(panelPlaceholderElement);
     panelElement.appendChild(closeButtonElement);
+    panelElement.appendChild(iframeElement);
     containerElement.appendChild(panelElement);
     containerElement.appendChild(buttonElement);
     setOpen(false);
@@ -258,5 +274,5 @@
     config,
   };
 
-  mountLauncher(getHostDocument(), config);
+  mountLauncher(getHostDocument(), config, loaderWindow.location.href);
 })();
