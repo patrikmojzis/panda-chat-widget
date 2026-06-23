@@ -241,18 +241,20 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
 
   return (
     <div className="widget-chat" aria-label={`${assistantName} conversation`}>
-      {chatState.messageState.messages.length === 0 ? (
-        <p className="widget-welcome__empty">Send a message to start the conversation.</p>
-      ) : (
-        <ol className="widget-chat__messages">
-          {chatState.messageState.messages.map((message) => (
-            <li key={message.id} className="widget-chat__message" data-sender={message.sender}>
-              <strong>{message.sender === 'visitor' ? 'You' : assistantName}</strong>
-              <p>{message.body}</p>
-            </li>
-          ))}
-        </ol>
-      )}
+      <div className="widget-chat__messages" aria-live="polite">
+        {chatState.messageState.messages.length === 0 ? (
+          <p className="widget-chat__empty">Send a message to start the conversation.</p>
+        ) : (
+          <ol className="widget-chat__message-list">
+            {chatState.messageState.messages.map((message) => (
+              <li key={message.id} className="widget-chat__message" data-sender={message.sender}>
+                <strong>{message.sender === 'visitor' ? 'You' : assistantName}</strong>
+                <p>{message.body}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
       <form className="widget-chat__composer" onSubmit={handleSubmit}>
         <label>
           <span>Message</span>

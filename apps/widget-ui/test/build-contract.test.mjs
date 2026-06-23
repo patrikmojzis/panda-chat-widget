@@ -158,16 +158,32 @@ test('widget UI shell sizing stays inside iframe bounds responsively', () => {
   assert.match(stylesSource, /body \{[\s\S]*min-width: 0;[\s\S]*min-height: 100%;[\s\S]*overflow: hidden;/);
   assert.match(stylesSource, /\.widget-shell \{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*height: 100%;[\s\S]*min-height: 100%;/);
   assert.match(stylesSource, /grid-template-rows: auto minmax\(0, 1fr\);/);
-  assert.match(stylesSource, /overflow-x: hidden;/);
-  assert.match(stylesSource, /overflow-y: auto;/);
+  assert.match(stylesSource, /\.widget-shell \{[\s\S]*overflow: hidden;/);
   assert.match(stylesSource, /env\(safe-area-inset-top, 0px\)/);
   assert.match(stylesSource, /env\(safe-area-inset-right, 0px\)/);
   assert.match(stylesSource, /env\(safe-area-inset-bottom, 0px\)/);
   assert.match(stylesSource, /env\(safe-area-inset-left, 0px\)/);
   assert.match(stylesSource, /@media \(max-width: 359px\), \(max-height: 420px\)/);
   assert.match(stylesSource, /overflow-wrap: anywhere;/);
-  assert.match(stylesSource, /\.widget-welcome \{[\s\S]*width: 100%;[\s\S]*max-width: 336px;[\s\S]*justify-self: center;/);
+  assert.match(stylesSource, /\.widget-welcome \{[\s\S]*width: 100%;[\s\S]*max-width: 336px;[\s\S]*justify-self: center;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
+});
+
+test('chat panel message layout keeps messages scrollable and wrapped', () => {
+  assert.match(appSource, /className="widget-chat__messages" aria-live="polite"/);
+  assert.match(appSource, /className="widget-chat__empty"/);
+  assert.match(appSource, /className="widget-chat__message-list"/);
+  assert.match(appSource, /data-sender=\{message\.sender\}/);
+  assert.match(stylesSource, /\.widget-chat \{[\s\S]*min-height: 0;[\s\S]*grid-template-rows: minmax\(0, 1fr\) auto;/);
+  assert.match(stylesSource, /\.widget-chat__messages \{[\s\S]*min-height: 0;[\s\S]*overflow-x: hidden;[\s\S]*overflow-y: auto;/);
+  assert.match(stylesSource, /\.widget-chat__message-list \{[\s\S]*display: grid;[\s\S]*list-style: none;/);
+  assert.match(stylesSource, /\.widget-chat__message \{[\s\S]*max-width: 86%;[\s\S]*justify-self: start;/);
+  assert.match(stylesSource, /\.widget-chat__message\[data-sender="visitor"\] \{[\s\S]*justify-self: end;[\s\S]*background: #2563eb;/);
+  assert.match(stylesSource, /\.widget-chat__message\[data-sender="agent"\],[\s\S]*\.widget-chat__message\[data-sender="system"\] \{[\s\S]*justify-self: start;/);
+  assert.match(stylesSource, /\.widget-chat__message p \{[\s\S]*overflow-wrap: anywhere;/);
+  assert.match(stylesSource, /\.widget-chat__composer \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;/);
+  assert.doesNotMatch(`${appSource}
+${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
 });
 
 test('loaded bootstrap renders config-driven welcome text and chat safely', () => {
