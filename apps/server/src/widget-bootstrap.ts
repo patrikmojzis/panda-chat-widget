@@ -8,6 +8,49 @@ export type WidgetBootstrapRouteOptions = {
   database: DatabaseClient;
 };
 
+export type WidgetThemeMode = 'light' | 'dark' | 'system';
+export type WidgetAccentToken = 'blue';
+export type WidgetRadiusToken = 'md';
+export type WidgetLauncherIconToken = 'message';
+
+export type WidgetBootstrapConfig = {
+  assistant: {
+    displayName: string;
+  };
+  launcher: {
+    label: string;
+    icon: WidgetLauncherIconToken;
+  };
+  welcome: {
+    title: string;
+    subtitle: string;
+  };
+  theme: {
+    colorMode: WidgetThemeMode;
+    accent: WidgetAccentToken;
+    radius: WidgetRadiusToken;
+  };
+};
+
+export const DEFAULT_WIDGET_BOOTSTRAP_CONFIG = {
+  assistant: {
+    displayName: 'Support',
+  },
+  launcher: {
+    label: 'Chat',
+    icon: 'message',
+  },
+  welcome: {
+    title: 'Hi there',
+    subtitle: 'Send us a message and we will reply as soon as we can.',
+  },
+  theme: {
+    colorMode: 'system',
+    accent: 'blue',
+    radius: 'md',
+  },
+} as const satisfies WidgetBootstrapConfig;
+
 export type WidgetBootstrapResponse = {
   widget: {
     publicKey: string;
@@ -16,6 +59,7 @@ export type WidgetBootstrapResponse = {
     hostname: string;
     domain: string;
   };
+  config: WidgetBootstrapConfig;
 };
 
 export type WidgetBootstrapErrorResponse =
@@ -65,6 +109,7 @@ export function registerWidgetBootstrapRoutes(app: FastifyInstance, options: Wid
         hostname: originMatch.hostname,
         domain: originMatch.domain,
       },
+      config: DEFAULT_WIDGET_BOOTSTRAP_CONFIG,
     });
   });
 }

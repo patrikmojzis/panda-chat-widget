@@ -5,6 +5,7 @@ import { buildApp } from './app.ts';
 import type { DatabaseClient } from './db.ts';
 import type { AllowedDomainRecord } from './origin-domain.ts';
 import { DEMO_SEED_DATA } from './seed-data.ts';
+import { DEFAULT_WIDGET_BOOTSTRAP_CONFIG } from './widget-bootstrap.ts';
 
 type WidgetLookupRow = {
   widgetId: string;
@@ -87,6 +88,50 @@ function enabledDemoWidget(): WidgetLookupRow {
   };
 }
 
+
+test('default widget bootstrap config uses plain text and tokenized values', () => {
+  assert.deepEqual(DEFAULT_WIDGET_BOOTSTRAP_CONFIG, {
+    assistant: {
+      displayName: 'Support',
+    },
+    launcher: {
+      label: 'Chat',
+      icon: 'message',
+    },
+    welcome: {
+      title: 'Hi there',
+      subtitle: 'Send us a message and we will reply as soon as we can.',
+    },
+    theme: {
+      colorMode: 'system',
+      accent: 'blue',
+      radius: 'md',
+    },
+  });
+
+  const plainTextValues = [
+    DEFAULT_WIDGET_BOOTSTRAP_CONFIG.assistant.displayName,
+    DEFAULT_WIDGET_BOOTSTRAP_CONFIG.launcher.label,
+    DEFAULT_WIDGET_BOOTSTRAP_CONFIG.welcome.title,
+    DEFAULT_WIDGET_BOOTSTRAP_CONFIG.welcome.subtitle,
+  ];
+
+  for (const value of plainTextValues) {
+    assert.doesNotMatch(value, /[<>]/);
+  }
+
+  const tokenValues = [
+    DEFAULT_WIDGET_BOOTSTRAP_CONFIG.launcher.icon,
+    DEFAULT_WIDGET_BOOTSTRAP_CONFIG.theme.colorMode,
+    DEFAULT_WIDGET_BOOTSTRAP_CONFIG.theme.accent,
+    DEFAULT_WIDGET_BOOTSTRAP_CONFIG.theme.radius,
+  ];
+
+  for (const value of tokenValues) {
+    assert.match(value, /^[a-z][a-z0-9_]*$/);
+  }
+});
+
 test('GET /api/widgets/:publicKey/bootstrap returns safe bootstrap JSON for an enabled widget and allowed origin', async () => {
   const fake = createFakeDatabase({
     widget: enabledDemoWidget(),
@@ -112,6 +157,7 @@ test('GET /api/widgets/:publicKey/bootstrap returns safe bootstrap JSON for an e
         hostname: 'localhost',
         domain: 'localhost',
       },
+      config: DEFAULT_WIDGET_BOOTSTRAP_CONFIG,
     });
     assert.deepEqual(fake.publicKeyLookups, [DEMO_SEED_DATA.publicWidgetKey]);
     assert.deepEqual(fake.allowedDomainWidgetLookups, ['widget-id']);
