@@ -23,7 +23,7 @@ type MessageInsertValues = Omit<StoredMessage, 'id'>;
 
 type FakeDatabase = {
   database: DatabaseClient;
-  messageSelects: Array<{ conversationId: string; order: 'asc' | 'desc'; limit?: number }>;
+  messageSelects: Array<{ conversationId: string; order: 'asc' | 'desc'; limit?: number; afterSeq?: number }>;
   messageInserts: MessageInsertValues[];
   messages: StoredMessage[];
 };
@@ -33,7 +33,7 @@ const SECOND_CREATED_AT = new Date('2026-01-01T00:01:00Z');
 const messageSource = await readFile(new URL('./message.ts', import.meta.url), 'utf8');
 
 function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase {
-  const messageSelects: Array<{ conversationId: string; order: 'asc' | 'desc'; limit?: number }> = [];
+  const messageSelects: Array<{ conversationId: string; order: 'asc' | 'desc'; limit?: number; afterSeq?: number }> = [];
   const messageInserts: MessageInsertValues[] = [];
   const messages = [...initialMessages];
 
@@ -42,12 +42,28 @@ function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase
     let conversationId: string | undefined;
     let order: 'asc' | 'desc' = 'asc';
     let limitCount: number | undefined;
+    let afterSeq: number | undefined;
 
     const query = {
       select: () => query,
-      where: (column: string, _operator: string, value: string) => {
-        assert.equal(column, 'conversation_id');
-        conversationId = value;
+      where: (column: string, operator: string, value: string | number) => {
+        if (column === 'conversation_id') {
+          assert.equal(operator, '=');
+          if (typeof value !== 'string') {
+            throw new Error('expected string conversation_id value');
+          }
+
+          conversationId = value;
+          return query;
+        }
+
+        assert.equal(column, 'seq');
+        assert.equal(operator, '>');
+        if (typeof value !== 'number') {
+          throw new Error('expected number seq value');
+        }
+
+        afterSeq = value;
         return query;
       },
       orderBy: (column: string, direction: 'asc' | 'desc') => {
@@ -60,10 +76,10 @@ function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase
         return query;
       },
       executeTakeFirst: async () => {
-        const rows = selectRows(conversationId, order, limitCount);
+        const rows = selectRows(conversationId, order, limitCount, afterSeq);
         return rows[0];
       },
-      execute: async () => selectRows(conversationId, order, limitCount),
+      execute: async () => selectRows(conversationId, order, limitCount, afterSeq),
     };
 
     return query;
@@ -99,14 +115,25 @@ function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase
     return query;
   }
 
-  function selectRows(conversationId: string | undefined, order: 'asc' | 'desc', limitCount: number | undefined) {
+  function selectRows(
+    conversationId: string | undefined,
+    order: 'asc' | 'desc',
+    limitCount: number | undefined,
+    afterSeq: number | undefined,
+  ) {
     if (!conversationId) {
       throw new Error('missing conversation_id filter');
     }
 
-    messageSelects.push({ conversationId, order, ...(limitCount === undefined ? {} : { limit: limitCount }) });
+    messageSelects.push({
+      conversationId,
+      order,
+      ...(limitCount === undefined ? {} : { limit: limitCount }),
+      ...(afterSeq === undefined ? {} : { afterSeq }),
+    });
     const sortedRows = messages
       .filter((message) => message.conversation_id === conversationId)
+      .filter((message) => afterSeq === undefined || message.seq > afterSeq)
       .sort((left, right) => (order === 'asc' ? left.seq - right.seq : right.seq - left.seq));
 
     return limitCount === undefined ? sortedRows : sortedRows.slice(0, limitCount);
@@ -241,9 +268,29 @@ test('readMessagesForConversation returns messages in deterministic seq order', 
   assert.deepEqual(fake.messageSelects, [{ conversationId: 'conversation-a', order: 'asc' }]);
 });
 
+test('readMessagesForConversation can return only messages after a seq', async () => {
+  const fake = createFakeDatabase([
+    messageRow({ id: 'message-3', conversationId: 'conversation-a', seq: 3, body: 'Third' }),
+    messageRow({ id: 'message-1', conversationId: 'conversation-a', seq: 1, body: 'First' }),
+    messageRow({ id: 'message-2', conversationId: 'conversation-a', seq: 2, body: 'Second' }),
+  ]);
+
+  const messages = await readMessagesForConversation(fake.database, 'conversation-a', { afterSeq: 1 });
+
+  assert.deepEqual(
+    messages.map((message) => ({ id: message.id, seq: message.seq, body: message.body })),
+    [
+      { id: 'message-2', seq: 2, body: 'Second' },
+      { id: 'message-3', seq: 3, body: 'Third' },
+    ],
+  );
+  assert.deepEqual(fake.messageSelects, [{ conversationId: 'conversation-a', order: 'asc', afterSeq: 1 }]);
+});
+
 test('message seam has no HTTP route, idempotency, streaming, fake reply, or UI behavior', () => {
   assert.match(messageSource, /selectFrom\('messages'\)/);
   assert.match(messageSource, /insertInto\('messages'\)/);
+  assert.match(messageSource, /where\('seq', '>', options\.afterSeq\)/);
   assert.match(messageSource, /orderBy\('seq', 'asc'\)/);
   assert.match(messageSource, /orderBy\('seq', 'desc'\)/);
   assert.doesNotMatch(

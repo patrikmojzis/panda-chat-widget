@@ -56,6 +56,7 @@ type FakeDatabase = {
   visitorSessionLookups: Array<{ id: string; widgetId: string }>;
   conversationLookups: Array<{ id: string; widgetId: string; visitorSessionId: string }>;
   messageSeqLookups: string[];
+  messageReadLookups: Array<{ conversationId: string; afterSeq?: number }>;
   messageInserts: MessageInsertValues[];
   messages: StoredMessage[];
 };
@@ -84,6 +85,7 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
   const visitorSessionLookups: Array<{ id: string; widgetId: string }> = [];
   const conversationLookups: Array<{ id: string; widgetId: string; visitorSessionId: string }> = [];
   const messageSeqLookups: string[] = [];
+  const messageReadLookups: Array<{ conversationId: string; afterSeq?: number }> = [];
   const messageInserts: MessageInsertValues[] = [];
   const visitorSessions = [...(options.visitorSessions ?? [])];
   const conversations = [...(options.conversations ?? [])];
@@ -198,21 +200,39 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
 
   function createMessageSelectQuery() {
     let conversationId: string | undefined;
+    let afterSeq: number | undefined;
+    let order: 'asc' | 'desc' = 'asc';
+    let limitCount: number | undefined;
 
     const query = {
       select: () => query,
-      where: (column: string, _operator: string, value: string) => {
-        assert.equal(column, 'conversation_id');
-        conversationId = value;
+      where: (column: string, operator: string, value: string | number) => {
+        if (column === 'conversation_id') {
+          assert.equal(operator, '=');
+          if (typeof value !== 'string') {
+            throw new Error('expected string conversation_id value');
+          }
+
+          conversationId = value;
+          return query;
+        }
+
+        assert.equal(column, 'seq');
+        assert.equal(operator, '>');
+        if (typeof value !== 'number') {
+          throw new Error('expected number seq value');
+        }
+
+        afterSeq = value;
         return query;
       },
       orderBy: (column: string, direction: 'asc' | 'desc') => {
         assert.equal(column, 'seq');
-        assert.equal(direction, 'desc');
+        order = direction;
         return query;
       },
       limit: (limit: number) => {
-        assert.equal(limit, 1);
+        limitCount = limit;
         return query;
       },
       executeTakeFirst: async () => {
@@ -220,14 +240,34 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
           throw new Error('missing conversation_id message lookup filter');
         }
 
+        assert.equal(order, 'desc');
+        assert.equal(limitCount, 1);
         messageSeqLookups.push(conversationId);
-        return messages
-          .filter((message) => message.conversation_id === conversationId)
-          .sort((left, right) => right.seq - left.seq)[0];
+        return sortedMessages(conversationId, afterSeq, order)[0];
+      },
+      execute: async () => {
+        if (!conversationId) {
+          throw new Error('missing conversation_id message lookup filter');
+        }
+
+        assert.equal(order, 'asc');
+        assert.equal(limitCount, undefined);
+        messageReadLookups.push({
+          conversationId,
+          ...(afterSeq === undefined ? {} : { afterSeq }),
+        });
+        return sortedMessages(conversationId, afterSeq, order);
       },
     };
 
     return query;
+  }
+
+  function sortedMessages(conversationId: string, afterSeq: number | undefined, order: 'asc' | 'desc') {
+    return messages
+      .filter((message) => message.conversation_id === conversationId)
+      .filter((message) => afterSeq === undefined || message.seq > afterSeq)
+      .sort((left, right) => (order === 'asc' ? left.seq - right.seq : right.seq - left.seq));
   }
 
   function createMessageInsertQuery(tableName: string) {
@@ -294,6 +334,7 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
     visitorSessionLookups,
     conversationLookups,
     messageSeqLookups,
+    messageReadLookups,
     messageInserts,
     messages,
   };
@@ -390,6 +431,216 @@ test('POST /api/widgets/:publicKey/messages stores one visitor message with the 
         },
       ],
     );
+  } finally {
+    await app.close();
+  }
+});
+
+
+test('GET /api/widgets/:publicKey/messages returns conversation messages in seq order', async () => {
+  const fake = createEnabledFakeDatabase({
+    messages: [
+      messageRow({ id: 'message-3', conversationId: CONVERSATION_ID_A, seq: 3, body: 'Third' }),
+      messageRow({ id: 'other-message-1', conversationId: CONVERSATION_ID_B, seq: 1, body: 'Other' }),
+      messageRow({ id: 'message-1', conversationId: CONVERSATION_ID_A, seq: 1, body: 'First' }),
+      messageRow({ id: 'message-2', conversationId: CONVERSATION_ID_A, seq: 2, body: 'Second' }),
+    ],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageListUrl(),
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    const body = response.json();
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(
+      body.messages.map((message: { id: string; seq: number; body: string; createdAt: string }) => ({
+        id: message.id,
+        seq: message.seq,
+        body: message.body,
+        createdAtType: typeof message.createdAt,
+      })),
+      [
+        { id: 'message-1', seq: 1, body: 'First', createdAtType: 'string' },
+        { id: 'message-2', seq: 2, body: 'Second', createdAtType: 'string' },
+        { id: 'message-3', seq: 3, body: 'Third', createdAtType: 'string' },
+      ],
+    );
+    assert.deepEqual(fake.visitorSessionLookups, [{ id: VISITOR_SESSION_ID_A, widgetId: 'widget-id' }]);
+    assert.deepEqual(fake.conversationLookups, [
+      { id: CONVERSATION_ID_A, widgetId: 'widget-id', visitorSessionId: VISITOR_SESSION_ID_A },
+    ]);
+    assert.deepEqual(fake.messageReadLookups, [{ conversationId: CONVERSATION_ID_A }]);
+    assert.deepEqual(fake.messageInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages filters messages after seq', async () => {
+  const fake = createEnabledFakeDatabase({
+    messages: [
+      messageRow({ id: 'message-1', conversationId: CONVERSATION_ID_A, seq: 1, body: 'First' }),
+      messageRow({ id: 'message-3', conversationId: CONVERSATION_ID_A, seq: 3, body: 'Third' }),
+      messageRow({ id: 'message-2', conversationId: CONVERSATION_ID_A, seq: 2, body: 'Second' }),
+    ],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `${messageListUrl()}&afterSeq=1`,
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    const body = response.json();
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(
+      body.messages.map((message: { id: string; seq: number; body: string }) => ({
+        id: message.id,
+        seq: message.seq,
+        body: message.body,
+      })),
+      [
+        { id: 'message-2', seq: 2, body: 'Second' },
+        { id: 'message-3', seq: 3, body: 'Third' },
+      ],
+    );
+    assert.deepEqual(fake.messageReadLookups, [{ conversationId: CONVERSATION_ID_A, afterSeq: 1 }]);
+    assert.deepEqual(fake.messageInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages rejects missing or invalid query before lookup', async () => {
+  const cases = [
+    [`/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages?conversationId=${CONVERSATION_ID_A}`, 'missing_visitor_session_id'],
+    [
+      `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages?visitorSessionId=${VISITOR_SESSION_ID_A}&conversationId=`,
+      'missing_conversation_id',
+    ],
+    [`${messageListUrl()}&afterSeq=-1`, 'invalid_after_seq'],
+    [`${messageListUrl()}&afterSeq=1.5`, 'invalid_after_seq'],
+    [`${messageListUrl()}&afterSeq=abc`, 'invalid_after_seq'],
+  ] as const;
+
+  for (const [url, reason] of cases) {
+    const fake = createEnabledFakeDatabase();
+    const app = buildApp({ database: fake.database });
+
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url,
+        headers: { origin: 'http://localhost:5173' },
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.deepEqual(response.json(), { error: 'invalid_message_request', reason });
+      assert.deepEqual(fake.publicKeyLookups, []);
+      assert.deepEqual(fake.messageReadLookups, []);
+      assert.deepEqual(fake.messageInserts, []);
+    } finally {
+      await app.close();
+    }
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages rejects visitor sessions outside the widget before read', async () => {
+  const fake = createEnabledFakeDatabase({
+    visitorSessions: [{ id: VISITOR_SESSION_ID_A, widget_id: 'other-widget-id' }],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageListUrl(),
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(response.json(), { error: 'visitor_session_not_found' });
+    assert.deepEqual(fake.conversationLookups, []);
+    assert.deepEqual(fake.messageReadLookups, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages rejects conversations outside the visitor session before read', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageListUrl({ conversationId: CONVERSATION_ID_B }),
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 404);
+    assert.deepEqual(response.json(), { error: 'conversation_not_found' });
+    assert.deepEqual(fake.conversationLookups, [
+      { id: CONVERSATION_ID_B, widgetId: 'widget-id', visitorSessionId: VISITOR_SESSION_ID_A },
+    ]);
+    assert.deepEqual(fake.messageReadLookups, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages rejects closed conversations before read', async () => {
+  const fake = createEnabledFakeDatabase({
+    conversations: [
+      {
+        id: CONVERSATION_ID_A,
+        widget_id: 'widget-id',
+        visitor_session_id: VISITOR_SESSION_ID_A,
+        status: 'closed',
+      },
+    ],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageListUrl(),
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 409);
+    assert.deepEqual(response.json(), { error: 'conversation_closed' });
+    assert.deepEqual(fake.messageReadLookups, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/messages rejects disallowed origins before read', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: messageListUrl(),
+      headers: { origin: 'https://example.com' },
+    });
+
+    assert.equal(response.statusCode, 403);
+    assert.deepEqual(response.json(), { error: 'origin_not_allowed', reason: 'domain_not_allowed' });
+    assert.deepEqual(fake.visitorSessionLookups, []);
+    assert.deepEqual(fake.messageReadLookups, []);
   } finally {
     await app.close();
   }
@@ -582,13 +833,24 @@ test('findConversationForVisitorMessage distinguishes open, closed, and wrong-ow
 
 test('visitor message route has no fake reply, streaming, idempotency, Gateway, or UI behavior', () => {
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages/);
+  assert.match(visitorMessageSource, /app\.get/);
   assert.match(visitorMessageSource, /insertConversationMessage/);
+  assert.match(visitorMessageSource, /readMessagesForConversation/);
   assert.match(visitorMessageSource, /clientMessageId/);
   assert.doesNotMatch(
     visitorMessageSource,
     /assistant|agent|system|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|fake/i,
   );
 });
+
+
+function messageListUrl(options: { visitorSessionId?: string; conversationId?: string } = {}): string {
+  const visitorSessionId = options.visitorSessionId ?? VISITOR_SESSION_ID_A;
+  const conversationId = options.conversationId ?? CONVERSATION_ID_A;
+  const query = new URLSearchParams({ visitorSessionId, conversationId });
+
+  return `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages?${query}`;
+}
 
 function validMessagePayload(): Record<string, string> {
   return {

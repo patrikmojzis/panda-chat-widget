@@ -80,16 +80,25 @@ export async function insertConversationMessage(
   return toConversationMessage(row);
 }
 
+export type ReadMessagesForConversationOptions = {
+  afterSeq?: number;
+};
+
 export async function readMessagesForConversation(
   database: DatabaseClient,
   conversationId: string,
+  options: ReadMessagesForConversationOptions = {},
 ): Promise<ConversationMessage[]> {
-  const rows = (await database
+  let query = database
     .selectFrom('messages')
     .select(['id', 'conversation_id', 'seq', 'sender', 'client_message_id', 'body', 'created_at'])
-    .where('conversation_id', '=', conversationId)
-    .orderBy('seq', 'asc')
-    .execute()) as MessageRow[];
+    .where('conversation_id', '=', conversationId);
+
+  if (options.afterSeq !== undefined) {
+    query = query.where('seq', '>', options.afterSeq);
+  }
+
+  const rows = (await query.orderBy('seq', 'asc').execute()) as MessageRow[];
 
   return rows.map(toConversationMessage);
 }
