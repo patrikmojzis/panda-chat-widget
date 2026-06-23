@@ -14,6 +14,12 @@ import {
   type ConversationMessage,
 } from './message.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
+import {
+  serializeVisitorMessageEvents,
+  shouldOpenLiveVisitorMessageEventStream,
+  streamVisitorMessageEvents,
+  VISITOR_MESSAGE_EVENT_STREAM_HEADERS,
+} from './visitor-message-events.ts';
 import { loadEnabledAllowedDomains } from './widget-bootstrap.ts';
 import { findWidgetByPublicKey } from './widget-lookup.ts';
 
@@ -288,34 +294,26 @@ export function registerVisitorMessageRoutes(app: FastifyInstance, options: Visi
       messageRequest.request.afterSeq === undefined ? {} : { afterSeq: messageRequest.request.afterSeq };
     const messages = await readMessagesForConversation(options.database, conversation.conversationId, readOptions);
 
+    if (shouldOpenLiveVisitorMessageEventStream(request.headers.accept)) {
+      reply.hijack();
+      reply.raw.writeHead(200, VISITOR_MESSAGE_EVENT_STREAM_HEADERS);
+      streamVisitorMessageEvents({
+        conversationId: conversation.conversationId,
+        initialMessages: messages,
+        messageEvents: options.messageEvents,
+        response: reply.raw,
+        request: request.raw,
+      });
+
+      return;
+    }
+
     return reply
-      .header('content-type', 'text/event-stream; charset=utf-8')
-      .header('cache-control', 'no-cache, no-transform')
-      .header('connection', 'keep-alive')
+      .header('content-type', VISITOR_MESSAGE_EVENT_STREAM_HEADERS['content-type'])
+      .header('cache-control', VISITOR_MESSAGE_EVENT_STREAM_HEADERS['cache-control'])
+      .header('connection', VISITOR_MESSAGE_EVENT_STREAM_HEADERS.connection)
       .send(serializeVisitorMessageEvents(messages));
   });
-}
-
-function serializeVisitorMessageEvents(messages: ConversationMessage[]): string {
-  if (messages.length === 0) {
-    return serializeServerSentEvent({ event: 'ready', data: {} });
-  }
-
-  return messages
-    .map((message) => serializeServerSentEvent({ event: 'message', data: { message } }))
-    .join('');
-}
-
-type ServerSentEventInput = {
-  event: string;
-  data: unknown;
-};
-
-function serializeServerSentEvent(input: ServerSentEventInput): string {
-  return `event: ${input.event}
-data: ${JSON.stringify(input.data)}
-
-`;
 }
 
 export type FindConversationForVisitorMessageInput = {

@@ -70,6 +70,8 @@ const CONVERSATION_ID_A = 'conversation-a';
 const CONVERSATION_ID_B = 'conversation-b';
 const FIRST_CREATED_AT = new Date('2026-01-01T00:00:00Z');
 const visitorMessageSource = await readFile(new URL('./visitor-message.ts', import.meta.url), 'utf8');
+const visitorMessageEventsSource = await readFile(new URL('./visitor-message-events.ts', import.meta.url), 'utf8');
+const visitorMessageEventRouteSource = `${visitorMessageSource}\n${visitorMessageEventsSource}`;
 
 function enabledDemoWidget(): WidgetLookupRow {
   return {
@@ -1344,11 +1346,14 @@ test('findConversationForVisitorMessage distinguishes open, closed, and wrong-ow
   }), { status: 'not_found' });
 });
 
-test('visitor message route has finite SSE shape and local event emission without Gateway or UI behavior', () => {
+test('visitor message route has SSE catch-up and live stream seams without Gateway or UI behavior', () => {
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages/);
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages\/events/);
-  assert.match(visitorMessageSource, /text\/event-stream/);
-  assert.match(visitorMessageSource, /serializeVisitorMessageEvents/);
+  assert.match(visitorMessageEventRouteSource, /text\/event-stream/);
+  assert.match(visitorMessageEventRouteSource, /serializeVisitorMessageEvents/);
+  assert.match(visitorMessageSource, /shouldOpenLiveVisitorMessageEventStream/);
+  assert.match(visitorMessageSource, /streamVisitorMessageEvents/);
+  assert.match(visitorMessageSource, /reply\.hijack/);
   assert.match(visitorMessageSource, /messageEvents\.emit/);
   assert.match(visitorMessageSource, /createFakeResponderReply/);
   assert.match(visitorMessageSource, /insertVisitorConversationMessage/);
@@ -1357,7 +1362,7 @@ test('visitor message route has finite SSE shape and local event emission withou
   assert.match(visitorMessageSource, /readMessagesForConversation/);
   assert.match(visitorMessageSource, /clientMessageId/);
   assert.doesNotMatch(
-    visitorMessageSource,
+    visitorMessageEventRouteSource,
     /sender: 'system'|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|setInterval|durable|queue/i,
   );
 });
