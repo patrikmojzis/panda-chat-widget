@@ -239,6 +239,15 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     return <p className="widget-welcome__empty">Chat could not be started. Please try again later.</p>;
   }
 
+  const isSending = chatState.sendStatus === 'sending';
+  const canSend = !isSending && draftMessage.trim().length > 0;
+  const composerStatus = isSending
+    ? 'Sending your message…'
+    : chatState.sendStatus === 'error'
+      ? 'Message could not be sent. Try again.'
+      : 'Press Enter to send.';
+  const composerStatusRole = chatState.sendStatus === 'error' ? 'alert' : 'status';
+
   return (
     <div className="widget-chat" aria-label={`${assistantName} conversation`}>
       <div className="widget-chat__messages" aria-live="polite">
@@ -255,22 +264,31 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
           </ol>
         )}
       </div>
-      <form className="widget-chat__composer" onSubmit={handleSubmit}>
-        <label>
+      <form
+        className="widget-chat__composer"
+        onSubmit={handleSubmit}
+        data-send-status={chatState.sendStatus}
+        aria-busy={isSending}
+      >
+        <label className="widget-chat__composer-field" htmlFor="widget-chat-message-input">
           <span>Message</span>
           <input
+            id="widget-chat-message-input"
             type="text"
             value={draftMessage}
             onChange={(event) => setDraftMessage(event.target.value)}
-            disabled={chatState.sendStatus === 'sending'}
+            placeholder="Type your message…"
+            autoComplete="off"
+            aria-describedby="widget-chat-composer-status"
+            disabled={isSending}
           />
         </label>
-        <button type="submit" disabled={chatState.sendStatus === 'sending' || !draftMessage.trim()}>
-          {chatState.sendStatus === 'sending' ? 'Sending…' : 'Send'}
+        <button type="submit" disabled={!canSend} aria-label={isSending ? 'Sending message' : 'Send message'}>
+          {isSending ? 'Sending…' : 'Send'}
         </button>
-        {chatState.sendStatus === 'error' ? (
-          <p className="widget-welcome__empty">Message could not be sent. Try again.</p>
-        ) : null}
+        <p id="widget-chat-composer-status" className="widget-chat__composer-status" role={composerStatusRole}>
+          {composerStatus}
+        </p>
       </form>
     </div>
   );

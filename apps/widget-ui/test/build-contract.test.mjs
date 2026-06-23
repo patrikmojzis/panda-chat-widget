@@ -186,6 +186,35 @@ test('chat panel message layout keeps messages scrollable and wrapped', () => {
 ${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
 });
 
+test('composer interaction exposes form submit affordance and accessible states', () => {
+  assert.match(appSource, /const isSending = chatState\.sendStatus === 'sending';/);
+  assert.match(appSource, /const canSend = !isSending && draftMessage\.trim\(\)\.length > 0;/);
+  assert.match(appSource, /Press Enter to send\./);
+  assert.match(appSource, /Sending your message/);
+  assert.match(appSource, /Message could not be sent\. Try again\./);
+  assert.match(appSource, /<form[\s\S]*className="widget-chat__composer"[\s\S]*onSubmit=\{handleSubmit\}[\s\S]*data-send-status=\{chatState\.sendStatus\}[\s\S]*aria-busy=\{isSending\}/);
+  assert.match(appSource, /htmlFor="widget-chat-message-input"/);
+  assert.match(appSource, /id="widget-chat-message-input"/);
+  assert.match(appSource, /placeholder="Type your message…"/);
+  assert.match(appSource, /autoComplete="off"/);
+  assert.match(appSource, /aria-describedby="widget-chat-composer-status"/);
+  assert.match(appSource, /disabled=\{isSending\}/);
+  assert.match(appSource, /<button type="submit" disabled=\{!canSend\}/);
+  assert.match(appSource, /aria-label=\{isSending \? 'Sending message' : 'Send message'\}/);
+  assert.match(appSource, /role=\{composerStatusRole\}/);
+  assert.match(stylesSource, /\.widget-chat__composer-field \{[\s\S]*min-width: 0;[\s\S]*display: grid;/);
+  assert.match(stylesSource, /\.widget-chat__composer input::placeholder \{[\s\S]*color: #94a3b8;/);
+  assert.match(stylesSource, /\.widget-chat__composer input:focus-visible,[\s\S]*\.widget-chat__composer button:focus-visible \{[\s\S]*outline: 2px solid #93c5fd;/);
+  assert.match(stylesSource, /\.widget-chat__composer button:disabled \{[\s\S]*background: #94a3b8;/);
+  assert.match(stylesSource, /\.widget-chat__composer-status \{[\s\S]*grid-column: 1 \/ -1;[\s\S]*min-height: 18px;/);
+  assert.match(stylesSource, /\.widget-chat__composer\[data-send-status="sending"\] \.widget-chat__composer-status \{[\s\S]*color: #2563eb;/);
+  assert.match(stylesSource, /\.widget-chat__composer\[data-send-status="error"\] input \{[\s\S]*border-color: #dc2626;/);
+  assert.match(stylesSource, /\.widget-chat__composer\[data-send-status="error"\] \.widget-chat__composer-status \{[\s\S]*color: #dc2626;[\s\S]*font-weight: 700;/);
+  assert.doesNotMatch(appSource, /onKeyDown|onKeyUp|KeyboardEvent/);
+  assert.doesNotMatch(`${appSource}
+${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
+});
+
 test('loaded bootstrap renders config-driven welcome text and chat safely', () => {
   assert.match(appSource, /<WelcomeState bootstrap=\{state\.bootstrap\} bootstrapBaseHref=\{bootstrapBaseHref\} \/>/);
   assert.match(appSource, /assistant\.displayName/);
