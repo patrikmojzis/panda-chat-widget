@@ -13,6 +13,9 @@ const viteEnvSource = await readFile(new URL('../src/vite-env.d.ts', import.meta
 const publicKeySource = await readFile(new URL('../src/widget-public-key.ts', import.meta.url), 'utf8');
 const bootstrapSource = await readFile(new URL('../src/widget-bootstrap.ts', import.meta.url), 'utf8');
 const themeSource = await readFile(new URL('../src/widget-theme.ts', import.meta.url), 'utf8');
+const chatSource = await readFile(new URL('../src/widget-chat.ts', import.meta.url), 'utf8');
+const widgetVisitorIdentitySource = await readFile(new URL('../src/widget-visitor-identity.ts', import.meta.url), 'utf8');
+const sharedVisitorIdentitySource = await readFile(new URL('../../../packages/shared/src/visitor-identity.ts', import.meta.url), 'utf8');
 
 function compileTypeScript(source) {
   return ts.transpileModule(source, {
@@ -48,6 +51,21 @@ function jsonSafe(value) {
 const compiledPublicKeyModule = compileTypeScript(publicKeySource);
 const compiledBootstrapModule = compileTypeScript(bootstrapSource);
 const compiledThemeModule = compileTypeScript(themeSource);
+const compiledChatModule = compileTypeScript(chatSource);
+const compiledWidgetVisitorIdentityModule = compileTypeScript(widgetVisitorIdentitySource);
+const sharedVisitorIdentity = loadModule(compileTypeScript(sharedVisitorIdentitySource), { encodeURIComponent });
+
+function loadWidgetModule(compiledSource) {
+  return loadModule(compiledSource, {
+    require: (specifier) => {
+      if (specifier.includes('packages/shared/src/visitor-identity')) {
+        return sharedVisitorIdentity;
+      }
+
+      throw new Error(`unexpected test module import: ${specifier}`);
+    },
+  });
+}
 
 function sampleBootstrap(publicKey = 'demo-local-widget') {
   return {
@@ -61,6 +79,31 @@ function sampleBootstrap(publicKey = 'demo-local-widget') {
     },
   };
 }
+
+function sampleMessage(overrides = {}) {
+  return {
+    id: overrides.id ?? 'message-1',
+    conversationId: overrides.conversationId ?? 'conversation-1',
+    seq: overrides.seq ?? 1,
+    sender: overrides.sender ?? 'visitor',
+    clientMessageId: overrides.clientMessageId ?? null,
+    body: overrides.body ?? 'Hello',
+    createdAt: overrides.createdAt ?? '2026-01-01T00:00:00.000Z',
+  };
+}
+
+function createFakeStorage(initialEntries = {}) {
+  const entries = { ...initialEntries };
+
+  return {
+    entries,
+    getItem: (key) => (Object.hasOwn(entries, key) ? entries[key] : null),
+    setItem: (key, value) => {
+      entries[key] = value;
+    },
+  };
+}
+
 
 test('widget UI package exposes real Vite scripts and dependencies', () => {
   assert.equal(packageJson.scripts.dev, 'vite --host 127.0.0.1');
@@ -83,15 +126,26 @@ test('widget UI has a Vite HTML entry and React render root', () => {
   assert.match(mainSource, /<App widgetPublicKey=\{widgetPublicKey\} bootstrapBaseHref=\{bootstrapBaseHref\} \/>/);
 });
 
-test('widget UI renders bootstrap loading, missing, and error placeholders only', () => {
+test('widget UI renders bootstrap states and a minimal live chat shell', () => {
   assert.match(appSource, /Loading widget configuration/);
   assert.match(appSource, /Missing widget key/);
   assert.match(appSource, /Widget configuration could not be loaded/);
   assert.match(appSource, /data-state=\{bootstrapState\.status\}/);
+  assert.match(appSource, /getOrCreateWidgetVisitorKey/);
+  assert.match(appSource, /createWidgetVisitorSession/);
+  assert.match(appSource, /createWidgetConversation/);
+  assert.match(appSource, /listWidgetMessages/);
+  assert.match(appSource, /subscribeToWidgetMessages/);
+  assert.match(appSource, /sendWidgetMessage/);
+  assert.match(appSource, /Starting chat/);
+  assert.match(appSource, /Send a message to start the conversation/);
   assert.match(stylesSource, /\.widget-shell/);
   assert.match(viteEnvSource, /vite\/client/);
-  assert.doesNotMatch(`${mainSource}\n${appSource}`, /XMLHttpRequest|postMessage|composer|send/i);
+  assert.doesNotMatch(`${mainSource}
+${appSource}
+${chatSource}`, /XMLHttpRequest|postMessage|setTimeout|setInterval|Gateway|poll/i);
 });
+
 
 test('widget UI shell sizing stays inside iframe bounds responsively', () => {
   assert.match(stylesSource, /html,\s*\nbody,\s*\n#root \{\s*height: 100%;/);
@@ -110,8 +164,8 @@ test('widget UI shell sizing stays inside iframe bounds responsively', () => {
   assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
 });
 
-test('loaded bootstrap renders config-driven welcome text safely', () => {
-  assert.match(appSource, /<WelcomeState bootstrap=\{state\.bootstrap\} \/>/);
+test('loaded bootstrap renders config-driven welcome text and chat safely', () => {
+  assert.match(appSource, /<WelcomeState bootstrap=\{state\.bootstrap\} bootstrapBaseHref=\{bootstrapBaseHref\} \/>/);
   assert.match(appSource, /assistant\.displayName/);
   assert.match(appSource, /welcome\.title/);
   assert.match(appSource, /welcome\.subtitle/);
@@ -123,15 +177,17 @@ test('loaded bootstrap renders config-driven welcome text safely', () => {
   assert.match(appSource, /\{assistant\.displayName\}/);
   assert.match(appSource, /\{welcome\.title\}/);
   assert.match(appSource, /\{welcome\.subtitle\}/);
-  assert.match(appSource, /The chat will appear here when the conversation UI is ready/);
+  assert.match(appSource, /<WidgetChat publicKey=\{bootstrap\.widget\.publicKey\}/);
   assert.match(stylesSource, /\.widget-welcome/);
   assert.match(stylesSource, /\.widget-welcome--mode-light/);
   assert.match(stylesSource, /\.widget-welcome--mode-dark/);
   assert.match(stylesSource, /\.widget-welcome--mode-system/);
   assert.match(stylesSource, /\.widget-welcome--accent-blue/);
   assert.match(stylesSource, /\.widget-welcome--radius-md/);
-  assert.doesNotMatch(`${appSource}\n${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
+  assert.doesNotMatch(`${appSource}
+${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
 });
+
 
 test('widget theme resolver maps configured tokens to safe classes', () => {
   const { resolveWidgetTheme } = loadModule(compiledThemeModule);
@@ -167,6 +223,193 @@ test('widget theme resolver falls back safely for unknown runtime tokens', () =>
     className: 'widget-welcome--mode-system widget-welcome--accent-blue widget-welcome--radius-md',
   });
 });
+
+test('widget chat client uses existing session, conversation, message, and SSE endpoints', async () => {
+  const {
+    buildWidgetMessageEventsUrl,
+    createWidgetVisitorSession,
+    createWidgetConversation,
+    listWidgetMessages,
+    sendWidgetMessage,
+  } = loadModule(compiledChatModule);
+  const calls = [];
+  const responses = [
+    { visitorSession: { id: 'visitor-session-1', visitorKey: 'pvk_test' } },
+    { conversation: { id: 'conversation-1', visitorSessionId: 'visitor-session-1', status: 'open' } },
+    { messages: [sampleMessage({ id: 'message-1', seq: 1 })] },
+    { message: sampleMessage({ id: 'message-2', seq: 2, clientMessageId: 'client-message-1' }) },
+  ];
+  const fetchImpl = async (input, init) => {
+    calls.push({ input: String(input), init });
+
+    return {
+      ok: true,
+      status: 200,
+      json: async () => responses.shift(),
+    };
+  };
+  const baseHref = 'https://customer.example/widget.html?publicKey=demo-local-widget';
+
+  assert.equal(
+    buildWidgetMessageEventsUrl('demo-local-widget', {
+      visitorSessionId: 'visitor-session-1',
+      conversationId: 'conversation-1',
+      afterSeq: 2,
+    }, baseHref),
+    'https://customer.example/api/widgets/demo-local-widget/messages/events?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=2',
+  );
+
+  await createWidgetVisitorSession('demo-local-widget', 'pvk_test', { baseHref, fetchImpl });
+  await createWidgetConversation('demo-local-widget', 'visitor-session-1', { baseHref, fetchImpl });
+  await listWidgetMessages('demo-local-widget', {
+    visitorSessionId: 'visitor-session-1',
+    conversationId: 'conversation-1',
+  }, { baseHref, fetchImpl });
+  await sendWidgetMessage('demo-local-widget', {
+    visitorSessionId: 'visitor-session-1',
+    conversationId: 'conversation-1',
+    clientMessageId: 'client-message-1',
+    body: 'Hello',
+  }, { baseHref, fetchImpl });
+
+  assert.deepEqual(calls.map((call) => ({ input: call.input, method: call.init.method })), [
+    { input: 'https://customer.example/api/widgets/demo-local-widget/visitor-session', method: 'POST' },
+    { input: 'https://customer.example/api/widgets/demo-local-widget/conversations', method: 'POST' },
+    {
+      input: 'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1',
+      method: 'GET',
+    },
+    {
+      input: 'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1',
+      method: 'POST',
+    },
+  ]);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { visitorKey: 'pvk_test' });
+  assert.deepEqual(JSON.parse(calls[1].init.body), { visitorSessionId: 'visitor-session-1' });
+  assert.deepEqual(JSON.parse(calls[3].init.body), {
+    visitorSessionId: 'visitor-session-1',
+    conversationId: 'conversation-1',
+    clientMessageId: 'client-message-1',
+    body: 'Hello',
+  });
+  assert.equal(calls[2].init.credentials, 'same-origin');
+});
+
+test('widget EventSource client subscribes to the live message endpoint and handles message events', () => {
+  const { subscribeToWidgetMessages } = loadModule(compiledChatModule);
+  const receivedMessages = [];
+  const readyEvents = [];
+  const errorEvents = [];
+  const instances = [];
+
+  class FakeEventSource {
+    constructor(url) {
+      this.url = url;
+      this.listeners = {};
+      this.closed = false;
+      instances.push(this);
+    }
+
+    addEventListener(event, listener) {
+      this.listeners[event] = listener;
+    }
+
+    close() {
+      this.closed = true;
+    }
+  }
+
+  const subscription = subscribeToWidgetMessages('demo-local-widget', {
+    visitorSessionId: 'visitor-session-1',
+    conversationId: 'conversation-1',
+    afterSeq: 2,
+  }, {
+    baseHref: 'https://customer.example/widget.html?publicKey=demo-local-widget',
+    EventSourceImpl: FakeEventSource,
+    onMessage: (message) => receivedMessages.push(message),
+    onReady: () => readyEvents.push('ready'),
+    onError: () => errorEvents.push('error'),
+  });
+
+  assert.equal(instances.length, 1);
+  assert.equal(
+    instances[0].url,
+    'https://customer.example/api/widgets/demo-local-widget/messages/events?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=2',
+  );
+
+  instances[0].listeners.message({ data: JSON.stringify({ message: sampleMessage({ id: 'message-3', seq: 3 }) }) });
+  instances[0].listeners.ready({});
+  instances[0].listeners.error({});
+  subscription.close();
+
+  assert.deepEqual(receivedMessages.map((message) => ({ id: message.id, seq: message.seq })), [
+    { id: 'message-3', seq: 3 },
+  ]);
+  assert.deepEqual(readyEvents, ['ready']);
+  assert.deepEqual(errorEvents, ['error']);
+  assert.equal(instances[0].closed, true);
+});
+
+test('widget chat message state orders, deduplicates, tracks latest seq, and ignores other conversations', () => {
+  const { applyWidgetChatMessage, createWidgetChatMessagesState } = loadModule(compiledChatModule);
+  const initialState = createWidgetChatMessagesState('conversation-1', [
+    sampleMessage({ id: 'message-2', seq: 2, sender: 'agent', body: 'Reply' }),
+    sampleMessage({ id: 'message-1', seq: 1, body: 'Visitor' }),
+  ]);
+
+  assert.deepEqual(jsonSafe(initialState.messages.map((message) => message.seq)), [1, 2]);
+  assert.equal(initialState.latestSeq, 2);
+
+  const updatedState = applyWidgetChatMessage(initialState, sampleMessage({ id: 'message-1', seq: 1, body: 'Edited visitor' }));
+  assert.deepEqual(jsonSafe(updatedState.messages.map((message) => message.body)), ['Edited visitor', 'Reply']);
+  assert.equal(updatedState.latestSeq, 2);
+
+  const ignoredState = applyWidgetChatMessage(updatedState, sampleMessage({
+    id: 'other-message',
+    conversationId: 'other-conversation',
+    seq: 99,
+    body: 'Wrong conversation',
+  }));
+
+  assert.deepEqual(jsonSafe(ignoredState), jsonSafe(updatedState));
+});
+
+test('widget visitor identity reuses valid stored keys and creates shared-contract keys when missing', () => {
+  const { getOrCreateWidgetVisitorKey } = loadWidgetModule(compiledWidgetVisitorIdentityModule);
+  const storageKey = sharedVisitorIdentity.buildVisitorKeyStorageKey('demo-local-widget');
+  const storedVisitorKey = `pvk_${'A'.repeat(43)}`;
+  const reusedStorage = createFakeStorage({ [storageKey]: storedVisitorKey });
+
+  assert.equal(
+    getOrCreateWidgetVisitorKey('demo-local-widget', {
+      storage: reusedStorage,
+      cryptoImpl: { getRandomValues: () => { throw new Error('stored key should not generate'); } },
+    }),
+    storedVisitorKey,
+  );
+
+  const generatedStorage = createFakeStorage({ [storageKey]: 'invalid-key' });
+  const generatedVisitorKey = getOrCreateWidgetVisitorKey('demo-local-widget', {
+    storage: generatedStorage,
+    cryptoImpl: {
+      getRandomValues: (bytes) => {
+        for (let index = 0; index < bytes.length; index += 1) {
+          bytes[index] = index;
+        }
+
+        return bytes;
+      },
+    },
+  });
+
+  assert.deepEqual(jsonSafe(sharedVisitorIdentity.parseVisitorKey(generatedVisitorKey)), {
+    status: 'valid',
+    visitorKey: generatedVisitorKey,
+  });
+  assert.equal(generatedStorage.entries[storageKey], generatedVisitorKey);
+  assert.equal(generatedVisitorKey.length, 47);
+});
+
 
 test('widget public key parser reads configured, encoded, and missing keys', () => {
   const { readWidgetPublicKey } = loadModule(compiledPublicKeyModule);
