@@ -56,6 +56,7 @@ type FakeDatabase = {
   visitorSessionLookups: Array<{ id: string; widgetId: string }>;
   conversationLookups: Array<{ id: string; widgetId: string; visitorSessionId: string }>;
   messageSeqLookups: string[];
+  messageClientMessageLookups: Array<{ conversationId: string; clientMessageId: string }>;
   messageReadLookups: Array<{ conversationId: string; afterSeq?: number }>;
   messageInserts: MessageInsertValues[];
   messages: StoredMessage[];
@@ -85,6 +86,7 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
   const visitorSessionLookups: Array<{ id: string; widgetId: string }> = [];
   const conversationLookups: Array<{ id: string; widgetId: string; visitorSessionId: string }> = [];
   const messageSeqLookups: string[] = [];
+  const messageClientMessageLookups: Array<{ conversationId: string; clientMessageId: string }> = [];
   const messageReadLookups: Array<{ conversationId: string; afterSeq?: number }> = [];
   const messageInserts: MessageInsertValues[] = [];
   const visitorSessions = [...(options.visitorSessions ?? [])];
@@ -200,6 +202,8 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
 
   function createMessageSelectQuery() {
     let conversationId: string | undefined;
+    let clientMessageId: string | undefined;
+    let sender: MessageSender | undefined;
     let afterSeq: number | undefined;
     let order: 'asc' | 'desc' = 'asc';
     let limitCount: number | undefined;
@@ -214,6 +218,23 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
           }
 
           conversationId = value;
+          return query;
+        }
+
+        if (column === 'client_message_id') {
+          assert.equal(operator, '=');
+          if (typeof value !== 'string') {
+            throw new Error('expected string client_message_id value');
+          }
+
+          clientMessageId = value;
+          return query;
+        }
+
+        if (column === 'sender') {
+          assert.equal(operator, '=');
+          assert.equal(value, 'visitor');
+          sender = 'visitor';
           return query;
         }
 
@@ -238,6 +259,20 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
       executeTakeFirst: async () => {
         if (!conversationId) {
           throw new Error('missing conversation_id message lookup filter');
+        }
+
+        if (clientMessageId !== undefined) {
+          if (sender !== 'visitor') {
+            throw new Error('missing visitor message replay sender filter');
+          }
+
+          messageClientMessageLookups.push({ conversationId, clientMessageId });
+          return messages.find(
+            (message) =>
+              message.conversation_id === conversationId &&
+              message.client_message_id === clientMessageId &&
+              message.sender === 'visitor',
+          );
         }
 
         assert.equal(order, 'desc');
@@ -334,6 +369,7 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
     visitorSessionLookups,
     conversationLookups,
     messageSeqLookups,
+    messageClientMessageLookups,
     messageReadLookups,
     messageInserts,
     messages,
@@ -374,7 +410,13 @@ function createEnabledFakeDatabase(options: Omit<FakeDatabaseOptions, 'widget' |
 test('POST /api/widgets/:publicKey/messages stores one visitor message with the next seq', async () => {
   const fake = createEnabledFakeDatabase({
     messages: [
-      messageRow({ id: 'message-1', conversationId: CONVERSATION_ID_A, seq: 1, body: 'Existing' }),
+      messageRow({
+        id: 'message-1',
+        conversationId: CONVERSATION_ID_A,
+        seq: 1,
+        body: 'Existing',
+        clientMessageId: 'existing-client-message',
+      }),
     ],
   });
   const app = buildApp({ database: fake.database });
@@ -436,6 +478,103 @@ test('POST /api/widgets/:publicKey/messages stores one visitor message with the 
   }
 });
 
+
+
+test('POST /api/widgets/:publicKey/messages replays the original visitor message for duplicate client ids', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: validMessagePayload(),
+    });
+    const retryResponse = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: { ...validMessagePayload(), body: 'Conflicting retry body' },
+    });
+
+    assert.equal(firstResponse.statusCode, 200);
+    assert.equal(retryResponse.statusCode, 200);
+    assert.deepEqual(
+      { ...retryResponse.json().message, createdAt: '<iso-date>' },
+      { ...firstResponse.json().message, createdAt: '<iso-date>' },
+    );
+    assert.equal(retryResponse.json().message.body, 'Hello from visitor');
+    assert.deepEqual(fake.messageClientMessageLookups, [
+      { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
+      { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
+    ]);
+    assert.deepEqual(fake.messageSeqLookups, [CONVERSATION_ID_A]);
+    assert.equal(fake.messageInserts.length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /api/widgets/:publicKey/messages scopes duplicate client ids to a conversation', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: validMessagePayload(),
+    });
+    const secondConversationResponse = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: {
+        visitorSessionId: VISITOR_SESSION_ID_B,
+        conversationId: CONVERSATION_ID_B,
+        clientMessageId: 'client-message-1',
+        body: 'Same client id in another conversation',
+      },
+    });
+
+    assert.equal(firstResponse.statusCode, 200);
+    assert.equal(secondConversationResponse.statusCode, 200);
+    assert.deepEqual(
+      [firstResponse.json().message, secondConversationResponse.json().message].map(
+        (message: { conversationId: string; seq: number; clientMessageId: string; body: string }) => ({
+          conversationId: message.conversationId,
+          seq: message.seq,
+          clientMessageId: message.clientMessageId,
+          body: message.body,
+        }),
+      ),
+      [
+        {
+          conversationId: CONVERSATION_ID_A,
+          seq: 1,
+          clientMessageId: 'client-message-1',
+          body: 'Hello from visitor',
+        },
+        {
+          conversationId: CONVERSATION_ID_B,
+          seq: 1,
+          clientMessageId: 'client-message-1',
+          body: 'Same client id in another conversation',
+        },
+      ],
+    );
+    assert.deepEqual(fake.messageClientMessageLookups, [
+      { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
+      { conversationId: CONVERSATION_ID_B, clientMessageId: 'client-message-1' },
+    ]);
+    assert.deepEqual(fake.messageSeqLookups, [CONVERSATION_ID_A, CONVERSATION_ID_B]);
+    assert.equal(fake.messageInserts.length, 2);
+  } finally {
+    await app.close();
+  }
+});
 
 test('GET /api/widgets/:publicKey/messages returns conversation messages in seq order', async () => {
   const fake = createEnabledFakeDatabase({
@@ -831,7 +970,7 @@ test('findConversationForVisitorMessage distinguishes open, closed, and wrong-ow
   }), { status: 'not_found' });
 });
 
-test('visitor message route has no fake reply, streaming, idempotency, Gateway, or UI behavior', () => {
+test('visitor message route has no fake reply, streaming, Gateway, or UI behavior', () => {
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages/);
   assert.match(visitorMessageSource, /app\.get/);
   assert.match(visitorMessageSource, /insertConversationMessage/);

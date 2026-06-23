@@ -24,6 +24,7 @@ type MessageInsertValues = Omit<StoredMessage, 'id'>;
 type FakeDatabase = {
   database: DatabaseClient;
   messageSelects: Array<{ conversationId: string; order: 'asc' | 'desc'; limit?: number; afterSeq?: number }>;
+  messageClientMessageLookups: Array<{ conversationId: string; clientMessageId: string }>;
   messageInserts: MessageInsertValues[];
   messages: StoredMessage[];
 };
@@ -34,12 +35,15 @@ const messageSource = await readFile(new URL('./message.ts', import.meta.url), '
 
 function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase {
   const messageSelects: Array<{ conversationId: string; order: 'asc' | 'desc'; limit?: number; afterSeq?: number }> = [];
+  const messageClientMessageLookups: Array<{ conversationId: string; clientMessageId: string }> = [];
   const messageInserts: MessageInsertValues[] = [];
   const messages = [...initialMessages];
 
   function createMessageSelectQuery(tableName: string) {
     assert.equal(tableName, 'messages');
     let conversationId: string | undefined;
+    let clientMessageId: string | undefined;
+    let sender: MessageSender | undefined;
     let order: 'asc' | 'desc' = 'asc';
     let limitCount: number | undefined;
     let afterSeq: number | undefined;
@@ -54,6 +58,23 @@ function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase
           }
 
           conversationId = value;
+          return query;
+        }
+
+        if (column === 'client_message_id') {
+          assert.equal(operator, '=');
+          if (typeof value !== 'string') {
+            throw new Error('expected string client_message_id value');
+          }
+
+          clientMessageId = value;
+          return query;
+        }
+
+        if (column === 'sender') {
+          assert.equal(operator, '=');
+          assert.equal(value, 'visitor');
+          sender = 'visitor';
           return query;
         }
 
@@ -76,6 +97,20 @@ function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase
         return query;
       },
       executeTakeFirst: async () => {
+        if (clientMessageId !== undefined) {
+          if (!conversationId || sender !== 'visitor') {
+            throw new Error('missing visitor message replay lookup filters');
+          }
+
+          messageClientMessageLookups.push({ conversationId, clientMessageId });
+          return messages.find(
+            (message) =>
+              message.conversation_id === conversationId &&
+              message.client_message_id === clientMessageId &&
+              message.sender === 'visitor',
+          );
+        }
+
         const rows = selectRows(conversationId, order, limitCount, afterSeq);
         return rows[0];
       },
@@ -144,7 +179,7 @@ function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase
     selectFrom: createMessageSelectQuery,
   } as unknown as DatabaseClient;
 
-  return { database, messageSelects, messageInserts, messages };
+  return { database, messageSelects, messageClientMessageLookups, messageInserts, messages };
 }
 
 test('getNextMessageSeq starts at 1 and increments from the highest conversation seq', async () => {
@@ -247,6 +282,76 @@ test('insertConversationMessage assigns stable increasing seq values per convers
   );
 });
 
+
+test('insertConversationMessage replays an existing visitor message without allocating seq', async () => {
+  const fake = createFakeDatabase([
+    messageRow({
+      id: 'message-1',
+      conversationId: 'conversation-a',
+      seq: 1,
+      clientMessageId: 'client-message-1',
+      body: 'Original body',
+    }),
+  ]);
+
+  const message = await insertConversationMessage(fake.database, {
+    conversationId: 'conversation-a',
+    sender: 'visitor',
+    clientMessageId: 'client-message-1',
+    body: 'Conflicting retry body',
+    now: SECOND_CREATED_AT,
+  });
+
+  assert.deepEqual(message, {
+    id: 'message-1',
+    conversationId: 'conversation-a',
+    seq: 1,
+    sender: 'visitor',
+    clientMessageId: 'client-message-1',
+    body: 'Original body',
+    createdAt: FIRST_CREATED_AT,
+  });
+  assert.deepEqual(fake.messageClientMessageLookups, [
+    { conversationId: 'conversation-a', clientMessageId: 'client-message-1' },
+  ]);
+  assert.deepEqual(fake.messageSelects, []);
+  assert.deepEqual(fake.messageInserts, []);
+});
+
+test('insertConversationMessage keeps visitor client message ids scoped to a conversation', async () => {
+  const fake = createFakeDatabase([
+    messageRow({
+      id: 'message-1',
+      conversationId: 'conversation-a',
+      seq: 1,
+      clientMessageId: 'client-message-1',
+    }),
+  ]);
+
+  const message = await insertConversationMessage(fake.database, {
+    conversationId: 'conversation-b',
+    sender: 'visitor',
+    clientMessageId: 'client-message-1',
+    body: 'Same client id in another conversation',
+    now: SECOND_CREATED_AT,
+  });
+
+  assert.deepEqual(message, {
+    id: 'message-2',
+    conversationId: 'conversation-b',
+    seq: 1,
+    sender: 'visitor',
+    clientMessageId: 'client-message-1',
+    body: 'Same client id in another conversation',
+    createdAt: SECOND_CREATED_AT,
+  });
+  assert.deepEqual(fake.messageClientMessageLookups, [
+    { conversationId: 'conversation-b', clientMessageId: 'client-message-1' },
+  ]);
+  assert.deepEqual(fake.messageSelects, [{ conversationId: 'conversation-b', order: 'desc', limit: 1 }]);
+  assert.equal(fake.messageInserts.length, 1);
+});
+
 test('readMessagesForConversation returns messages in deterministic seq order', async () => {
   const fake = createFakeDatabase([
     messageRow({ id: 'message-3', conversationId: 'conversation-a', seq: 3, body: 'Third' }),
@@ -287,9 +392,10 @@ test('readMessagesForConversation can return only messages after a seq', async (
   assert.deepEqual(fake.messageSelects, [{ conversationId: 'conversation-a', order: 'asc', afterSeq: 1 }]);
 });
 
-test('message seam has no HTTP route, idempotency, streaming, fake reply, or UI behavior', () => {
+test('message seam has no HTTP route, onConflict, streaming, fake reply, or UI behavior', () => {
   assert.match(messageSource, /selectFrom\('messages'\)/);
   assert.match(messageSource, /insertInto\('messages'\)/);
+  assert.match(messageSource, /where\('client_message_id', '=', input\.clientMessageId\)/);
   assert.match(messageSource, /where\('seq', '>', options\.afterSeq\)/);
   assert.match(messageSource, /orderBy\('seq', 'asc'\)/);
   assert.match(messageSource, /orderBy\('seq', 'desc'\)/);

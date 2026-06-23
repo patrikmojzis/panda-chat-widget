@@ -60,6 +60,17 @@ export async function insertConversationMessage(
   database: DatabaseClient,
   input: InsertConversationMessageInput,
 ): Promise<ConversationMessage> {
+  if (input.sender === 'visitor') {
+    const existingMessage = await findVisitorMessageByClientMessageId(database, {
+      conversationId: input.conversationId,
+      clientMessageId: input.clientMessageId,
+    });
+
+    if (existingMessage) {
+      return existingMessage;
+    }
+  }
+
   const seq = await getNextMessageSeq(database, input.conversationId);
   const createdAt = input.now ?? new Date();
   const values = {
@@ -71,13 +82,48 @@ export async function insertConversationMessage(
     created_at: createdAt,
   } satisfies Insertable<DatabaseSchema['messages']>;
 
-  const row = (await database
-    .insertInto('messages')
-    .values(values)
-    .returning(['id', 'conversation_id', 'seq', 'sender', 'client_message_id', 'body', 'created_at'])
-    .executeTakeFirstOrThrow()) as MessageRow;
+  try {
+    const row = (await database
+      .insertInto('messages')
+      .values(values)
+      .returning(['id', 'conversation_id', 'seq', 'sender', 'client_message_id', 'body', 'created_at'])
+      .executeTakeFirstOrThrow()) as MessageRow;
 
-  return toConversationMessage(row);
+    return toConversationMessage(row);
+  } catch (error) {
+    if (input.sender === 'visitor' && isUniqueViolation(error)) {
+      const existingMessage = await findVisitorMessageByClientMessageId(database, {
+        conversationId: input.conversationId,
+        clientMessageId: input.clientMessageId,
+      });
+
+      if (existingMessage) {
+        return existingMessage;
+      }
+    }
+
+    throw error;
+  }
+}
+
+type FindVisitorMessageByClientMessageIdInput = {
+  conversationId: string;
+  clientMessageId: string;
+};
+
+async function findVisitorMessageByClientMessageId(
+  database: DatabaseClient,
+  input: FindVisitorMessageByClientMessageIdInput,
+): Promise<ConversationMessage | null> {
+  const row = (await database
+    .selectFrom('messages')
+    .select(['id', 'conversation_id', 'seq', 'sender', 'client_message_id', 'body', 'created_at'])
+    .where('conversation_id', '=', input.conversationId)
+    .where('client_message_id', '=', input.clientMessageId)
+    .where('sender', '=', 'visitor')
+    .executeTakeFirst()) as MessageRow | undefined;
+
+  return row ? toConversationMessage(row) : null;
 }
 
 export type ReadMessagesForConversationOptions = {
@@ -101,6 +147,10 @@ export async function readMessagesForConversation(
   const rows = (await query.orderBy('seq', 'asc').execute()) as MessageRow[];
 
   return rows.map(toConversationMessage);
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
 }
 
 function toConversationMessage(row: MessageRow): ConversationMessage {
