@@ -14,11 +14,12 @@ In scope today:
 - root commands that future agents and humans can run consistently
 - Fastify server seam with `GET /healthz`
 - local-only Postgres compose seam for future DB work
+- Kysely/Postgres connection seam, explicit migration runner, and initial widget tables
 
 Current non-goals:
 
 - server functionality beyond the minimal `/healthz` route
-- server database/Kysely integration, schema, migrations, or SSE runtime behavior
+- server DB usage from app startup/API routes, seed data, or SSE runtime behavior
 - React/Vite widget UI implementation
 - host-page loader runtime behavior
 - Docker, CLI, deployments, or production packaging
@@ -111,7 +112,7 @@ Run migrations explicitly after Postgres is reachable:
 pnpm --filter @panda-chat-widget/server db:migrate
 ```
 
-The migration runner currently has no product table migrations; with a live database it only uses Kysely migration metadata. Server startup does not run migrations automatically.
+The migration runner applies the initial widget tables from `apps/server/src/migrations/0001_initial_widget_tables.ts`. Server startup does not run migrations automatically.
 
 Stop it without deleting data:
 
