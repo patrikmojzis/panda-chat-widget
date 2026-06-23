@@ -81,15 +81,27 @@ test('widget UI has a Vite HTML entry and React render root', () => {
   assert.match(mainSource, /<App widgetPublicKey=\{widgetPublicKey\} bootstrapBaseHref=\{bootstrapBaseHref\} \/>/);
 });
 
-test('widget UI renders bootstrap loading, loaded, missing, and error placeholders only', () => {
+test('widget UI renders bootstrap loading, missing, and error placeholders only', () => {
   assert.match(appSource, /Loading widget configuration/);
-  assert.match(appSource, /Widget configuration loaded for/);
   assert.match(appSource, /Missing widget key/);
   assert.match(appSource, /Widget configuration could not be loaded/);
   assert.match(appSource, /data-state=\{bootstrapState\.status\}/);
   assert.match(stylesSource, /\.widget-shell/);
   assert.match(viteEnvSource, /vite\/client/);
-  assert.doesNotMatch(`${mainSource}\n${appSource}`, /XMLHttpRequest|postMessage|theme|composer/i);
+  assert.doesNotMatch(`${mainSource}\n${appSource}`, /XMLHttpRequest|postMessage|theme|composer|send/i);
+});
+
+test('loaded bootstrap renders config-driven welcome text safely', () => {
+  assert.match(appSource, /<WelcomeState bootstrap=\{state\.bootstrap\} \/>/);
+  assert.match(appSource, /assistant\.displayName/);
+  assert.match(appSource, /welcome\.title/);
+  assert.match(appSource, /welcome\.subtitle/);
+  assert.match(appSource, /\{assistant\.displayName\}/);
+  assert.match(appSource, /\{welcome\.title\}/);
+  assert.match(appSource, /\{welcome\.subtitle\}/);
+  assert.match(appSource, /The chat will appear here when the conversation UI is ready/);
+  assert.match(stylesSource, /\.widget-welcome/);
+  assert.doesNotMatch(`${appSource}\n${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|theme\./);
 });
 
 test('widget public key parser reads configured, encoded, and missing keys', () => {

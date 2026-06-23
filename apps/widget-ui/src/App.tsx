@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import { loadWidgetBootstrap, type WidgetBootstrapLoadState } from './widget-bootstrap';
+import {
+  loadWidgetBootstrap,
+  type WidgetBootstrapLoadState,
+  type WidgetBootstrapResponse,
+} from './widget-bootstrap';
 import type { WidgetPublicKeyState } from './widget-public-key';
 
 type AppProps = {
@@ -47,7 +51,6 @@ export function App({ widgetPublicKey, bootstrapBaseHref }: AppProps) {
   return (
     <main className="widget-shell" aria-label="Panda chat widget" data-state={bootstrapState.status}>
       <p className="widget-shell__eyebrow">Panda Chat Widget</p>
-      <h1>Iframe app shell</h1>
       <BootstrapPlaceholder state={bootstrapState} />
     </main>
   );
@@ -70,9 +73,22 @@ function BootstrapPlaceholder({ state }: BootstrapPlaceholderProps) {
     return <p>Widget configuration could not be loaded. The widget is unavailable for this site.</p>;
   }
 
+  return <WelcomeState bootstrap={state.bootstrap} />;
+}
+
+type WelcomeStateProps = {
+  bootstrap: WidgetBootstrapResponse;
+};
+
+function WelcomeState({ bootstrap }: WelcomeStateProps) {
+  const { assistant, welcome } = bootstrap.config;
+
   return (
-    <p>
-      Widget configuration loaded for <code>{state.bootstrap.widget.publicKey}</code>.
-    </p>
+    <section className="widget-welcome" aria-label={`${assistant.displayName} welcome`}>
+      <p className="widget-welcome__assistant">{assistant.displayName}</p>
+      <h1>{welcome.title}</h1>
+      <p>{welcome.subtitle}</p>
+      <p className="widget-welcome__empty">The chat will appear here when the conversation UI is ready.</p>
+    </section>
   );
 }
