@@ -104,6 +104,12 @@ function createFakeStorage(initialEntries = {}) {
   };
 }
 
+async function flushAsyncWork() {
+  for (let index = 0; index < 10; index += 1) {
+    await Promise.resolve();
+  }
+}
+
 
 test('widget UI package exposes real Vite scripts and dependencies', () => {
   assert.equal(packageJson.scripts.dev, 'vite --host 127.0.0.1');
@@ -143,7 +149,7 @@ test('widget UI renders bootstrap states and a minimal live chat shell', () => {
   assert.match(viteEnvSource, /vite\/client/);
   assert.doesNotMatch(`${mainSource}
 ${appSource}
-${chatSource}`, /XMLHttpRequest|postMessage|setTimeout|setInterval|Gateway|poll/i);
+${chatSource}`, /XMLHttpRequest|postMessage|Gateway|WebSocket/i);
 });
 
 
@@ -299,7 +305,6 @@ test('widget EventSource client subscribes to the live message endpoint and hand
   const { subscribeToWidgetMessages } = loadModule(compiledChatModule);
   const receivedMessages = [];
   const readyEvents = [];
-  const errorEvents = [];
   const instances = [];
 
   class FakeEventSource {
@@ -328,7 +333,6 @@ test('widget EventSource client subscribes to the live message endpoint and hand
     EventSourceImpl: FakeEventSource,
     onMessage: (message) => receivedMessages.push(message),
     onReady: () => readyEvents.push('ready'),
-    onError: () => errorEvents.push('error'),
   });
 
   assert.equal(instances.length, 1);
@@ -339,15 +343,158 @@ test('widget EventSource client subscribes to the live message endpoint and hand
 
   instances[0].listeners.message({ data: JSON.stringify({ message: sampleMessage({ id: 'message-3', seq: 3 }) }) });
   instances[0].listeners.ready({});
-  instances[0].listeners.error({});
   subscription.close();
 
   assert.deepEqual(receivedMessages.map((message) => ({ id: message.id, seq: message.seq })), [
     { id: 'message-3', seq: 3 },
   ]);
   assert.deepEqual(readyEvents, ['ready']);
+  assert.equal(instances[0].closed, true);
+});
+
+test('widget subscription polls with latest seq when EventSource is unavailable and cleans up timers', async () => {
+  const { applyWidgetChatMessage, createWidgetChatMessagesState, subscribeToWidgetMessages } = loadModule(compiledChatModule);
+  const receivedMessages = [];
+  const calls = [];
+  const intervals = [];
+  const clearedIntervals = [];
+  const responses = [
+    [sampleMessage({ id: 'message-3', seq: 3, sender: 'agent', body: 'First poll' })],
+    [
+      sampleMessage({ id: 'message-3', seq: 3, sender: 'agent', body: 'First poll duplicate' }),
+      sampleMessage({ id: 'message-4', seq: 4, sender: 'agent', body: 'Second poll' }),
+    ],
+  ];
+  const fetchImpl = async (input, init) => {
+    calls.push({ input: String(input), init });
+
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: responses.shift() ?? [] }),
+    };
+  };
+
+  const subscription = subscribeToWidgetMessages('demo-local-widget', {
+    visitorSessionId: 'visitor-session-1',
+    conversationId: 'conversation-1',
+    afterSeq: 2,
+  }, {
+    baseHref: 'https://customer.example/widget.html?publicKey=demo-local-widget',
+    fetchImpl,
+    pollIntervalMs: 25,
+    setIntervalImpl: (listener, milliseconds) => {
+      intervals.push({ listener, milliseconds });
+      return intervals.length;
+    },
+    clearIntervalImpl: (intervalId) => clearedIntervals.push(intervalId),
+    onMessage: (message) => receivedMessages.push(message),
+  });
+
+  assert.deepEqual(intervals.map((interval) => interval.milliseconds), [25]);
+  await flushAsyncWork();
+
+  assert.equal(
+    calls[0].input,
+    'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=2',
+  );
+  assert.deepEqual(receivedMessages.map((message) => ({ id: message.id, seq: message.seq })), [
+    { id: 'message-3', seq: 3 },
+  ]);
+
+  intervals[0].listener();
+  await flushAsyncWork();
+
+  assert.equal(
+    calls[1].input,
+    'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=3',
+  );
+
+  const reducedState = receivedMessages.reduce(
+    (state, message) => applyWidgetChatMessage(state, message),
+    createWidgetChatMessagesState('conversation-1'),
+  );
+  assert.deepEqual(jsonSafe(reducedState.messages.map((message) => ({ id: message.id, body: message.body, seq: message.seq }))), [
+    { id: 'message-3', body: 'First poll duplicate', seq: 3 },
+    { id: 'message-4', body: 'Second poll', seq: 4 },
+  ]);
+  assert.equal(reducedState.latestSeq, 4);
+
+  subscription.close();
+  assert.deepEqual(clearedIntervals, [1]);
+
+  intervals[0].listener();
+  await flushAsyncWork();
+  assert.equal(calls.length, 2);
+});
+
+test('widget subscription falls back to polling on EventSource errors', async () => {
+  const { subscribeToWidgetMessages } = loadModule(compiledChatModule);
+  const calls = [];
+  const errorEvents = [];
+  const intervals = [];
+  const clearedIntervals = [];
+  const instances = [];
+
+  class FakeEventSource {
+    constructor(url) {
+      this.url = url;
+      this.listeners = {};
+      this.closed = false;
+      instances.push(this);
+    }
+
+    addEventListener(event, listener) {
+      this.listeners[event] = listener;
+    }
+
+    close() {
+      this.closed = true;
+    }
+  }
+
+  const subscription = subscribeToWidgetMessages('demo-local-widget', {
+    visitorSessionId: 'visitor-session-1',
+    conversationId: 'conversation-1',
+    afterSeq: 5,
+  }, {
+    baseHref: 'https://customer.example/widget.html?publicKey=demo-local-widget',
+    EventSourceImpl: FakeEventSource,
+    fetchImpl: async (input, init) => {
+      calls.push({ input: String(input), init });
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ messages: [] }),
+      };
+    },
+    pollIntervalMs: 50,
+    setIntervalImpl: (listener, milliseconds) => {
+      intervals.push({ listener, milliseconds });
+      return intervals.length;
+    },
+    clearIntervalImpl: (intervalId) => clearedIntervals.push(intervalId),
+    onMessage: () => undefined,
+    onError: () => errorEvents.push('error'),
+  });
+
+  assert.equal(instances.length, 1);
+  assert.equal(calls.length, 0);
+
+  instances[0].listeners.error({});
+  await flushAsyncWork();
+
   assert.deepEqual(errorEvents, ['error']);
   assert.equal(instances[0].closed, true);
+  assert.deepEqual(intervals.map((interval) => interval.milliseconds), [50]);
+  assert.equal(
+    calls[0].input,
+    'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=5',
+  );
+
+  subscription.close();
+  assert.deepEqual(clearedIntervals, [1]);
 });
 
 test('widget chat message state orders, deduplicates, tracks latest seq, and ignores other conversations', () => {

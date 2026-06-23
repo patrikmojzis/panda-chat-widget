@@ -48,6 +48,10 @@ export type WidgetMessageSubscription = {
   close: () => void;
 };
 
+export type WidgetChatSetInterval = (listener: () => void, milliseconds: number) => number;
+
+export type WidgetChatClearInterval = (intervalId: number) => void;
+
 type VisitorSessionResponse = {
   visitorSession: WidgetVisitorSession;
 };
@@ -79,7 +83,11 @@ export type SendWidgetMessageInput = {
 
 export type SubscribeWidgetMessagesOptions = {
   baseHref?: string;
+  fetchImpl?: WidgetChatFetch;
   EventSourceImpl?: WidgetChatEventSourceConstructor;
+  pollIntervalMs?: number;
+  setIntervalImpl?: WidgetChatSetInterval;
+  clearIntervalImpl?: WidgetChatClearInterval;
   onMessage: (message: WidgetConversationMessage) => void;
   onReady?: () => void;
   onError?: () => void;
@@ -93,8 +101,16 @@ function defaultFetch(): WidgetChatFetch {
   return fetch;
 }
 
-function defaultEventSource(): WidgetChatEventSourceConstructor {
-  return EventSource;
+function defaultEventSource(): WidgetChatEventSourceConstructor | null {
+  return typeof EventSource === 'undefined' ? null : EventSource;
+}
+
+function defaultSetInterval(): WidgetChatSetInterval {
+  return window.setInterval.bind(window);
+}
+
+function defaultClearInterval(): WidgetChatClearInterval {
+  return window.clearInterval.bind(window);
 }
 
 function buildWidgetApiUrl(publicKey: string, path: string, baseHref = defaultBaseHref()): string {
@@ -154,25 +170,108 @@ export function subscribeToWidgetMessages(
   input: MessageReference,
   options: SubscribeWidgetMessagesOptions,
 ): WidgetMessageSubscription {
-  const EventSourceImpl = options.EventSourceImpl ?? defaultEventSource();
-  const eventSource = new EventSourceImpl(buildWidgetMessageEventsUrl(publicKey, input, options.baseHref));
+  const pollingOptions = buildPollingOptions(options);
+  const pollIntervalMs = options.pollIntervalMs ?? 3_000;
+  let latestSeq = input.afterSeq ?? 0;
+  let closed = false;
+  let eventSource: WidgetChatEventSource | null = null;
+  let pollingIntervalId: number | null = null;
+  let clearPollingInterval: WidgetChatClearInterval | null = null;
+  let pollingInFlight = false;
 
-  eventSource.addEventListener('message', (event) => {
-    if (!('data' in event) || typeof event.data !== 'string') {
+  const emitMessage = (message: WidgetConversationMessage) => {
+    if (closed) {
       return;
     }
 
-    const data = JSON.parse(event.data) as { message?: WidgetConversationMessage };
+    latestSeq = Math.max(latestSeq, message.seq);
+    options.onMessage(message);
+  };
 
-    if (data.message) {
-      options.onMessage(data.message);
+  const pollMessages = () => {
+    if (closed || pollingInFlight) {
+      return;
     }
-  });
-  eventSource.addEventListener('ready', () => options.onReady?.());
-  eventSource.addEventListener('error', () => options.onError?.());
+
+    pollingInFlight = true;
+
+    void listWidgetMessages(publicKey, {
+      visitorSessionId: input.visitorSessionId,
+      conversationId: input.conversationId,
+      afterSeq: latestSeq,
+    }, pollingOptions)
+      .then((response) => {
+        for (const message of response.messages) {
+          emitMessage(message);
+        }
+      })
+      .catch(() => {
+        if (!closed) {
+          options.onError?.();
+        }
+      })
+      .finally(() => {
+        pollingInFlight = false;
+      });
+  };
+
+  const startPolling = () => {
+    if (closed || pollingIntervalId !== null) {
+      return;
+    }
+
+    const setIntervalImpl = options.setIntervalImpl ?? defaultSetInterval();
+    eventSource?.close();
+    eventSource = null;
+    clearPollingInterval = options.clearIntervalImpl ?? defaultClearInterval();
+    pollMessages();
+    pollingIntervalId = setIntervalImpl(pollMessages, pollIntervalMs);
+  };
+
+  const EventSourceImpl = options.EventSourceImpl ?? defaultEventSource();
+
+  if (!EventSourceImpl) {
+    startPolling();
+  } else {
+    try {
+      eventSource = new EventSourceImpl(buildWidgetMessageEventsUrl(publicKey, input, options.baseHref));
+      eventSource.addEventListener('message', (event) => {
+        if (!('data' in event) || typeof event.data !== 'string') {
+          return;
+        }
+
+        const data = JSON.parse(event.data) as { message?: WidgetConversationMessage };
+
+        if (data.message) {
+          emitMessage(data.message);
+        }
+      });
+      eventSource.addEventListener('ready', () => options.onReady?.());
+      eventSource.addEventListener('error', () => {
+        options.onError?.();
+        startPolling();
+      });
+    } catch {
+      startPolling();
+    }
+  }
 
   return {
-    close: () => eventSource.close(),
+    close: () => {
+      if (closed) {
+        return;
+      }
+
+      closed = true;
+      eventSource?.close();
+      eventSource = null;
+
+      if (pollingIntervalId !== null) {
+        clearPollingInterval?.(pollingIntervalId);
+        pollingIntervalId = null;
+        clearPollingInterval = null;
+      }
+    },
   };
 }
 
@@ -208,6 +307,20 @@ export function createWidgetClientMessageId(randomBytes = defaultRandomBytes): s
   const bytes = randomBytes();
 
   return `cm_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function buildPollingOptions(options: SubscribeWidgetMessagesOptions): WidgetChatOptions {
+  const pollingOptions: WidgetChatOptions = {};
+
+  if (options.baseHref !== undefined) {
+    pollingOptions.baseHref = options.baseHref;
+  }
+
+  if (options.fetchImpl !== undefined) {
+    pollingOptions.fetchImpl = options.fetchImpl;
+  }
+
+  return pollingOptions;
 }
 
 function buildWidgetMessagesUrlForPath(
