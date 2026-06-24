@@ -7,6 +7,7 @@ import { createFakeResponderReply } from './fake-responder.ts';
 import { createConversationMessageEventEmitter } from './message-events.ts';
 import type { ConversationStatus, DatabaseClient, MessageSender } from './db.ts';
 import type { AllowedDomainRecord } from './origin-domain.ts';
+import type { PublicWriteRateLimitInput } from './rate-limit.ts';
 import { DEMO_SEED_DATA } from './seed-data.ts';
 import { findConversationForVisitorMessage } from './visitor-message.ts';
 
@@ -564,6 +565,41 @@ test('public message routes reject invalid public keys before lookup or writes',
     } finally {
       await app.close();
     }
+  }
+});
+
+test('POST /api/widgets/:publicKey/messages rate-limit hook can reject before message inserts', async () => {
+  const fake = createEnabledFakeDatabase();
+  const rateLimitInputs: PublicWriteRateLimitInput[] = [];
+  const app = buildApp({
+    database: fake.database,
+    publicWriteRateLimit: (input) => {
+      rateLimitInputs.push(input);
+      return { allowed: false, reason: 'too_many_requests' };
+    },
+  });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: validMessagePayload(),
+    });
+
+    assert.equal(response.statusCode, 429);
+    assert.deepEqual(response.json(), { error: 'rate_limited', reason: 'too_many_requests' });
+    assert.deepEqual(rateLimitInputs, [{
+      route: 'message_create',
+      publicKey: DEMO_SEED_DATA.publicWidgetKey,
+      visitorSessionId: VISITOR_SESSION_ID_A,
+      conversationId: CONVERSATION_ID_A,
+      clientMessageId: 'client-message-1',
+    }]);
+    assert.deepEqual(fake.messageInserts, []);
+    assert.deepEqual(fake.messages, []);
+  } finally {
+    await app.close();
   }
 });
 

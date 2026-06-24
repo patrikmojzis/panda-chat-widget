@@ -9,6 +9,7 @@ import {
 } from './conversation.ts';
 import type { ConversationStatus, DatabaseClient } from './db.ts';
 import type { AllowedDomainRecord } from './origin-domain.ts';
+import type { PublicWriteRateLimitInput } from './rate-limit.ts';
 import { DEMO_SEED_DATA } from './seed-data.ts';
 
 type WidgetLookupRow = {
@@ -414,6 +415,39 @@ test('POST /api/widgets/:publicKey/conversations rejects invalid public keys bef
     assert.deepEqual(fake.publicKeyLookups, []);
     assert.deepEqual(fake.visitorSessionLookups, []);
     assert.deepEqual(fake.conversationInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /api/widgets/:publicKey/conversations rate-limit hook can reject before creating conversations', async () => {
+  const fake = createEnabledFakeDatabase();
+  const rateLimitInputs: PublicWriteRateLimitInput[] = [];
+  const app = buildApp({
+    database: fake.database,
+    publicWriteRateLimit: (input) => {
+      rateLimitInputs.push(input);
+      return { allowed: false, reason: 'too_many_requests' };
+    },
+  });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/conversations`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: { visitorSessionId: VISITOR_SESSION_ID_A },
+    });
+
+    assert.equal(response.statusCode, 429);
+    assert.deepEqual(response.json(), { error: 'rate_limited', reason: 'too_many_requests' });
+    assert.deepEqual(rateLimitInputs, [{
+      route: 'conversation_create',
+      publicKey: DEMO_SEED_DATA.publicWidgetKey,
+      visitorSessionId: VISITOR_SESSION_ID_A,
+    }]);
+    assert.deepEqual(fake.conversationInserts, []);
+    assert.deepEqual(fake.conversations, []);
   } finally {
     await app.close();
   }

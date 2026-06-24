@@ -5,6 +5,7 @@ import test from 'node:test';
 import { buildApp } from './app.ts';
 import type { DatabaseClient } from './db.ts';
 import type { AllowedDomainRecord } from './origin-domain.ts';
+import type { PublicWriteRateLimitInput } from './rate-limit.ts';
 import { DEMO_SEED_DATA } from './seed-data.ts';
 import { getOrCreateVisitorSession } from './visitor-session.ts';
 
@@ -294,6 +295,39 @@ test('POST /api/widgets/:publicKey/visitor-session rejects invalid public keys b
     assert.deepEqual(response.json(), { error: 'invalid_widget_request', reason: 'missing_public_key' });
     assert.deepEqual(fake.publicKeyLookups, []);
     assert.deepEqual(fake.visitorSessionUpserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /api/widgets/:publicKey/visitor-session rate-limit hook can reject before creating sessions', async () => {
+  const fake = createEnabledFakeDatabase();
+  const rateLimitInputs: PublicWriteRateLimitInput[] = [];
+  const app = buildApp({
+    database: fake.database,
+    publicWriteRateLimit: (input) => {
+      rateLimitInputs.push(input);
+      return { allowed: false, reason: 'too_many_requests' };
+    },
+  });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/visitor-session`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: { visitorKey: VISITOR_KEY_A },
+    });
+
+    assert.equal(response.statusCode, 429);
+    assert.deepEqual(response.json(), { error: 'rate_limited', reason: 'too_many_requests' });
+    assert.deepEqual(rateLimitInputs, [{
+      route: 'visitor_session_create',
+      publicKey: DEMO_SEED_DATA.publicWidgetKey,
+      visitorKey: VISITOR_KEY_A,
+    }]);
+    assert.deepEqual(fake.visitorSessionUpserts, []);
+    assert.deepEqual(fake.visitorSessions, []);
   } finally {
     await app.close();
   }

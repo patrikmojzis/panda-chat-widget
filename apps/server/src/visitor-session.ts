@@ -8,18 +8,25 @@ import {
 } from '../../../packages/shared/src/visitor-identity.ts';
 import type { DatabaseClient, DatabaseSchema } from './db.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
+import {
+  toRateLimitErrorResponse,
+  type PublicWriteRateLimitHook,
+  type RateLimitErrorResponse,
+} from './rate-limit.ts';
 import { readPublicWidgetKey, type InvalidWidgetRequestErrorResponse } from './request-validation.ts';
 import { loadEnabledAllowedDomains } from './widget-bootstrap.ts';
 import { findWidgetByPublicKey } from './widget-lookup.ts';
 
 export type VisitorSessionRouteOptions = {
   database: DatabaseClient;
+  publicWriteRateLimit: PublicWriteRateLimitHook;
 };
 
 export type VisitorSession = VisitorSessionCreateResponse['visitorSession'];
 
 export type VisitorSessionErrorResponse =
   | InvalidWidgetRequestErrorResponse
+  | RateLimitErrorResponse
   | {
       error: 'invalid_visitor_key';
       reason: 'not_string' | 'empty' | 'invalid_format';
@@ -80,6 +87,16 @@ export function registerVisitorSessionRoutes(app: FastifyInstance, options: Visi
 
     if (!originMatch.allowed) {
       return reply.status(403).send({ error: 'origin_not_allowed', reason: originMatch.reason });
+    }
+
+    const rateLimit = await options.publicWriteRateLimit({
+      route: 'visitor_session_create',
+      publicKey: widgetLookup.widget.publicKey,
+      visitorKey: visitorKey.visitorKey,
+    });
+
+    if (!rateLimit.allowed) {
+      return reply.status(429).send(toRateLimitErrorResponse(rateLimit));
     }
 
     const visitorSession = await getOrCreateVisitorSession(options.database, {

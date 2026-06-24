@@ -14,6 +14,11 @@ import {
   type ConversationMessage,
 } from './message.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
+import {
+  toRateLimitErrorResponse,
+  type PublicWriteRateLimitHook,
+  type RateLimitErrorResponse,
+} from './rate-limit.ts';
 import { readPublicWidgetKey, type InvalidWidgetRequestErrorResponse } from './request-validation.ts';
 import {
   serializeVisitorMessageEvents,
@@ -27,6 +32,7 @@ import { findWidgetByPublicKey } from './widget-lookup.ts';
 export type VisitorMessageRouteOptions = {
   database: DatabaseClient;
   messageEvents: ConversationMessageEventEmitter;
+  publicWriteRateLimit: PublicWriteRateLimitHook;
 };
 
 export type VisitorMessageCreateRequest = {
@@ -63,6 +69,7 @@ type InvalidVisitorMessageReason =
 
 export type VisitorMessageErrorResponse =
   | InvalidWidgetRequestErrorResponse
+  | RateLimitErrorResponse
   | {
       error: 'invalid_message_request';
       reason: InvalidVisitorMessageReason;
@@ -173,6 +180,18 @@ export function registerVisitorMessageRoutes(app: FastifyInstance, options: Visi
 
     if (conversation.status === 'closed') {
       return reply.status(409).send({ error: 'conversation_closed' });
+    }
+
+    const rateLimit = await options.publicWriteRateLimit({
+      route: 'message_create',
+      publicKey: widgetLookup.widget.publicKey,
+      visitorSessionId: visitorSession.visitorSessionId,
+      conversationId: conversation.conversationId,
+      clientMessageId: messageRequest.request.clientMessageId,
+    });
+
+    if (!rateLimit.allowed) {
+      return reply.status(429).send(toRateLimitErrorResponse(rateLimit));
     }
 
     const messageResult = await insertVisitorConversationMessage(options.database, {

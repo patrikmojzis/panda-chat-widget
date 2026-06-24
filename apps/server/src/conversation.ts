@@ -4,12 +4,18 @@ import type { Insertable } from 'kysely';
 import type { VisitorSessionReference } from '../../../packages/shared/src/visitor-identity.ts';
 import type { ConversationStatus, DatabaseClient, DatabaseSchema } from './db.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
+import {
+  toRateLimitErrorResponse,
+  type PublicWriteRateLimitHook,
+  type RateLimitErrorResponse,
+} from './rate-limit.ts';
 import { readPublicWidgetKey, type InvalidWidgetRequestErrorResponse } from './request-validation.ts';
 import { loadEnabledAllowedDomains } from './widget-bootstrap.ts';
 import { findWidgetByPublicKey } from './widget-lookup.ts';
 
 export type ConversationRouteOptions = {
   database: DatabaseClient;
+  publicWriteRateLimit: PublicWriteRateLimitHook;
 };
 
 export type ActiveConversation = {
@@ -24,6 +30,7 @@ export type ConversationCreateResponse = {
 
 export type ConversationErrorResponse =
   | InvalidWidgetRequestErrorResponse
+  | RateLimitErrorResponse
   | {
       error: 'invalid_visitor_session';
       reason: 'missing_visitor_session_id' | 'invalid_visitor_session_id';
@@ -101,6 +108,16 @@ export function registerConversationRoutes(app: FastifyInstance, options: Conver
 
     if (!visitorSession) {
       return reply.status(404).send({ error: 'visitor_session_not_found' });
+    }
+
+    const rateLimit = await options.publicWriteRateLimit({
+      route: 'conversation_create',
+      publicKey: widgetLookup.widget.publicKey,
+      visitorSessionId: visitorSession.visitorSessionId,
+    });
+
+    if (!rateLimit.allowed) {
+      return reply.status(429).send(toRateLimitErrorResponse(rateLimit));
     }
 
     const conversation = await getOrCreateDefaultConversation(options.database, {
