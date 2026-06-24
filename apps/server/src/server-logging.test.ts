@@ -11,6 +11,7 @@ import {
 
 const appSource = await readFile(new URL('./app.ts', import.meta.url), 'utf8');
 const mainSource = await readFile(new URL('./main.ts', import.meta.url), 'utf8');
+const serverRuntimeSource = await readFile(new URL('./server-runtime.ts', import.meta.url), 'utf8');
 const migrateSource = await readFile(new URL('./migrate.ts', import.meta.url), 'utf8');
 const seedSource = await readFile(new URL('./seed.ts', import.meta.url), 'utf8');
 const routeSources = await Promise.all([
@@ -19,7 +20,7 @@ const routeSources = await Promise.all([
   readFile(new URL('./conversation.ts', import.meta.url), 'utf8'),
   readFile(new URL('./visitor-message.ts', import.meta.url), 'utf8'),
 ]);
-const serverProductSource = [appSource, mainSource, migrateSource, seedSource, ...routeSources].join('\n');
+const serverProductSource = [appSource, mainSource, serverRuntimeSource, migrateSource, seedSource, ...routeSources].join('\n');
 
 test('safe request logger drops public widget keys and query params', () => {
   assert.equal(
@@ -76,7 +77,7 @@ test('logger=true uses safe request serialization and sensitive header redaction
 test('server logging source avoids raw visitor keys, public tokens, and message bodies', () => {
   assert.match(appSource, /createSafeLoggerOptions\(true\)/);
   assert.match(appSource, /safeErrorForLog\(error\)/);
-  assert.match(mainSource, /safeErrorForLog\(error\)/);
+  assert.match(serverRuntimeSource, /safeErrorForLog\(error\)/);
   assert.match(migrateSource, /safeErrorForLog\(error\)/);
   assert.match(seedSource, /safeErrorForLog\(error\)/);
   assert.doesNotMatch(serverProductSource, /console\.error\(error\)|\{\s*err:\s*error\s*\}/);
@@ -87,7 +88,8 @@ test('server logging source avoids raw visitor keys, public tokens, and message 
 
   assert.deepEqual(logLines, [
     "    request.log.error({ error: safeErrorForLog(error) }, 'request failed');",
-    "  app.log.error({ error: safeErrorForLog(error) }, 'server failed to start');",
+    "    app.log.error({ error: safeErrorForLog(error) }, 'server failed to start');",
+    "    app.log.error({ error: safeErrorForLog(error) }, 'server cleanup failed after start failure');",
   ]);
   assert.doesNotMatch(logLines.join('\n'), /visitorKey|visitor_key|publicKey|body|request\.body|message/i);
 });

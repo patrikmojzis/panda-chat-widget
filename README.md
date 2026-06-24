@@ -23,11 +23,11 @@ Local validation in the current agent environment has run under Node `v22.23.0`;
 
 | Path | Package | Current responsibility |
 | --- | --- | --- |
-| `apps/server` | `@panda-chat-widget/server` | Fastify health route, tested public widget API seams, Kysely schema/migrations/seed, process-local SSE contracts. |
+| `apps/server` | `@panda-chat-widget/server` | Fastify health route, public widget API routes, Kysely schema/migrations/seed, process-local SSE contracts. |
 | `apps/widget-ui` | `@panda-chat-widget/widget-ui` | React/Vite iframe widget UI and widget API client. |
 | `packages/loader` | `@panda-chat-widget/loader` | Vanilla host-page loader that mounts a launcher and iframe. |
 | `packages/shared` | `@panda-chat-widget/shared` | Shared visitor identity contract. |
-| `examples/basic-html` | `@panda-chat-widget/basic-html` | Static host-page demo for the built loader. |
+| `examples/basic-html` | `@panda-chat-widget/basic-html` | Local clickable host-page demo that serves the built loader/widget UI and proxies `/api/*` to the backend. |
 
 ## Embed snippet
 
@@ -39,8 +39,6 @@ After building/copying the loader, a host page embeds it with a public widget ke
 
 Supported key attributes are `data-public-key`, `data-widget-key`, and `data-site-key`; script attributes win over `window.PandaChatWidgetConfig`. The loader creates a bottom-right launcher and opens an iframe at `/widget.html?publicKey=...` on the host origin.
 
-Current caveat: `examples/basic-html/widget.html` is still a static placeholder page. The real React widget UI is in `apps/widget-ui`; wiring the built iframe app into the static example/reverse-proxy setup is not finished.
-
 ## Common commands
 
 Run from the repository root unless noted.
@@ -49,67 +47,80 @@ Run from the repository root unless noted.
 | --- | --- |
 | `pnpm check` | Workspace typecheck, lint placeholders, tests, and builds. |
 | `pnpm test` | Workspace tests. |
-| `pnpm --filter @panda-chat-widget/server test` | Server API/DB/SSE contract tests using fake DB seams. |
+| `pnpm --filter @panda-chat-widget/server test` | Server API/DB/SSE/runtime contract tests using fake DB seams. |
 | `pnpm --filter @panda-chat-widget/widget-ui check` | Widget UI typecheck/tests/build. |
 | `pnpm --filter @panda-chat-widget/loader check` | Loader typecheck/tests/build. |
-| `pnpm --filter @panda-chat-widget/basic-html build` | Builds loader and copies it to `examples/basic-html/vendor/`. |
-| `pnpm --filter @panda-chat-widget/basic-html dev` | Serves the static basic HTML demo on `127.0.0.1:4173`. |
+| `pnpm --filter @panda-chat-widget/basic-html build` | Builds loader + React widget UI and copies artifacts into `examples/basic-html/vendor/` and `examples/basic-html/widget-dist/`. |
+| `pnpm --filter @panda-chat-widget/basic-html dev` | Serves the local demo on `127.0.0.1:4173` and proxies `/api/*` to `http://127.0.0.1:3000`. |
 
 Several package `lint`/`build` scripts still intentionally echo TODO placeholders. Treat `pnpm check` as the current repository validation contract, not a production build pipeline.
 
-## Local static demo
+## Local clickable demo runbook
 
-```sh
-pnpm --filter @panda-chat-widget/basic-html build
-pnpm --filter @panda-chat-widget/basic-html dev
+Use separate terminals for the server and the demo server.
+
+1. Install dependencies:
+
+   ```sh
+   corepack enable
+   pnpm install --frozen-lockfile
+   ```
+
+2. Start local Postgres:
+
+   ```sh
+   docker compose up -d postgres
+   ```
+
+3. Create/update the schema and seed the local demo widget:
+
+   ```sh
+   pnpm --filter @panda-chat-widget/server db:migrate
+   pnpm --filter @panda-chat-widget/server db:seed
+   ```
+
+   Seed data is idempotent and uses public key `demo-local-widget` with allowed domains `localhost` and `127.0.0.1`.
+
+4. Start the DB-connected Fastify server:
+
+   ```sh
+   HOST=127.0.0.1 PORT=3000 SERVER_LOGGER=false pnpm --filter @panda-chat-widget/server dev
+   ```
+
+   Health check:
+
+   ```sh
+   curl -fsS http://127.0.0.1:3000/healthz
+   # {"ok":true}
+   ```
+
+5. Build and start the basic HTML demo:
+
+   ```sh
+   pnpm --filter @panda-chat-widget/basic-html build
+   pnpm --filter @panda-chat-widget/basic-html dev
+   ```
+
+6. Open <http://127.0.0.1:4173/>, click the bottom-right `Chat` launcher, type a visitor message, and press `Send`.
+
+Expected result: the message appears in the widget, then the backend stores a deterministic local fake agent reply and delivers it through the same API/SSE/polling flow:
+
+```text
+Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but your message was received.
 ```
 
-Open <http://127.0.0.1:4173/>. The host page should load the copied loader, show a bottom-right launcher, and open the placeholder iframe page.
+The demo server is local-only. Defaults are `DEMO_HOST=127.0.0.1`, `DEMO_PORT=4173`, and `DEMO_BACKEND_URL=http://127.0.0.1:3000` (generic `HOST`, `PORT`, and `BACKEND_URL` also work). For proxied `/api/*` requests only, it synthesizes a safe localhost `Origin` when the browser omits one; the production Fastify API still enforces normal origin checks.
 
-This static demo does **not** prove the DB-backed chat flow. K6 static curl smoke and package tests were green, but browser screenshot smoke was blocked in the agent environment because no browser/browser automation was available.
-
-## Server runbook
-
-Start the current server health endpoint:
-
-```sh
-HOST=127.0.0.1 PORT=3000 SERVER_LOGGER=false pnpm --filter @panda-chat-widget/server dev
-```
-
-Health check:
-
-```sh
-curl -fsS http://127.0.0.1:3000/healthz
-# {"ok":true}
-```
-
-Environment knobs:
+## Server environment knobs
 
 | Env | Default | Notes |
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Non-empty host. |
 | `PORT` | `3000` | Integer `1`-`65535`. |
 | `SERVER_LOGGER` | `true` | `true`, `false`, `1`, or `0`; request logging redacts public widget path tokens and query strings. |
-| `DATABASE_URL` | `postgresql://panda_chat_widget:panda_chat_widget@127.0.0.1:5432/panda_chat_widget` | Used by migration/seed commands and future DB-connected runtime wiring. |
+| `DATABASE_URL` | `postgresql://panda_chat_widget:panda_chat_widget@127.0.0.1:5432/panda_chat_widget` | Used by the DB-connected server runtime, migration command, and seed command. |
 
-Current caveat: `apps/server/src/main.ts` starts `buildApp()` without a database client, so the committed dev server exposes health only. Public widget API routes are tested through `buildApp({ database })`; DB-connected runtime startup and live DB validation remain pending.
-
-## Local Postgres, migrate, seed
-
-Local-only Postgres is defined in `compose.yaml`:
-
-```sh
-docker compose up -d postgres
-pnpm --filter @panda-chat-widget/server db:migrate
-pnpm --filter @panda-chat-widget/server db:seed
-```
-
-Seed data is idempotent and uses:
-
-- site: `Demo Local Site`
-- widget: `Demo Local Widget`
-- public key: `demo-local-widget`
-- allowed domains: `localhost`, `127.0.0.1`
+## Local Postgres cleanup
 
 Stop without deleting data:
 
@@ -123,14 +134,12 @@ Reset local data:
 docker compose down -v
 ```
 
-K6 could not run DB-backed live validation in the agent environment because Docker/Postgres tooling was unavailable. Keep GitHub issue #5/live DB validation separate until it has real Docker/Postgres evidence.
-
 ## Current limitations
 
 - Fake reply only: visitor messages receive a deterministic local fake agent reply; no real AI/Gateway/Panda integration.
 - SSE is process-local memory only; no durable queue or multi-process fanout.
-- Browser screenshots/live click smoke were blocked in K6 by missing browser automation in the validation environment.
-- DB-backed live validation is pending; current server tests use fake DB seams, not a live Postgres process.
+- Browser screenshots/live click smoke require browser automation and a running local Postgres stack.
+- DB-backed live validation for GitHub issue #5 remains separate until it has real Docker/Postgres/browser evidence in the target environment.
 - No account/login identity, cross-device persistence, production auth, deployment, CLI, or Dockerized app runtime yet.
 
 ## Public planning context
