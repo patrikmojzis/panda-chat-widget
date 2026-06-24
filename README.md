@@ -1,154 +1,140 @@
 # Panda Chat Widget
 
-TypeScript/pnpm workspace for a future embeddable Panda chat widget. The repo is still early: it defines package ownership, shared TypeScript settings, a command contract, and a minimal Fastify server health endpoint.
+TypeScript/pnpm workspace for an embeddable chat widget spine. Current V1 work is still local/dev-only: vanilla loader, React/Vite iframe UI, Fastify API seams, Kysely/Postgres schema, local demo seed data, visitor sessions, conversations, messages, SSE contracts, and a deterministic fake reply.
 
-## Current scope
+There is no Panda Gateway/Panda agent integration in this repo yet.
 
-V1 is widget-only chat spine work. This repository is not a working chat widget yet.
+## Requirements
 
-In scope today:
+- Node.js `>=24.0.0 <25` (declared in `package.json`)
+- Corepack + pnpm `11.1.3`
+- Docker Compose only if you want the local Postgres service
 
-- pnpm workspace layout
-- Node 24 engine target
-- TypeScript configuration presets for Node and browser packages
-- root commands that future agents and humans can run consistently
-- Fastify server seam with `GET /healthz`
-- local-only Postgres compose seam for future DB work
-- Kysely/Postgres connection seam, explicit migration runner, initial widget tables, and local demo seed
-
-Current non-goals:
-
-- server functionality beyond the minimal `/healthz` route
-- server DB usage from app startup/API routes, production seed data, or SSE runtime behavior
-- React/Vite widget UI implementation
-- host-page loader runtime behavior
-- Docker, CLI, deployments, or production packaging
-- Panda Gateway/Panda agent integration
-- real chat logic
-
-## Workspace packages
-
-| Path | Package | Responsibility |
-| --- | --- | --- |
-| `apps/server` | `@panda-chat-widget/server` | Future API, database, and SSE service; currently owns `/healthz`. |
-| `apps/widget-ui` | `@panda-chat-widget/widget-ui` | Future iframe React widget UI. |
-| `packages/loader` | `@panda-chat-widget/loader` | Future vanilla TypeScript host-page embed script. |
-| `packages/shared` | `@panda-chat-widget/shared` | Future cross-boundary API and theme types. |
-| `examples/basic-html` | `@panda-chat-widget/basic-html` | Future basic HTML host-page example. |
-
-## Local requirements
-
-- Node.js 24.x (`package.json` targets `>=24.0.0 <25`)
-- Corepack-enabled pnpm (`packageManager` pins `pnpm@11.1.3`)
-
-Typical setup:
+Install:
 
 ```sh
 corepack enable
-pnpm install
+pnpm install --frozen-lockfile
 ```
 
-Running under another Node version may still execute the skeleton commands, but pnpm will emit engine warnings.
+Local validation in the current agent environment has run under Node `v22.23.0`; pnpm emits expected engine warnings there. Prefer Node 24 for new development.
 
-## Commands
+## Workspace
 
-Run commands from the repository root.
-
-| Command | Current behavior | What it proves today |
+| Path | Package | Current responsibility |
 | --- | --- | --- |
-| `pnpm dev` | Recursively runs package `dev` scripts in parallel. | Starts the server dev watcher; other packages currently print explicit TODO messages. |
-| `pnpm typecheck` | Recursively runs package `typecheck` scripts. | Typechecks server TypeScript; packages without `src` still print TODO. |
-| `pnpm lint` | Recursively runs package `lint` scripts. | Command wiring only; lint tooling is not installed yet. |
-| `pnpm test` | Recursively runs package `test` scripts. | Runs server Node tests, including `/healthz`; other packages still print TODO. |
-| `pnpm build` | Recursively runs package `build` scripts. | Command wiring only; real builds are not implemented yet. |
-| `pnpm check` | Runs `typecheck`, `lint`, `test`, then `build`. | One obvious validation path; server typecheck/tests are real, lint/build remain TODO placeholders. |
+| `apps/server` | `@panda-chat-widget/server` | Fastify health route, tested public widget API seams, Kysely schema/migrations/seed, process-local SSE contracts. |
+| `apps/widget-ui` | `@panda-chat-widget/widget-ui` | React/Vite iframe widget UI and widget API client. |
+| `packages/loader` | `@panda-chat-widget/loader` | Vanilla host-page loader that mounts a launcher and iframe. |
+| `packages/shared` | `@panda-chat-widget/shared` | Shared visitor identity contract. |
+| `examples/basic-html` | `@panda-chat-widget/basic-html` | Static host-page demo for the built loader. |
 
-## Server health runbook
+## Embed snippet
 
-Start the current server from the repository root:
+After building/copying the loader, a host page embeds it with a public widget key:
+
+```html
+<script src="/vendor/panda-chat-widget-loader.js" data-site-key="demo-local-widget" async></script>
+```
+
+Supported key attributes are `data-public-key`, `data-widget-key`, and `data-site-key`; script attributes win over `window.PandaChatWidgetConfig`. The loader creates a bottom-right launcher and opens an iframe at `/widget.html?publicKey=...` on the host origin.
+
+Current caveat: `examples/basic-html/widget.html` is still a static placeholder page. The real React widget UI is in `apps/widget-ui`; wiring the built iframe app into the static example/reverse-proxy setup is not finished.
+
+## Common commands
+
+Run from the repository root unless noted.
+
+| Command | What it does today |
+| --- | --- |
+| `pnpm check` | Workspace typecheck, lint placeholders, tests, and builds. |
+| `pnpm test` | Workspace tests. |
+| `pnpm --filter @panda-chat-widget/server test` | Server API/DB/SSE contract tests using fake DB seams. |
+| `pnpm --filter @panda-chat-widget/widget-ui check` | Widget UI typecheck/tests/build. |
+| `pnpm --filter @panda-chat-widget/loader check` | Loader typecheck/tests/build. |
+| `pnpm --filter @panda-chat-widget/basic-html build` | Builds loader and copies it to `examples/basic-html/vendor/`. |
+| `pnpm --filter @panda-chat-widget/basic-html dev` | Serves the static basic HTML demo on `127.0.0.1:4173`. |
+
+Several package `lint`/`build` scripts still intentionally echo TODO placeholders. Treat `pnpm check` as the current repository validation contract, not a production build pipeline.
+
+## Local static demo
+
+```sh
+pnpm --filter @panda-chat-widget/basic-html build
+pnpm --filter @panda-chat-widget/basic-html dev
+```
+
+Open <http://127.0.0.1:4173/>. The host page should load the copied loader, show a bottom-right launcher, and open the placeholder iframe page.
+
+This static demo does **not** prove the DB-backed chat flow. K6 static curl smoke and package tests were green, but browser screenshot smoke was blocked in the agent environment because no browser/browser automation was available.
+
+## Server runbook
+
+Start the current server health endpoint:
 
 ```sh
 HOST=127.0.0.1 PORT=3000 SERVER_LOGGER=false pnpm --filter @panda-chat-widget/server dev
 ```
 
-In another shell, check health:
+Health check:
 
 ```sh
 curl -fsS http://127.0.0.1:3000/healthz
+# {"ok":true}
 ```
 
-Expected response:
-
-```json
-{"ok":true}
-```
-
-Stop the dev server with `Ctrl-C`.
-
-Server package env knobs:
+Environment knobs:
 
 | Env | Default | Notes |
 | --- | --- | --- |
-| `HOST` | `127.0.0.1` | Must be non-empty. |
-| `PORT` | `3000` | Must be an integer from `1` to `65535`. |
-| `SERVER_LOGGER` | `true` | Accepts `true`, `false`, `1`, or `0`. Use `false` for quieter local smoke runs. |
-| `DATABASE_URL` | `postgresql://panda_chat_widget:panda_chat_widget@127.0.0.1:5432/panda_chat_widget` | Parsed for future DB callers; the server does not connect to it on startup yet. |
+| `HOST` | `127.0.0.1` | Non-empty host. |
+| `PORT` | `3000` | Integer `1`-`65535`. |
+| `SERVER_LOGGER` | `true` | `true`, `false`, `1`, or `0`; request logging redacts public widget path tokens and query strings. |
+| `DATABASE_URL` | `postgresql://panda_chat_widget:panda_chat_widget@127.0.0.1:5432/panda_chat_widget` | Used by migration/seed commands and future DB-connected runtime wiring. |
 
-There is no production `start`/build artifact yet. Use `pnpm --filter @panda-chat-widget/server dev` for the current local server and `pnpm check` for validation.
+Current caveat: `apps/server/src/main.ts` starts `buildApp()` without a database client, so the committed dev server exposes health only. Public widget API routes are tested through `buildApp({ database })`; DB-connected runtime startup and live DB validation remain pending.
 
-## Local Postgres runbook
+## Local Postgres, migrate, seed
 
-The repository includes a local-only Postgres compose service for future DB slices. `DATABASE_URL` defaults to this local service, but the server does not connect to it yet.
-
-Start Postgres from the repository root:
+Local-only Postgres is defined in `compose.yaml`:
 
 ```sh
 docker compose up -d postgres
-```
-
-Run migrations explicitly after Postgres is reachable:
-
-```sh
 pnpm --filter @panda-chat-widget/server db:migrate
-```
-
-The migration runner applies the initial widget tables from `apps/server/src/migrations/0001_initial_widget_tables.ts`. Server startup does not run migrations automatically.
-
-Seed local demo data after migrations:
-
-```sh
 pnpm --filter @panda-chat-widget/server db:seed
 ```
 
-The seed is idempotent. It creates or updates `Demo Local Site`, `Demo Local Widget`, public widget key `demo-local-widget`, and allowed domains `localhost` and `127.0.0.1`. Server startup does not seed automatically.
+Seed data is idempotent and uses:
 
-Stop it without deleting data:
+- site: `Demo Local Site`
+- widget: `Demo Local Widget`
+- public key: `demo-local-widget`
+- allowed domains: `localhost`, `127.0.0.1`
+
+Stop without deleting data:
 
 ```sh
 docker compose down
 ```
 
-Reset it and delete the local named volume:
+Reset local data:
 
 ```sh
 docker compose down -v
 ```
 
-Default local connection values:
+K6 could not run DB-backed live validation in the agent environment because Docker/Postgres tooling was unavailable. Keep GitHub issue #5/live DB validation separate until it has real Docker/Postgres evidence.
 
-| Setting | Value |
-| --- | --- |
-| Host | `127.0.0.1` |
-| Port | `5432` |
-| Database | `panda_chat_widget` |
-| User | `panda_chat_widget` |
-| Password | `panda_chat_widget` |
-| URL | `postgresql://panda_chat_widget:panda_chat_widget@127.0.0.1:5432/panda_chat_widget` |
+## Current limitations
 
-These credentials are non-production local development defaults only. Do not reuse them for deployed environments.
+- Fake reply only: visitor messages receive a deterministic local fake agent reply; no real AI/Gateway/Panda integration.
+- SSE is process-local memory only; no durable queue or multi-process fanout.
+- Browser screenshots/live click smoke were blocked in K6 by missing browser automation in the validation environment.
+- DB-backed live validation is pending; current server tests use fake DB seams, not a live Postgres process.
+- No account/login identity, cross-device persistence, production auth, deployment, CLI, or Dockerized app runtime yet.
 
 ## Public planning context
 
 - Mission log: [Discussion #2](https://github.com/patrikmojzis/panda-chat-widget/discussions/2)
-- Tracker issue: [#14](https://github.com/patrikmojzis/panda-chat-widget/issues/14)
-- Milestone: [#1](https://github.com/patrikmojzis/panda-chat-widget/milestone/1)
+- Parent hardening issue: [#13](https://github.com/patrikmojzis/panda-chat-widget/issues/13)
+- DB live validation tracker: [#5](https://github.com/patrikmojzis/panda-chat-widget/issues/5)
