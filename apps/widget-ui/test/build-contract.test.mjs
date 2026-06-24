@@ -418,6 +418,88 @@ test('widget chat client uses existing session, conversation, message, and SSE e
   assert.equal(calls[2].init.credentials, 'same-origin');
 });
 
+test('widget refresh flow reuses visitor identity, conversation, and message history', async () => {
+  const { createWidgetVisitorSession, createWidgetConversation, listWidgetMessages } = loadModule(compiledChatModule);
+  const { getOrCreateWidgetVisitorKey } = loadWidgetModule(compiledWidgetVisitorIdentityModule);
+  const storage = createFakeStorage();
+  const storageKey = sharedVisitorIdentity.buildVisitorKeyStorageKey('demo-local-widget');
+  const calls = [];
+  let randomCalls = 0;
+  const cryptoImpl = {
+    getRandomValues: (bytes) => {
+      randomCalls += 1;
+
+      for (let index = 0; index < bytes.length; index += 1) {
+        bytes[index] = index + 1;
+      }
+
+      return bytes;
+    },
+  };
+  const fetchImpl = async (input, init) => {
+    const url = String(input);
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ input: url, method: init?.method, body: requestBody });
+
+    if (url.endsWith('/visitor-session')) {
+      return { ok: true, status: 200, json: async () => ({ visitorSession: { id: 'visitor-session-1', visitorKey: requestBody.visitorKey } }) };
+    }
+
+    if (url.endsWith('/conversations')) {
+      return { ok: true, status: 200, json: async () => ({ conversation: { id: 'conversation-1', visitorSessionId: requestBody.visitorSessionId, status: 'open' } }) };
+    }
+
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        messages: [
+          sampleMessage({ id: 'message-1', conversationId: 'conversation-1', seq: 1, body: 'Before refresh' }),
+          sampleMessage({ id: 'message-2', conversationId: 'conversation-1', seq: 2, sender: 'agent', body: 'Still here' }),
+        ],
+      }),
+    };
+  };
+  const baseHref = 'https://customer.example/widget.html?publicKey=demo-local-widget';
+
+  async function loadChatOnce() {
+    const visitorKey = getOrCreateWidgetVisitorKey('demo-local-widget', { storage, cryptoImpl });
+    const visitorSessionResponse = await createWidgetVisitorSession('demo-local-widget', visitorKey, { baseHref, fetchImpl });
+    const conversationResponse = await createWidgetConversation(
+      'demo-local-widget',
+      visitorSessionResponse.visitorSession.id,
+      { baseHref, fetchImpl },
+    );
+    const messageListResponse = await listWidgetMessages('demo-local-widget', {
+      visitorSessionId: visitorSessionResponse.visitorSession.id,
+      conversationId: conversationResponse.conversation.id,
+    }, { baseHref, fetchImpl });
+
+    return { visitorKey, visitorSessionResponse, conversationResponse, messageListResponse };
+  }
+
+  const firstLoad = await loadChatOnce();
+  const secondLoad = await loadChatOnce();
+
+  assert.equal(secondLoad.visitorKey, firstLoad.visitorKey);
+  assert.equal(storage.entries[storageKey], firstLoad.visitorKey);
+  assert.equal(randomCalls, 1);
+  assert.equal(secondLoad.visitorSessionResponse.visitorSession.id, 'visitor-session-1');
+  assert.equal(secondLoad.conversationResponse.conversation.id, 'conversation-1');
+  assert.deepEqual(secondLoad.messageListResponse.messages.map((message) => ({ id: message.id, seq: message.seq, body: message.body })), [
+    { id: 'message-1', seq: 1, body: 'Before refresh' },
+    { id: 'message-2', seq: 2, body: 'Still here' },
+  ]);
+  assert.deepEqual(calls.map((call) => ({ input: call.input, method: call.method, body: call.body })), [
+    { input: 'https://customer.example/api/widgets/demo-local-widget/visitor-session', method: 'POST', body: { visitorKey: firstLoad.visitorKey } },
+    { input: 'https://customer.example/api/widgets/demo-local-widget/conversations', method: 'POST', body: { visitorSessionId: 'visitor-session-1' } },
+    { input: 'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1', method: 'GET', body: null },
+    { input: 'https://customer.example/api/widgets/demo-local-widget/visitor-session', method: 'POST', body: { visitorKey: firstLoad.visitorKey } },
+    { input: 'https://customer.example/api/widgets/demo-local-widget/conversations', method: 'POST', body: { visitorSessionId: 'visitor-session-1' } },
+    { input: 'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1', method: 'GET', body: null },
+  ]);
+});
+
 test('widget EventSource client subscribes to the live message endpoint and handles message events', () => {
   const { subscribeToWidgetMessages } = loadModule(compiledChatModule);
   const receivedMessages = [];

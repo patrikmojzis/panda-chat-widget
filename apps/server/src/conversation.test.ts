@@ -319,6 +319,54 @@ test('POST /api/widgets/:publicKey/conversations creates an open conversation fo
   }
 });
 
+test('POST /api/widgets/:publicKey/conversations reuses the same open conversation across refresh', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/conversations`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: { visitorSessionId: VISITOR_SESSION_ID_A },
+    });
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/conversations`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: { visitorSessionId: VISITOR_SESSION_ID_A },
+    });
+
+    const expectedConversation = {
+      conversation: {
+        id: 'conversation-1',
+        visitorSessionId: VISITOR_SESSION_ID_A,
+        status: 'open',
+      },
+    };
+
+    assert.equal(firstResponse.statusCode, 200);
+    assert.equal(secondResponse.statusCode, 200);
+    assert.deepEqual(firstResponse.json(), expectedConversation);
+    assert.deepEqual(secondResponse.json(), expectedConversation);
+    assert.deepEqual(
+      fake.conversationInserts.map((values) => ({
+        widget_id: values.widget_id,
+        visitor_session_id: values.visitor_session_id,
+        status: values.status,
+      })),
+      [{ widget_id: 'widget-id', visitor_session_id: VISITOR_SESSION_ID_A, status: 'open' }],
+    );
+    assert.equal(fake.conversations.length, 1);
+    assert.deepEqual(fake.conversationLookups, [
+      { widgetId: 'widget-id', visitorSessionId: VISITOR_SESSION_ID_A, status: 'open' },
+      { widgetId: 'widget-id', visitorSessionId: VISITOR_SESSION_ID_A, status: 'open' },
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
 test('POST /api/widgets/:publicKey/conversations reuses an existing open conversation for the visitor session', async () => {
   const fake = createEnabledFakeDatabase({
     conversations: [
