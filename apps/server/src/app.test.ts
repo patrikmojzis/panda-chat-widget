@@ -27,3 +27,22 @@ test('listen binds an existing app when called', async () => {
     await app.close();
   }
 });
+
+
+test('buildApp returns a generic 500 without exposing thrown internals', async () => {
+  const app = buildApp();
+
+  app.get('/boom', async () => {
+    throw new Error('visitor-key secret, message body secret, public token secret');
+  });
+
+  try {
+    const response = await app.inject({ method: 'GET', url: '/boom' });
+
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(response.json(), { error: 'internal_server_error' });
+    assert.doesNotMatch(response.body, /visitor-key|message body|public token|secret/i);
+  } finally {
+    await app.close();
+  }
+});

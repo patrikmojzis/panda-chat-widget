@@ -11,6 +11,7 @@ import {
   allowAllPublicWriteRateLimit,
   type PublicWriteRateLimitHook,
 } from './rate-limit.ts';
+import { createSafeLoggerOptions, safeErrorForLog } from './server-logging.ts';
 import { registerVisitorMessageRoutes } from './visitor-message.ts';
 import { registerVisitorSessionRoutes } from './visitor-session.ts';
 import { registerWidgetBootstrapRoutes } from './widget-bootstrap.ts';
@@ -23,7 +24,17 @@ export type BuildAppOptions = FastifyServerOptions & {
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const { database, messageEvents, publicWriteRateLimit = allowAllPublicWriteRateLimit, ...fastifyOptions } = options;
+
+  if (fastifyOptions.logger === true) {
+    fastifyOptions.logger = createSafeLoggerOptions(true);
+  }
+
   const app = Fastify(fastifyOptions);
+
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error({ error: safeErrorForLog(error) }, 'request failed');
+    return reply.status(500).send({ error: 'internal_server_error' });
+  });
 
   registerHealthRoutes(app);
 
