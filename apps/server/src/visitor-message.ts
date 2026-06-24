@@ -14,6 +14,7 @@ import {
   type ConversationMessage,
 } from './message.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
+import { readPublicWidgetKey, type InvalidWidgetRequestErrorResponse } from './request-validation.ts';
 import {
   serializeVisitorMessageEvents,
   shouldOpenLiveVisitorMessageEventStream,
@@ -61,6 +62,7 @@ type InvalidVisitorMessageReason =
   | 'invalid_after_seq';
 
 export type VisitorMessageErrorResponse =
+  | InvalidWidgetRequestErrorResponse
   | {
       error: 'invalid_message_request';
       reason: InvalidVisitorMessageReason;
@@ -121,13 +123,19 @@ type ConversationOwnershipResult =
 
 export function registerVisitorMessageRoutes(app: FastifyInstance, options: VisitorMessageRouteOptions): void {
   app.post<VisitorMessageCreateRoute>('/api/widgets/:publicKey/messages', async (request, reply) => {
+    const publicKey = readPublicWidgetKey(request.params);
+
+    if (publicKey.status === 'invalid') {
+      return reply.status(400).send({ error: 'invalid_widget_request', reason: publicKey.reason });
+    }
+
     const messageRequest = parseVisitorMessageRequest(request.body);
 
     if (messageRequest.status === 'invalid') {
       return reply.status(400).send({ error: 'invalid_message_request', reason: messageRequest.reason });
     }
 
-    const widgetLookup = await findWidgetByPublicKey(options.database, request.params.publicKey);
+    const widgetLookup = await findWidgetByPublicKey(options.database, publicKey.publicKey);
 
     if (widgetLookup.status === 'not_found') {
       return reply.status(404).send({ error: 'widget_not_found' });
@@ -190,13 +198,19 @@ export function registerVisitorMessageRoutes(app: FastifyInstance, options: Visi
   });
 
   app.get<VisitorMessageListRoute>('/api/widgets/:publicKey/messages', async (request, reply) => {
+    const publicKey = readPublicWidgetKey(request.params);
+
+    if (publicKey.status === 'invalid') {
+      return reply.status(400).send({ error: 'invalid_widget_request', reason: publicKey.reason });
+    }
+
     const messageRequest = parseVisitorMessageListQuery(request.query);
 
     if (messageRequest.status === 'invalid') {
       return reply.status(400).send({ error: 'invalid_message_request', reason: messageRequest.reason });
     }
 
-    const widgetLookup = await findWidgetByPublicKey(options.database, request.params.publicKey);
+    const widgetLookup = await findWidgetByPublicKey(options.database, publicKey.publicKey);
 
     if (widgetLookup.status === 'not_found') {
       return reply.status(404).send({ error: 'widget_not_found' });
@@ -244,13 +258,19 @@ export function registerVisitorMessageRoutes(app: FastifyInstance, options: Visi
   });
 
   app.get<VisitorMessageEventsRoute>('/api/widgets/:publicKey/messages/events', async (request, reply) => {
+    const publicKey = readPublicWidgetKey(request.params);
+
+    if (publicKey.status === 'invalid') {
+      return reply.status(400).send({ error: 'invalid_widget_request', reason: publicKey.reason });
+    }
+
     const messageRequest = parseVisitorMessageListQuery(request.query);
 
     if (messageRequest.status === 'invalid') {
       return reply.status(400).send({ error: 'invalid_message_request', reason: messageRequest.reason });
     }
 
-    const widgetLookup = await findWidgetByPublicKey(options.database, request.params.publicKey);
+    const widgetLookup = await findWidgetByPublicKey(options.database, publicKey.publicKey);
 
     if (widgetLookup.status === 'not_found') {
       return reply.status(404).send({ error: 'widget_not_found' });

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { DatabaseClient } from './db.ts';
 import { matchOriginToAllowedDomains, type AllowedDomainRecord } from './origin-domain.ts';
+import { readPublicWidgetKey, type InvalidWidgetRequestErrorResponse } from './request-validation.ts';
 import { findWidgetByPublicKey } from './widget-lookup.ts';
 
 export type WidgetBootstrapRouteOptions = {
@@ -63,6 +64,7 @@ export type WidgetBootstrapResponse = {
 };
 
 export type WidgetBootstrapErrorResponse =
+  | InvalidWidgetRequestErrorResponse
   | {
       error: 'widget_not_found';
     }
@@ -84,7 +86,13 @@ type WidgetBootstrapRoute = {
 
 export function registerWidgetBootstrapRoutes(app: FastifyInstance, options: WidgetBootstrapRouteOptions): void {
   app.get<WidgetBootstrapRoute>('/api/widgets/:publicKey/bootstrap', async (request, reply) => {
-    const widgetLookup = await findWidgetByPublicKey(options.database, request.params.publicKey);
+    const publicKey = readPublicWidgetKey(request.params);
+
+    if (publicKey.status === 'invalid') {
+      return reply.status(400).send({ error: 'invalid_widget_request', reason: publicKey.reason });
+    }
+
+    const widgetLookup = await findWidgetByPublicKey(options.database, publicKey.publicKey);
 
     if (widgetLookup.status === 'not_found') {
       return reply.status(404).send({ error: 'widget_not_found' });

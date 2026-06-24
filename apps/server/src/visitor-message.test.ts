@@ -523,6 +523,50 @@ test('POST /api/widgets/:publicKey/messages stores a visitor message then a fake
 
 
 
+test('public message routes reject invalid public keys before lookup or writes', async () => {
+  const query = new URLSearchParams({
+    visitorSessionId: VISITOR_SESSION_ID_A,
+    conversationId: CONVERSATION_ID_A,
+  });
+  const cases = [
+    { method: 'POST', url: '/api/widgets/%20/messages', payload: validMessagePayload() },
+    { method: 'GET', url: `/api/widgets/%20/messages?${query}` },
+    { method: 'GET', url: `/api/widgets/%20/messages/events?${query}` },
+  ] as const;
+
+  for (const request of cases) {
+    const fake = createEnabledFakeDatabase();
+    const app = buildApp({ database: fake.database });
+
+    try {
+      const response = await app.inject(
+        'payload' in request
+          ? {
+              method: request.method,
+              url: request.url,
+              headers: { origin: 'http://localhost:5173' },
+              payload: request.payload,
+            }
+          : {
+              method: request.method,
+              url: request.url,
+              headers: { origin: 'http://localhost:5173' },
+            },
+      );
+
+      assert.equal(response.statusCode, 400);
+      assert.deepEqual(response.json(), { error: 'invalid_widget_request', reason: 'missing_public_key' });
+      assert.deepEqual(fake.publicKeyLookups, []);
+      assert.deepEqual(fake.visitorSessionLookups, []);
+      assert.deepEqual(fake.conversationLookups, []);
+      assert.deepEqual(fake.messageReadLookups, []);
+      assert.deepEqual(fake.messageInserts, []);
+    } finally {
+      await app.close();
+    }
+  }
+});
+
 test('POST /api/widgets/:publicKey/messages replays the original visitor message for duplicate client ids', async () => {
   const fake = createEnabledFakeDatabase();
   const app = buildApp({ database: fake.database });

@@ -167,6 +167,26 @@ test('GET /api/widgets/:publicKey/bootstrap returns safe bootstrap JSON for an e
   }
 });
 
+test('GET /api/widgets/:publicKey/bootstrap rejects invalid public keys before widget lookup', async () => {
+  const fake = createFakeDatabase({ widget: enabledDemoWidget() });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/widgets/%20/bootstrap',
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.deepEqual(response.json(), { error: 'invalid_widget_request', reason: 'missing_public_key' });
+    assert.deepEqual(fake.publicKeyLookups, []);
+    assert.deepEqual(fake.allowedDomainWidgetLookups, []);
+  } finally {
+    await app.close();
+  }
+});
+
 test('GET /api/widgets/:publicKey/bootstrap rejects an unknown widget', async () => {
   const fake = createFakeDatabase({});
   const app = buildApp({ database: fake.database });

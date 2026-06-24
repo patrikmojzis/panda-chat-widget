@@ -4,6 +4,7 @@ import type { Insertable } from 'kysely';
 import type { VisitorSessionReference } from '../../../packages/shared/src/visitor-identity.ts';
 import type { ConversationStatus, DatabaseClient, DatabaseSchema } from './db.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
+import { readPublicWidgetKey, type InvalidWidgetRequestErrorResponse } from './request-validation.ts';
 import { loadEnabledAllowedDomains } from './widget-bootstrap.ts';
 import { findWidgetByPublicKey } from './widget-lookup.ts';
 
@@ -22,6 +23,7 @@ export type ConversationCreateResponse = {
 };
 
 export type ConversationErrorResponse =
+  | InvalidWidgetRequestErrorResponse
   | {
       error: 'invalid_visitor_session';
       reason: 'missing_visitor_session_id' | 'invalid_visitor_session_id';
@@ -63,13 +65,19 @@ type VisitorSessionRow = {
 
 export function registerConversationRoutes(app: FastifyInstance, options: ConversationRouteOptions): void {
   app.post<ConversationRoute>('/api/widgets/:publicKey/conversations', async (request, reply) => {
+    const publicKey = readPublicWidgetKey(request.params);
+
+    if (publicKey.status === 'invalid') {
+      return reply.status(400).send({ error: 'invalid_widget_request', reason: publicKey.reason });
+    }
+
     const visitorSessionId = readVisitorSessionId(request.body);
 
     if (visitorSessionId.status === 'invalid') {
       return reply.status(400).send({ error: 'invalid_visitor_session', reason: visitorSessionId.reason });
     }
 
-    const widgetLookup = await findWidgetByPublicKey(options.database, request.params.publicKey);
+    const widgetLookup = await findWidgetByPublicKey(options.database, publicKey.publicKey);
 
     if (widgetLookup.status === 'not_found') {
       return reply.status(404).send({ error: 'widget_not_found' });

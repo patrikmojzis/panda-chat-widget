@@ -397,6 +397,28 @@ test('POST /api/widgets/:publicKey/conversations keeps different visitor session
   }
 });
 
+test('POST /api/widgets/:publicKey/conversations rejects invalid public keys before validation writes', async () => {
+  const fake = createEnabledFakeDatabase();
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/widgets/%20/conversations',
+      headers: { origin: 'http://localhost:5173' },
+      payload: { visitorSessionId: VISITOR_SESSION_ID_A },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.deepEqual(response.json(), { error: 'invalid_widget_request', reason: 'missing_public_key' });
+    assert.deepEqual(fake.publicKeyLookups, []);
+    assert.deepEqual(fake.visitorSessionLookups, []);
+    assert.deepEqual(fake.conversationInserts, []);
+  } finally {
+    await app.close();
+  }
+});
+
 test('POST /api/widgets/:publicKey/conversations rejects invalid visitor session references before widget lookup', async () => {
   const fake = createEnabledFakeDatabase();
   const app = buildApp({ database: fake.database });
