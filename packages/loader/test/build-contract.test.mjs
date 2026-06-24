@@ -161,6 +161,18 @@ test('loader entry reads config and creates a URL-built iframe shell', () => {
   assert.doesNotMatch(source, /fetch\(|innerHTML|onclick|postMessage/);
 });
 
+test('loader host styling is static and avoids arbitrary CSS or HTML injection APIs', () => {
+  const styleTemplate = source.match(/styleElement\.textContent = `([\s\S]*?)`;/);
+
+  assert.ok(styleTemplate, 'loader stylesheet literal should be easy to audit');
+  assert.doesNotMatch(styleTemplate[1], /config|publicKey|widgetKey|siteKey|PandaChatWidgetConfig/);
+  assert.match(source, /iframeUrl\.searchParams\.set\('publicKey', config\.publicKey\)/);
+  assert.doesNotMatch(
+    source,
+    /dangerouslySetInnerHTML|\.innerHTML\b|insertAdjacentHTML|cssText|setAttribute\(['"]style|\.style\b|eval\(|new Function/,
+  );
+});
+
 test('loader resolves a site key from current script data attributes', () => {
   const { loader } = runLoader({ attributes: { 'data-site-key': ' demo-local-widget ' } });
 

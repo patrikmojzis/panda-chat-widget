@@ -293,6 +293,25 @@ ${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|c
 });
 
 
+test('theme config path has no arbitrary CSS or HTML injection surface', () => {
+  const themeProductSources = [
+    mainSource,
+    appSource,
+    bootstrapSource,
+    themeSource,
+    chatSource,
+    widgetVisitorIdentitySource,
+    stylesSource,
+  ].join('\n');
+
+  assert.match(themeSource, /const COLOR_MODE_CLASS_NAMES = \{[\s\S]*light: 'widget-welcome--mode-light',[\s\S]*dark: 'widget-welcome--mode-dark',[\s\S]*system: 'widget-welcome--mode-system',[\s\S]*\} as const satisfies Record<WidgetBootstrapConfig\['theme'\]\['colorMode'\], string>/);
+  assert.match(themeSource, /const ACCENT_CLASS_NAMES = \{[\s\S]*blue: 'widget-welcome--accent-blue',[\s\S]*\} as const satisfies Record<WidgetBootstrapConfig\['theme'\]\['accent'\], string>/);
+  assert.match(themeSource, /const RADIUS_CLASS_NAMES = \{[\s\S]*md: 'widget-welcome--radius-md',[\s\S]*\} as const satisfies Record<WidgetBootstrapConfig\['theme'\]\['radius'\], string>/);
+  assert.match(themeSource, /Object\.hasOwn\(tokenMap, value\)/);
+  assert.match(themeSource, /className: \[COLOR_MODE_CLASS_NAMES\[colorMode\], ACCENT_CLASS_NAMES\[accent\], RADIUS_CLASS_NAMES\[radius\]\]\.join\(' '\)/);
+  assert.doesNotMatch(themeProductSources, /dangerouslySetInnerHTML|\.innerHTML\b|insertAdjacentHTML|cssText|style=|setAttribute\(['"]style|url\(/);
+});
+
 test('widget theme resolver maps configured tokens to safe classes', () => {
   const { resolveWidgetTheme } = loadModule(compiledThemeModule);
 

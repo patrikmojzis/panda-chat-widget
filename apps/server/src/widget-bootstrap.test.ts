@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { buildApp } from './app.ts';
@@ -89,6 +90,8 @@ function enabledDemoWidget(): WidgetLookupRow {
 }
 
 
+const widgetBootstrapSource = await readFile(new URL('./widget-bootstrap.ts', import.meta.url), 'utf8');
+
 test('default widget bootstrap config uses plain text and tokenized values', () => {
   assert.deepEqual(DEFAULT_WIDGET_BOOTSTRAP_CONFIG, {
     assistant: {
@@ -130,6 +133,15 @@ test('default widget bootstrap config uses plain text and tokenized values', () 
   for (const value of tokenValues) {
     assert.match(value, /^[a-z][a-z0-9_]*$/);
   }
+});
+
+test('widget bootstrap theme config is token-only and has no arbitrary style or HTML fields', () => {
+  assert.match(widgetBootstrapSource, /export type WidgetThemeMode = 'light' \| 'dark' \| 'system';/);
+  assert.match(widgetBootstrapSource, /export type WidgetAccentToken = 'blue';/);
+  assert.match(widgetBootstrapSource, /export type WidgetRadiusToken = 'md';/);
+  assert.match(widgetBootstrapSource, /DEFAULT_WIDGET_BOOTSTRAP_CONFIG[\s\S]*satisfies WidgetBootstrapConfig/);
+  assert.doesNotMatch(widgetBootstrapSource, /(?:style|styles|css|customCss|html|markup|unsafeHtml)/i);
+  assert.doesNotMatch(widgetBootstrapSource, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|cssText|url\(/);
 });
 
 test('GET /api/widgets/:publicKey/bootstrap returns safe bootstrap JSON for an enabled widget and allowed origin', async () => {
