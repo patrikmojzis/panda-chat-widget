@@ -149,6 +149,8 @@ test('loader entry reads config and creates a URL-built iframe shell', () => {
   assert.match(source, /mountLauncher/);
   assert.match(source, /setOpen/);
   assert.match(source, /aria-expanded/);
+  assert.match(source, /aria-hidden/);
+  assert.match(source, /Hide chat/);
   assert.match(source, /panda-chat-widget-launcher/);
   assert.match(source, /panda-chat-widget-launcher-button/);
   assert.match(source, /panda-chat-widget-panel/);
@@ -198,9 +200,18 @@ test('loader mounts one fixed bottom-right launcher for configured widgets', () 
   const styleElement = document.getElementById('panda-chat-widget-loader-styles');
   assert.ok(styleElement);
   assert.match(styleElement.textContent, /position: fixed/);
-  assert.match(styleElement.textContent, /right: 20px/);
-  assert.match(styleElement.textContent, /bottom: 20px/);
+  assert.match(styleElement.textContent, /right: max\(16px, env\(safe-area-inset-right, 0px\)\)/);
+  assert.match(styleElement.textContent, /bottom: max\(16px, env\(safe-area-inset-bottom, 0px\)\)/);
+  assert.match(styleElement.textContent, /max-width: calc\(100vw - 32px - env\(safe-area-inset-left, 0px\) - env\(safe-area-inset-right, 0px\)\)/);
+  assert.match(styleElement.textContent, /max-height: calc\(100vh - 32px - env\(safe-area-inset-top, 0px\) - env\(safe-area-inset-bottom, 0px\)\)/);
   assert.match(styleElement.textContent, /z-index: 2147483647/);
+  assert.match(styleElement.textContent, /width: min\(380px, calc\(100vw - 32px - env\(safe-area-inset-left, 0px\) - env\(safe-area-inset-right, 0px\)\)\)/);
+  assert.match(styleElement.textContent, /height: min\(640px, calc\(100vh - 104px - env\(safe-area-inset-top, 0px\) - env\(safe-area-inset-bottom, 0px\)\)\)/);
+  assert.match(styleElement.textContent, /overflow: hidden/);
+  assert.match(styleElement.textContent, /flex: 1 1 0/);
+  assert.match(styleElement.textContent, /min-height: 0/);
+  assert.match(styleElement.textContent, /\[data-state="open"\] \.panda-chat-widget-launcher-button/);
+  assert.match(styleElement.textContent, /\.panda-chat-widget-panel-close:focus-visible,[\s\S]*\.panda-chat-widget-launcher-button:focus-visible/);
 
   const containerElement = document.getElementById('panda-chat-widget-launcher');
   assert.deepEqual(snapshotElement(containerElement), {
@@ -220,7 +231,8 @@ test('loader mounts one fixed bottom-right launcher for configured widgets', () 
         hidden: true,
         textContent: '',
         attributes: {
-          'aria-label': 'Chat widget shell',
+          'aria-hidden': 'true',
+          'aria-label': 'Chat widget',
           role: 'dialog',
         },
         children: [
@@ -278,19 +290,28 @@ test('loader toggles the launcher panel open and closed', () => {
 
   assert.equal(containerElement.attributes['data-state'], 'closed');
   assert.equal(panelElement.hidden, true);
+  assert.equal(panelElement.attributes['aria-hidden'], 'true');
+  assert.equal(launcherButton.textContent, 'Chat');
   assert.equal(launcherButton.attributes['aria-expanded'], 'false');
+  assert.equal(launcherButton.attributes['aria-label'], 'Chat');
 
   launcherButton.click();
 
   assert.equal(containerElement.attributes['data-state'], 'open');
   assert.equal(panelElement.hidden, false);
+  assert.equal(panelElement.attributes['aria-hidden'], 'false');
+  assert.equal(launcherButton.textContent, 'Hide chat');
   assert.equal(launcherButton.attributes['aria-expanded'], 'true');
+  assert.equal(launcherButton.attributes['aria-label'], 'Hide chat');
 
   launcherButton.click();
 
   assert.equal(containerElement.attributes['data-state'], 'closed');
   assert.equal(panelElement.hidden, true);
+  assert.equal(panelElement.attributes['aria-hidden'], 'true');
+  assert.equal(launcherButton.textContent, 'Chat');
   assert.equal(launcherButton.attributes['aria-expanded'], 'false');
+  assert.equal(launcherButton.attributes['aria-label'], 'Chat');
 });
 
 test('loader panel close button returns the launcher to closed state', () => {
@@ -303,12 +324,17 @@ test('loader panel close button returns the launcher to closed state', () => {
   launcherButton.click();
   assert.equal(containerElement.attributes['data-state'], 'open');
   assert.equal(panelElement.hidden, false);
+  assert.equal(panelElement.attributes['aria-hidden'], 'false');
+  assert.equal(launcherButton.textContent, 'Hide chat');
 
   closeButton.click();
 
   assert.equal(containerElement.attributes['data-state'], 'closed');
   assert.equal(panelElement.hidden, true);
+  assert.equal(panelElement.attributes['aria-hidden'], 'true');
+  assert.equal(launcherButton.textContent, 'Chat');
   assert.equal(launcherButton.attributes['aria-expanded'], 'false');
+  assert.equal(launcherButton.attributes['aria-label'], 'Chat');
 });
 
 test('loader iframe URL uses host origin and encodes the public key search param', () => {

@@ -38,7 +38,8 @@
   const PANEL_CLOSE_BUTTON_CLASS = 'panda-chat-widget-panel-close';
   const IFRAME_CLASS = 'panda-chat-widget-frame';
   const LAUNCHER_LABEL = 'Chat';
-  const PANEL_LABEL = 'Chat widget shell';
+  const LAUNCHER_OPEN_LABEL = 'Hide chat';
+  const PANEL_LABEL = 'Chat widget';
   const IFRAME_TITLE = 'Panda chat widget';
   const WIDGET_IFRAME_PATH = '/widget.html';
   const CLOSE_LABEL = 'Close chat';
@@ -131,9 +132,11 @@
     styleElement.textContent = `
 #${LAUNCHER_CONTAINER_ID} {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
   z-index: 2147483647;
+  max-width: calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  max-height: calc(100vh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -141,29 +144,35 @@
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLASS} {
-  width: 320px;
-  min-height: 160px;
+  box-sizing: border-box;
+  width: min(380px, calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  height: min(640px, calc(100vh - 104px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
+  min-height: min(360px, calc(100vh - 104px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
   border: 1px solid rgba(15, 23, 42, 0.12);
-  border-radius: 16px;
+  border-radius: 18px;
   background: #ffffff;
   color: #0f172a;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  overflow: hidden;
+  padding: 10px;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLASS}[hidden] {
   display: none;
 }
 #${LAUNCHER_CONTAINER_ID} .${IFRAME_CLASS} {
   border: 0;
+  border-radius: 12px;
   display: block;
-  flex: 1 1 auto;
-  min-height: 320px;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
   width: 100%;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS} {
+  align-self: flex-end;
   appearance: none;
   border: 1px solid rgba(15, 23, 42, 0.14);
   border-radius: 9999px;
@@ -172,7 +181,10 @@
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+  line-height: 1;
   padding: 8px 12px;
+  user-select: none;
+  white-space: nowrap;
 }
 #${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS} {
   appearance: none;
@@ -187,9 +199,16 @@
   font-weight: 600;
   line-height: 1;
   min-height: 48px;
+  max-width: 100%;
   min-width: 64px;
   padding: 14px 18px;
+  user-select: none;
+  white-space: nowrap;
 }
+#${LAUNCHER_CONTAINER_ID}[data-state="open"] .${LAUNCHER_BUTTON_CLASS} {
+  background: #0f172a;
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS}:focus-visible,
 #${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS}:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.35);
   outline-offset: 3px;
@@ -244,8 +263,11 @@
     function setOpen(nextIsOpen: boolean): void {
       isOpen = nextIsOpen;
       panelElement.hidden = !isOpen;
+      panelElement.setAttribute('aria-hidden', String(!isOpen));
       containerElement.setAttribute('data-state', isOpen ? 'open' : 'closed');
+      buttonElement.textContent = isOpen ? LAUNCHER_OPEN_LABEL : LAUNCHER_LABEL;
       buttonElement.setAttribute('aria-expanded', String(isOpen));
+      buttonElement.setAttribute('aria-label', isOpen ? LAUNCHER_OPEN_LABEL : LAUNCHER_LABEL);
     }
 
     buttonElement.addEventListener('click', () => {
