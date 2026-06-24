@@ -169,6 +169,18 @@ test('widget UI shell sizing stays inside iframe bounds responsively', () => {
   assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
 });
 
+test('mobile safe-area chat CSS keeps messages scrollable and composer reachable', () => {
+  assert.match(stylesSource, /\.widget-chat \{[\s\S]*min-height: 0;[\s\S]*grid-template-rows: minmax\(0, 1fr\) auto;[\s\S]*overflow: hidden;/);
+  assert.match(stylesSource, /\.widget-chat__messages \{[\s\S]*overflow-y: auto;[\s\S]*overscroll-behavior: contain;[\s\S]*scroll-padding-block: 8px max\(8px, env\(safe-area-inset-bottom, 0px\)\);/);
+  assert.match(stylesSource, /\.widget-chat__message \{[\s\S]*max-width: 86%;[\s\S]*overflow-wrap: anywhere;/);
+  assert.match(stylesSource, /\.widget-chat__composer \{[\s\S]*position: relative;[\s\S]*z-index: 1;[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;[\s\S]*padding-bottom: max\(0px, env\(safe-area-inset-bottom, 0px\)\);/);
+  assert.match(stylesSource, /\.widget-chat__composer input \{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*min-width: 0;/);
+  assert.match(stylesSource, /\.widget-chat__composer button \{[\s\S]*min-width: 0;[\s\S]*white-space: nowrap;/);
+  assert.match(stylesSource, /@media \(max-width: 359px\), \(max-height: 420px\) \{[\s\S]*\.widget-welcome \{[\s\S]*gap: 10px;[\s\S]*padding: 14px;[\s\S]*\.widget-chat__message \{[\s\S]*max-width: 92%;[\s\S]*\.widget-chat__composer input,[\s\S]*\.widget-chat__composer button \{[\s\S]*padding: 9px 10px;/);
+  assert.match(stylesSource, /@media \(max-width: 279px\) \{[\s\S]*\.widget-chat__composer \{[\s\S]*grid-template-columns: minmax\(0, 1fr\);[\s\S]*align-items: stretch;[\s\S]*\.widget-chat__composer button \{[\s\S]*width: 100%;/);
+  assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
+});
+
 test('widget state copy is friendly, compact, and avoids runtime jargon', () => {
   assert.match(appSource, /type WidgetStateMessageProps = \{[\s\S]*tone: 'loading' \| 'empty' \| 'error';/);
   assert.match(appSource, /function WidgetStateMessage\(\{ tone, title, body, role = 'status' \}: WidgetStateMessageProps\)/);

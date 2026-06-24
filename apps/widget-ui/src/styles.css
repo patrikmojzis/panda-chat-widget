@@ -208,6 +208,7 @@ body {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
+  overflow: hidden;
 }
 
 .widget-chat__messages {
@@ -215,6 +216,8 @@ body {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 8px max(8px, env(safe-area-inset-bottom, 0px));
   padding: 2px;
 }
 
@@ -230,6 +233,7 @@ body {
 .widget-chat__message {
   min-width: 0;
   max-width: 86%;
+  overflow-wrap: anywhere;
   justify-self: start;
   display: grid;
   gap: 4px;
@@ -268,10 +272,13 @@ body {
 
 .widget-chat__composer {
   min-width: 0;
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
+  padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
 }
 
 .widget-chat__composer-field {
@@ -288,6 +295,7 @@ body {
 
 .widget-chat__composer input {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   padding: 10px 12px;
   border: 1px solid #cbd5e1;
@@ -311,12 +319,14 @@ body {
 }
 
 .widget-chat__composer button {
+  min-width: 0;
   padding: 10px 14px;
   border: 0;
   border-radius: var(--widget-pill-radius);
   color: #ffffff;
   background: var(--widget-accent-color);
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -402,7 +412,7 @@ body {
 
 @media (max-width: 359px), (max-height: 420px) {
   .widget-shell {
-    gap: 10px;
+    gap: 8px;
     padding:
       max(12px, env(safe-area-inset-top, 0px))
       max(12px, env(safe-area-inset-right, 0px))
@@ -411,7 +421,56 @@ body {
   }
 
   .widget-welcome {
-    padding: 16px;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .widget-welcome h1 {
+    font-size: 20px;
+    line-height: 1.15;
+  }
+
+  .widget-welcome > p:not(.widget-welcome__assistant) {
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .widget-state {
+    min-height: 120px;
+    padding: 14px;
+  }
+
+  .widget-chat {
+    gap: 8px;
+  }
+
+  .widget-chat__message-list {
+    gap: 8px;
+  }
+
+  .widget-chat__message {
+    max-width: 92%;
+    padding: 9px 10px;
+  }
+
+  .widget-chat__composer {
+    gap: 6px;
+  }
+
+  .widget-chat__composer input,
+  .widget-chat__composer button {
+    padding: 9px 10px;
+  }
+}
+
+@media (max-width: 279px) {
+  .widget-chat__composer {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .widget-chat__composer button {
+    width: 100%;
   }
 }
 
