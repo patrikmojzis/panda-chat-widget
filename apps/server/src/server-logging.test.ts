@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
   createSafeLoggerOptions,
+  diagnosticErrorForCli,
   redactRequestUrl,
   safeErrorForLog,
   serializeRequestForLog,
@@ -47,6 +48,21 @@ test('safe error logger does not keep messages, stacks, or raw thrown values', (
   assert.doesNotMatch(JSON.stringify(safeErrorForLog(error)), /visitor-key|message body|public token|stack|secret/i);
 });
 
+test('diagnostic CLI error logger keeps useful database failures without credentials', () => {
+  const error = new Error(
+    'connect ECONNREFUSED 127.0.0.1:5432 postgresql://user:secretpass@127.0.0.1/db?token=abc',
+  );
+  error.name = 'AggregateError';
+  (error as Error & { code: string }).code = 'ECONNREFUSED';
+
+  assert.deepEqual(diagnosticErrorForCli(error), {
+    name: 'AggregateError',
+    code: 'ECONNREFUSED',
+    message: 'connect ECONNREFUSED 127.0.0.1:5432 postgresql://user:[redacted]@127.0.0.1/db?token=[redacted]',
+  });
+  assert.doesNotMatch(JSON.stringify(diagnosticErrorForCli(error)), /secretpass|token=abc|stack/i);
+});
+
 test('logger=true uses safe request serialization and sensitive header redaction', () => {
   const loggerOptions = createSafeLoggerOptions(true);
 
@@ -78,8 +94,8 @@ test('server logging source avoids raw visitor keys, public tokens, and message 
   assert.match(appSource, /createSafeLoggerOptions\(true\)/);
   assert.match(appSource, /safeErrorForLog\(error\)/);
   assert.match(serverRuntimeSource, /safeErrorForLog\(error\)/);
-  assert.match(migrateSource, /safeErrorForLog\(error\)/);
-  assert.match(seedSource, /safeErrorForLog\(error\)/);
+  assert.match(migrateSource, /diagnosticErrorForCli\(error\)/);
+  assert.match(seedSource, /diagnosticErrorForCli\(error\)/);
   assert.doesNotMatch(serverProductSource, /console\.error\(error\)|\{\s*err:\s*error\s*\}/);
   assert.doesNotMatch(seedSource, /result\.publicWidgetKey|allowedDomains\.join/);
   const logLines = serverProductSource
