@@ -1,7 +1,7 @@
 import { loadDatabaseConfig } from './config.ts';
 import { closeDatabase, createDatabase } from './db.ts';
 import { seedDemoData } from './seed-data.ts';
-import { safeErrorForLog } from './server-logging.ts';
+import { diagnosticErrorForCli } from './server-logging.ts';
 
 const database = createDatabase(loadDatabaseConfig());
 
@@ -12,7 +12,7 @@ try {
   console.log(`allowed domains: ${result.allowedDomains.length}`);
 } catch (error) {
   console.error('failed to seed demo data');
-  console.error(safeErrorForLog(error));
+  console.error(diagnosticErrorForCli(error));
   process.exitCode = 1;
 } finally {
   await closeDatabase(database);
