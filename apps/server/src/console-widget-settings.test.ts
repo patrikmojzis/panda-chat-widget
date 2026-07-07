@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { buildApp } from './app.ts';
@@ -22,6 +23,12 @@ const WIDGET_B = '40000000-0000-4000-8000-000000000002';
 const DOMAIN_A = '50000000-0000-4000-8000-000000000001';
 const DOMAIN_A2 = '50000000-0000-4000-8000-000000000003';
 const DOMAIN_B = '50000000-0000-4000-8000-000000000002';
+const CONVERSATION_A = '60000000-0000-4000-8000-000000000001';
+const CONVERSATION_A_OTHER = '60000000-0000-4000-8000-000000000011';
+const CONVERSATION_A2 = '60000000-0000-4000-8000-000000000003';
+const CONVERSATION_B = '60000000-0000-4000-8000-000000000002';
+
+const consoleWidgetSettingsSource = await readFile(new URL('./console-widget-settings.ts', import.meta.url), 'utf8');
 
 type StoredUser = {
   id: string;
@@ -85,9 +92,30 @@ type StoredDomain = {
   created_at: Date | string;
 };
 
+type StoredConversation = {
+  id: string;
+  widget_id: string;
+  visitor_session_id: string | null;
+  status: string;
+  created_at: Date | string;
+  updated_at: Date | string;
+  closed_at: Date | string | null;
+};
+
+type StoredMessage = {
+  id: string;
+  conversation_id: string;
+  seq: number;
+  sender: string;
+  client_message_id: string | null;
+  body: string;
+  created_at: Date | string;
+};
+
 type StoredPandaDeliveryIntent = {
   id: string;
   widget_id: string;
+  conversation_id: string;
   status: string;
   claimed_at: Date | string | null;
   created_at: Date | string;
@@ -110,9 +138,19 @@ type AggregateFilter = {
   value: unknown;
 };
 
+type JoinRefClause = {
+  left: string;
+  operator: string;
+  right: string;
+};
+
+type AggregateCountMode = 'string' | 'number' | 'bigint';
+
+type AggregateRowValue = string | number | bigint | Date | null;
+
 type AggregateSelection = {
   functionName: 'count' | 'max';
-  targetColumn: keyof StoredPandaDeliveryIntent;
+  targetColumn: string;
   alias: string;
   filters: AggregateFilter[];
 };
@@ -120,6 +158,7 @@ type AggregateSelection = {
 type SelectLog = {
   table: string;
   joins: string[];
+  joinRefs: JoinRefClause[];
   wheres: WhereClause[];
   orders: OrderClause[];
   aggregateSelections: AggregateSelection[];
@@ -150,7 +189,10 @@ type FakeConsoleWidgetSettingsDatabase = {
   sites: StoredSite[];
   widgets: StoredWidget[];
   domains: StoredDomain[];
+  conversations: StoredConversation[];
+  messages: StoredMessage[];
   deliveryIntents: StoredPandaDeliveryIntent[];
+  aggregateCountMode: AggregateCountMode;
   selects: SelectLog[];
   updates: UpdateLog[];
   inserts: InsertLog[];
@@ -227,7 +269,15 @@ function createFakeConsoleWidgetSettingsDatabase(): FakeConsoleWidgetSettingsDat
       domainRow(DOMAIN_A2, WIDGET_A2, 'alpha2.example'),
       domainRow(DOMAIN_B, WIDGET_B, 'beta.example'),
     ],
+    conversations: [
+      conversationRow(CONVERSATION_A, WIDGET_A),
+      conversationRow(CONVERSATION_A_OTHER, WIDGET_A),
+      conversationRow(CONVERSATION_A2, WIDGET_A2),
+      conversationRow(CONVERSATION_B, WIDGET_B),
+    ],
+    messages: [],
     deliveryIntents: [],
+    aggregateCountMode: 'string',
     selects: [],
     updates: [],
     inserts: [],
@@ -286,20 +336,69 @@ function domainRow(id: string, widgetId: string, domain: string): StoredDomain {
   };
 }
 
+function conversationRow(id: string, widgetId: string): StoredConversation {
+  return {
+    id,
+    widget_id: widgetId,
+    visitor_session_id: null,
+    status: 'open',
+    created_at: NOW,
+    updated_at: NOW,
+    closed_at: null,
+  };
+}
+
+function messageRow(
+  id: string,
+  conversationId: string,
+  seq: number,
+  sender: string,
+  clientMessageId: string | null,
+  createdAt: Date | string,
+): StoredMessage {
+  return {
+    id,
+    conversation_id: conversationId,
+    seq,
+    sender,
+    client_message_id: clientMessageId,
+    body: 'Local fake reply diagnostic test row',
+    created_at: createdAt,
+  };
+}
+
 function deliveryIntentRow(
   id: string,
   widgetId: string,
   status: string,
   createdAt: Date | string,
   claimedAt: Date | string | null = null,
+  conversationId: string = defaultConversationIdForWidget(widgetId),
 ): StoredPandaDeliveryIntent {
   return {
     id,
     widget_id: widgetId,
+    conversation_id: conversationId,
     status,
     claimed_at: claimedAt,
     created_at: createdAt,
   };
+}
+
+function defaultConversationIdForWidget(widgetId: string): string {
+  if (widgetId === WIDGET_A) {
+    return CONVERSATION_A;
+  }
+
+  if (widgetId === WIDGET_A2) {
+    return CONVERSATION_A2;
+  }
+
+  if (widgetId === WIDGET_B) {
+    return CONVERSATION_B;
+  }
+
+  return CONVERSATION_A;
 }
 
 function createConsoleApp(fake: FakeConsoleWidgetSettingsDatabase) {
@@ -313,14 +412,22 @@ function createConsoleApp(fake: FakeConsoleWidgetSettingsDatabase) {
 
 function createSelectQuery(fake: FakeConsoleWidgetSettingsDatabase, table: string) {
   const joins: string[] = [];
+  const joinRefs: JoinRefClause[] = [];
   const wheres: WhereClause[] = [];
   const orders: OrderClause[] = [];
   const aggregateSelections: AggregateSelection[] = [];
   let limitCount: number | undefined;
 
   const query = {
-    innerJoin: (joinedTable: string) => {
+    innerJoin: (joinedTable: string, first?: unknown, operator?: unknown, third?: unknown) => {
       joins.push(joinedTable);
+
+      if (typeof first === 'function') {
+        first(createJoinBuilder(joinRefs));
+      } else if (typeof first === 'string' && typeof operator === 'string' && typeof third === 'string') {
+        joinRefs.push({ left: first, operator, right: third });
+      }
+
       return query;
     },
     select: (selection?: unknown) => {
@@ -343,12 +450,12 @@ function createSelectQuery(fake: FakeConsoleWidgetSettingsDatabase, table: strin
       return query;
     },
     execute: async () => {
-      fake.selects.push(cloneSelectLog(table, joins, wheres, orders, aggregateSelections, 'execute'));
-      return selectRows(fake, table, wheres, orders, aggregateSelections, limitCount);
+      fake.selects.push(cloneSelectLog(table, joins, joinRefs, wheres, orders, aggregateSelections, 'execute'));
+      return selectRows(fake, table, joins, joinRefs, wheres, orders, aggregateSelections, limitCount);
     },
     executeTakeFirst: async () => {
-      fake.selects.push(cloneSelectLog(table, joins, wheres, orders, aggregateSelections, 'executeTakeFirst'));
-      return selectRows(fake, table, wheres, orders, aggregateSelections, limitCount)[0];
+      fake.selects.push(cloneSelectLog(table, joins, joinRefs, wheres, orders, aggregateSelections, 'executeTakeFirst'));
+      return selectRows(fake, table, joins, joinRefs, wheres, orders, aggregateSelections, limitCount)[0];
     },
   };
 
@@ -359,16 +466,27 @@ function createSelectQuery(fake: FakeConsoleWidgetSettingsDatabase, table: strin
 function createAggregateExpressionBuilder(aggregateSelections: AggregateSelection[]) {
   return {
     fn: {
-      count: (targetColumn: keyof StoredPandaDeliveryIntent) => createAggregateBuilder(aggregateSelections, 'count', targetColumn),
-      max: (targetColumn: keyof StoredPandaDeliveryIntent) => createAggregateBuilder(aggregateSelections, 'max', targetColumn),
+      count: (targetColumn: string) => createAggregateBuilder(aggregateSelections, 'count', targetColumn),
+      max: (targetColumn: string) => createAggregateBuilder(aggregateSelections, 'max', targetColumn),
     },
   };
+}
+
+function createJoinBuilder(joinRefs: JoinRefClause[]) {
+  const builder = {
+    onRef: (left: string, operator: string, right: string) => {
+      joinRefs.push({ left, operator, right });
+      return builder;
+    },
+  };
+
+  return builder;
 }
 
 function createAggregateBuilder(
   aggregateSelections: AggregateSelection[],
   functionName: AggregateSelection['functionName'],
-  targetColumn: keyof StoredPandaDeliveryIntent,
+  targetColumn: string,
 ) {
   const filters: AggregateFilter[] = [];
   const builder = {
@@ -504,6 +622,8 @@ function createDeleteQuery(fake: FakeConsoleWidgetSettingsDatabase, table: strin
 function selectRows(
   fake: FakeConsoleWidgetSettingsDatabase,
   table: string,
+  joins: string[],
+  joinRefs: JoinRefClause[],
   wheres: WhereClause[],
   orders: OrderClause[],
   aggregateSelections: AggregateSelection[],
@@ -518,6 +638,8 @@ function selectRows(
     rows = selectOwnedWidgets(fake, wheres);
   } else if (table === 'allowed_domains') {
     rows = sortRows(fake.domains.filter((domain) => matchesWhereClauses(domain, wheres)), orders);
+  } else if (table === 'panda_delivery_intents' && joins.includes('messages')) {
+    rows = [selectAppliedLocalReplyStatusRow(fake, wheres, joinRefs, aggregateSelections)];
   } else if (table === 'panda_delivery_intents') {
     rows = [selectLocalDeliveryStatusRow(fake, wheres, aggregateSelections)];
   } else {
@@ -561,20 +683,88 @@ function selectLocalDeliveryStatusRow(
   fake: FakeConsoleWidgetSettingsDatabase,
   wheres: WhereClause[],
   aggregateSelections: AggregateSelection[],
-): Record<string, string | Date | null> {
+): Record<string, AggregateRowValue> {
   const intents = fake.deliveryIntents.filter((intent) => matchesWhereClauses(intent, wheres));
-  const row: Record<string, string | Date | null> = {};
+  const row: Record<string, AggregateRowValue> = {};
 
   for (const selection of aggregateSelections) {
     const filteredIntents = intents.filter((intent) => matchesWhereClauses(intent, selection.filters));
 
     if (selection.functionName === 'count') {
-      row[selection.alias] = String(filteredIntents.length);
+      row[selection.alias] = aggregateCountValue(fake, filteredIntents.length);
       continue;
     }
 
     const values = filteredIntents
-      .map((intent) => intent[selection.targetColumn])
+      .map((intent) => intent[unqualifiedColumn(selection.targetColumn) as keyof StoredPandaDeliveryIntent])
+      .filter((value): value is Date | string => value instanceof Date || typeof value === 'string');
+    row[selection.alias] = maxDateValue(values);
+  }
+
+  return row;
+}
+
+function selectAppliedLocalReplyStatusRow(
+  fake: FakeConsoleWidgetSettingsDatabase,
+  wheres: WhereClause[],
+  joinRefs: JoinRefClause[],
+  aggregateSelections: AggregateSelection[],
+): Record<string, AggregateRowValue> {
+  const widgetId = whereValue(wheres, 'panda_delivery_intents.widget_id');
+  const senderFilter = whereValue(wheres, 'messages.sender');
+  const requiresConversationIntentJoin = hasJoinRef(joinRefs, 'conversations.id', 'panda_delivery_intents.conversation_id');
+  const requiresConversationWidgetJoin = hasJoinRef(joinRefs, 'conversations.widget_id', 'panda_delivery_intents.widget_id');
+  const requiresMessageIntentConversationJoin = hasJoinRef(
+    joinRefs,
+    'messages.conversation_id',
+    'panda_delivery_intents.conversation_id',
+  );
+  const requiresClientMessageIdMatch = wheres.some((where) => where.column === 'messages.client_message_id' && where.operator === '=');
+  const matchedMessages: StoredMessage[] = [];
+
+  for (const intent of fake.deliveryIntents) {
+    if (typeof widgetId === 'string' && intent.widget_id !== widgetId) {
+      continue;
+    }
+
+    const conversations = requiresConversationIntentJoin
+      ? fake.conversations.filter((conversation) => conversation.id === intent.conversation_id)
+      : fake.conversations;
+
+    if (
+      conversations.length === 0 ||
+      (requiresConversationWidgetJoin && !conversations.some((conversation) => conversation.widget_id === intent.widget_id))
+    ) {
+      continue;
+    }
+
+    const messages = requiresMessageIntentConversationJoin
+      ? fake.messages.filter((message) => message.conversation_id === intent.conversation_id)
+      : fake.messages;
+
+    for (const message of messages) {
+      if (typeof senderFilter === 'string' && message.sender !== senderFilter) {
+        continue;
+      }
+
+      if (requiresClientMessageIdMatch && message.client_message_id !== `local-panda-reply-v1:${intent.id}`) {
+        continue;
+      }
+
+      matchedMessages.push(message);
+    }
+  }
+
+  const row: Record<string, AggregateRowValue> = {};
+
+  for (const selection of aggregateSelections) {
+    if (selection.functionName === 'count') {
+      row[selection.alias] = aggregateCountValue(fake, matchedMessages.length);
+      continue;
+    }
+
+    const values = matchedMessages
+      .map((message) => message[unqualifiedColumn(selection.targetColumn) as keyof StoredMessage])
       .filter((value): value is Date | string => value instanceof Date || typeof value === 'string');
     row[selection.alias] = maxDateValue(values);
   }
@@ -621,6 +811,7 @@ function selectAuthSessionRow(fake: FakeConsoleWidgetSettingsDatabase, wheres: W
 function cloneSelectLog(
   table: string,
   joins: string[],
+  joinRefs: JoinRefClause[],
   wheres: WhereClause[],
   orders: OrderClause[],
   aggregateSelections: AggregateSelection[],
@@ -629,6 +820,7 @@ function cloneSelectLog(
   return {
     table,
     joins: [...joins],
+    joinRefs: joinRefs.map((joinRef) => ({ ...joinRef })),
     wheres: wheres.map((where) => ({ ...where })),
     orders: orders.map((order) => ({ ...order })),
     aggregateSelections: aggregateSelections.map((selection) => ({
@@ -679,6 +871,18 @@ function sortRows<T extends Record<string, unknown>>(rows: T[], orders: OrderCla
 
     return 0;
   });
+}
+
+function aggregateCountValue(fake: FakeConsoleWidgetSettingsDatabase, count: number): string | number | bigint {
+  if (fake.aggregateCountMode === 'bigint') {
+    return BigInt(count);
+  }
+
+  if (fake.aggregateCountMode === 'number') {
+    return count;
+  }
+
+  return String(count);
 }
 
 function maxDateValue(values: Array<Date | string>): Date | string | null {
@@ -738,6 +942,15 @@ function hasWhere(log: SelectLog, column: string, value: unknown): boolean {
   return log.wheres.some((where) => where.column === column && where.operator === '=' && where.value === value);
 }
 
+function hasJoinRef(logOrJoinRefs: SelectLog | JoinRefClause[], left: string, right: string): boolean {
+  const joinRefs = Array.isArray(logOrJoinRefs) ? logOrJoinRefs : logOrJoinRefs.joinRefs;
+
+  return joinRefs.some((joinRef) =>
+    joinRef.operator === '=' &&
+    ((joinRef.left === left && joinRef.right === right) || (joinRef.left === right && joinRef.right === left)),
+  );
+}
+
 function assertLocalDeliveryQuery(fake: FakeConsoleWidgetSettingsDatabase, widgetId: string): void {
   const log = fake.selects.find((select) => select.table === 'panda_delivery_intents' && hasWhere(select, 'widget_id', widgetId));
 
@@ -767,6 +980,40 @@ function assertLocalDeliveryQuery(fake: FakeConsoleWidgetSettingsDatabase, widge
       targetColumn: 'claimed_at',
       alias: 'last_claimed_at',
       filters: [{ column: 'status', operator: '=', value: 'claimed' }],
+    },
+  ]);
+}
+
+function assertAppliedLocalReplyQuery(fake: FakeConsoleWidgetSettingsDatabase, widgetId: string): void {
+  const log = fake.selects.find((select) =>
+    select.table === 'panda_delivery_intents' &&
+    select.joins.includes('conversations') &&
+    select.joins.includes('messages') &&
+    hasWhere(select, 'panda_delivery_intents.widget_id', widgetId),
+  );
+
+  assert.ok(log, `expected applied local fake reply query for widget ${widgetId}`);
+  assert.equal(hasWhere(log, 'panda_delivery_intents.widget_id', widgetId), true);
+  assert.equal(hasWhere(log, 'messages.sender', 'agent'), true);
+  assert.equal(
+    log.wheres.some((where) => where.column === 'messages.client_message_id' && where.operator === '='),
+    true,
+  );
+  assert.equal(hasJoinRef(log, 'conversations.id', 'panda_delivery_intents.conversation_id'), true);
+  assert.equal(hasJoinRef(log, 'conversations.widget_id', 'panda_delivery_intents.widget_id'), true);
+  assert.equal(hasJoinRef(log, 'messages.conversation_id', 'panda_delivery_intents.conversation_id'), true);
+  assert.deepEqual(log.aggregateSelections, [
+    {
+      functionName: 'count',
+      targetColumn: 'messages.id',
+      alias: 'applied_local_reply_count',
+      filters: [],
+    },
+    {
+      functionName: 'max',
+      targetColumn: 'messages.created_at',
+      alias: 'last_applied_local_reply_at',
+      filters: [],
     },
   ]);
 }
@@ -979,6 +1226,8 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
             lastQueuedAt: NOW.toISOString(),
             claimedIntentCount: 99,
             lastClaimedAt: NOW.toISOString(),
+            appliedLocalReplyCount: 99,
+            lastAppliedLocalReplyAt: NOW.toISOString(),
           },
         },
       },
@@ -986,6 +1235,8 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
       { connection: { lastQueuedAt: NOW.toISOString() } },
       { connection: { claimedIntentCount: 99 } },
       { connection: { lastClaimedAt: NOW.toISOString() } },
+      { connection: { appliedLocalReplyCount: 99 } },
+      { connection: { lastAppliedLocalReplyAt: NOW.toISOString() } },
       { connection: { routeHandle: '   ' } },
       { connection: { routeHandle: '<script>' } },
       { connection: { routeHandle: 'x'.repeat(201) } },
@@ -1058,7 +1309,14 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
     assert.deepEqual(initial.json().connection, {
       status: 'not_configured',
       routeHandle: null,
-      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null, claimedIntentCount: 0, lastClaimedAt: null },
+      localDelivery: {
+        queuedIntentCount: 0,
+        lastQueuedAt: null,
+        claimedIntentCount: 0,
+        lastClaimedAt: null,
+        appliedLocalReplyCount: 0,
+        lastAppliedLocalReplyAt: null,
+      },
     });
 
     const configured = await app.inject({
@@ -1073,7 +1331,14 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
     assert.deepEqual(configured.json().connection, {
       status: 'configured_placeholder',
       routeHandle: 'panda:workspace/alpha',
-      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null, claimedIntentCount: 0, lastClaimedAt: null },
+      localDelivery: {
+        queuedIntentCount: 0,
+        lastQueuedAt: null,
+        claimedIntentCount: 0,
+        lastClaimedAt: null,
+        appliedLocalReplyCount: 0,
+        lastAppliedLocalReplyAt: null,
+      },
     });
 
     const configureUpdate = widgetUpdateLogs(fake).at(-1);
@@ -1095,7 +1360,14 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
     assert.deepEqual(cleared.json().connection, {
       status: 'not_configured',
       routeHandle: null,
-      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null, claimedIntentCount: 0, lastClaimedAt: null },
+      localDelivery: {
+        queuedIntentCount: 0,
+        lastQueuedAt: null,
+        claimedIntentCount: 0,
+        lastClaimedAt: null,
+        appliedLocalReplyCount: 0,
+        lastAppliedLocalReplyAt: null,
+      },
     });
 
     const clearUpdate = widgetUpdateLogs(fake).at(-1);
@@ -1138,6 +1410,8 @@ test('console widget settings GET exposes queued and claimed local delivery stat
       lastQueuedAt: '2026-01-01T00:03:00.000Z',
       claimedIntentCount: 2,
       lastClaimedAt: '2026-01-01T00:04:30.000Z',
+      appliedLocalReplyCount: 0,
+      lastAppliedLocalReplyAt: null,
     });
     assertLocalDeliveryQuery(fake, WIDGET_A);
 
@@ -1153,11 +1427,131 @@ test('console widget settings GET exposes queued and claimed local delivery stat
       lastQueuedAt: null,
       claimedIntentCount: 1,
       lastClaimedAt: null,
+      appliedLocalReplyCount: 0,
+      lastAppliedLocalReplyAt: null,
     });
     assertLocalDeliveryQuery(fake, WIDGET_A2);
   } finally {
     await app.close();
   }
+});
+
+test('console widget settings GET exposes owner-only local deterministic fake reply applications for the owned widget', async () => {
+  const fake = createFakeConsoleWidgetSettingsDatabase();
+  fake.deliveryIntents = [
+    deliveryIntentRow('intent-applied-older', WIDGET_A, 'claimed', '2026-01-01T00:01:00.000Z', null, CONVERSATION_A),
+    deliveryIntentRow('intent-applied-newer', WIDGET_A, 'claimed', '2026-01-01T00:02:00.000Z', null, CONVERSATION_A),
+    deliveryIntentRow('intent-null-client', WIDGET_A, 'claimed', '2026-01-01T00:03:00.000Z', null, CONVERSATION_A),
+    deliveryIntentRow('intent-non-agent', WIDGET_A, 'claimed', '2026-01-01T00:04:00.000Z', null, CONVERSATION_A),
+    deliveryIntentRow('intent-wrong-conversation', WIDGET_A, 'claimed', '2026-01-01T00:05:00.000Z', null, CONVERSATION_A),
+    deliveryIntentRow('intent-wrong-widget', WIDGET_B, 'claimed', '2026-01-01T00:06:00.000Z', null, CONVERSATION_B),
+  ];
+  fake.messages = [
+    messageRow(
+      'message-applied-older',
+      CONVERSATION_A,
+      1,
+      'agent',
+      'local-panda-reply-v1:intent-applied-older',
+      '2026-01-01T00:10:00.000Z',
+    ),
+    messageRow(
+      'message-applied-newer',
+      CONVERSATION_A,
+      2,
+      'agent',
+      'local-panda-reply-v1:intent-applied-newer',
+      new Date('2026-01-01T00:20:00.000Z'),
+    ),
+    messageRow('ordinary-fake-reply', CONVERSATION_A, 3, 'agent', null, '2026-01-01T00:30:00.000Z'),
+    messageRow(
+      'non-agent-idempotency-match',
+      CONVERSATION_A,
+      4,
+      'visitor',
+      'local-panda-reply-v1:intent-non-agent',
+      '2026-01-01T00:40:00.000Z',
+    ),
+    messageRow(
+      'wrong-conversation-idempotency-match',
+      CONVERSATION_A_OTHER,
+      1,
+      'agent',
+      'local-panda-reply-v1:intent-wrong-conversation',
+      '2026-01-01T00:50:00.000Z',
+    ),
+    messageRow(
+      'wrong-widget-idempotency-match',
+      CONVERSATION_B,
+      1,
+      'agent',
+      'local-panda-reply-v1:intent-wrong-widget',
+      '2026-01-01T00:59:00.000Z',
+    ),
+  ];
+  const app = createConsoleApp(fake);
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/console/sites/${SITE_A}/widgets/${WIDGET_A}/settings`,
+      headers: { cookie: sessionCookie(TOKEN_A) },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().connection.localDelivery.appliedLocalReplyCount, 2);
+    assert.equal(response.json().connection.localDelivery.lastAppliedLocalReplyAt, '2026-01-01T00:20:00.000Z');
+    assertAppliedLocalReplyQuery(fake, WIDGET_A);
+  } finally {
+    await app.close();
+  }
+});
+
+test('console widget settings converts local delivery aggregate count types', async () => {
+  for (const aggregateCountMode of ['number', 'bigint'] as const) {
+    const fake = createFakeConsoleWidgetSettingsDatabase();
+    fake.aggregateCountMode = aggregateCountMode;
+    fake.deliveryIntents = [
+      deliveryIntentRow('intent-applied-count-mode', WIDGET_A, 'claimed', '2026-01-01T00:01:00.000Z', NOW, CONVERSATION_A),
+    ];
+    fake.messages = [
+      messageRow(
+        'message-applied-count-mode',
+        CONVERSATION_A,
+        1,
+        'agent',
+        'local-panda-reply-v1:intent-applied-count-mode',
+        '2026-01-01T00:02:00.000Z',
+      ),
+    ];
+    const app = createConsoleApp(fake);
+
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/console/sites/${SITE_A}/widgets/${WIDGET_A}/settings`,
+        headers: { cookie: sessionCookie(TOKEN_A) },
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.json().connection.localDelivery.claimedIntentCount, 1);
+      assert.equal(response.json().connection.localDelivery.appliedLocalReplyCount, 1);
+    } finally {
+      await app.close();
+    }
+  }
+});
+
+test('console widget settings source keeps local fake reply applications owner-only and deterministic', () => {
+  assert.match(
+    consoleWidgetSettingsSource,
+    /where\('messages\.client_message_id', '=', sql<string>`'local-panda-reply-v1:' \|\| panda_delivery_intents\.id::text`\)/,
+  );
+  assert.match(consoleWidgetSettingsSource, /where\('panda_delivery_intents\.widget_id', '=', widgetId\)/);
+  assert.match(
+    consoleWidgetSettingsSource,
+    /onRef\('conversations\.widget_id', '=', 'panda_delivery_intents\.widget_id'\)/,
+  );
 });
 
 test('console widget settings exposes gated, escaped public-key-only install snippets', async () => {

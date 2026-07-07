@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { Insertable, Updateable } from 'kysely';
+import { sql, type Insertable, type Updateable } from 'kysely';
 
 import {
   requireAuthenticatedApi,
@@ -45,6 +45,8 @@ export type ConsoleWidgetLocalDelivery = {
   lastQueuedAt: string | null;
   claimedIntentCount: number;
   lastClaimedAt: string | null;
+  appliedLocalReplyCount: number;
+  lastAppliedLocalReplyAt: string | null;
 };
 
 export type ConsoleWidgetConnection = {
@@ -233,6 +235,11 @@ type LocalDeliveryStatusRow = {
   last_queued_at: Date | string | null;
   claimed_intent_count: string | number | bigint;
   last_claimed_at: Date | string | null;
+};
+
+type AppliedLocalReplyStatusRow = {
+  applied_local_reply_count: string | number | bigint;
+  last_applied_local_reply_at: Date | string | null;
 };
 
 type DomainCreateBody = {
@@ -985,12 +992,43 @@ async function readConsoleWidgetLocalDelivery(
     ])
     .where('widget_id', '=', widgetId)
     .executeTakeFirst()) as LocalDeliveryStatusRow | undefined;
+  const appliedLocalReplies = await readConsoleWidgetAppliedLocalReplies(database, widgetId);
 
   return {
     queuedIntentCount: toCountNumber(row?.queued_intent_count),
     lastQueuedAt: row?.last_queued_at ? toIsoString(row.last_queued_at) : null,
     claimedIntentCount: toCountNumber(row?.claimed_intent_count),
     lastClaimedAt: row?.last_claimed_at ? toIsoString(row.last_claimed_at) : null,
+    ...appliedLocalReplies,
+  };
+}
+
+async function readConsoleWidgetAppliedLocalReplies(
+  database: DatabaseClient,
+  widgetId: string,
+): Promise<Pick<ConsoleWidgetLocalDelivery, 'appliedLocalReplyCount' | 'lastAppliedLocalReplyAt'>> {
+  const row = (await database
+    .selectFrom('panda_delivery_intents')
+    .innerJoin('conversations', (join) =>
+      join
+        .onRef('conversations.id', '=', 'panda_delivery_intents.conversation_id')
+        .onRef('conversations.widget_id', '=', 'panda_delivery_intents.widget_id'),
+    )
+    .innerJoin('messages', (join) =>
+      join.onRef('messages.conversation_id', '=', 'panda_delivery_intents.conversation_id'),
+    )
+    .select((eb) => [
+      eb.fn.count<string | number | bigint>('messages.id').as('applied_local_reply_count'),
+      eb.fn.max<Date | string | null>('messages.created_at').as('last_applied_local_reply_at'),
+    ])
+    .where('panda_delivery_intents.widget_id', '=', widgetId)
+    .where('messages.sender', '=', 'agent')
+    .where('messages.client_message_id', '=', sql<string>`'local-panda-reply-v1:' || panda_delivery_intents.id::text`)
+    .executeTakeFirst()) as AppliedLocalReplyStatusRow | undefined;
+
+  return {
+    appliedLocalReplyCount: toCountNumber(row?.applied_local_reply_count),
+    lastAppliedLocalReplyAt: row?.last_applied_local_reply_at ? toIsoString(row.last_applied_local_reply_at) : null,
   };
 }
 
