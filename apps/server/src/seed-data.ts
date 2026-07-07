@@ -6,6 +6,7 @@ export type DemoSeedData = {
   siteName: string;
   widgetName: string;
   publicWidgetKey: string;
+  pandaRouteHandle: string;
   allowedDomains: readonly string[];
 };
 
@@ -20,6 +21,7 @@ export const DEMO_SEED_DATA = {
   siteName: 'Demo Local Site',
   widgetName: 'Demo Local Widget',
   publicWidgetKey: 'demo-local-widget',
+  pandaRouteHandle: 'panda:local/demo',
   allowedDomains: ['localhost', '127.0.0.1'],
 } as const satisfies DemoSeedData;
 
@@ -78,6 +80,7 @@ async function upsertDemoWidget(
     public_key: seed.publicWidgetKey,
     name: seed.widgetName,
     enabled: true,
+    panda_route_handle: seed.pandaRouteHandle,
   } satisfies Insertable<DatabaseSchema['widgets']>;
 
   return database
@@ -87,6 +90,7 @@ async function upsertDemoWidget(
       site_id: siteId,
       name: seed.widgetName,
       enabled: true,
+      panda_route_handle: seed.pandaRouteHandle,
       updated_at: new Date(),
     }))
     .returning(['id', 'public_key'])
