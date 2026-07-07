@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import type { DatabaseClient, MessageSender, PandaDeliveryIntentStatus } from './db.ts';
+import { prepareNextLocalPandaDispatchDryRun } from './local-panda-dispatch-dry-run.ts';
+import { runLocalPandaDispatchDryRunCli } from './local-panda-dispatch-dry-run-cli.ts';
 import { buildLocalPandaDispatchPayloadV1 } from './local-panda-dispatch-payload.ts';
 import type { ClaimedPandaDeliveryIntent } from './panda-delivery-intents.ts';
 import { claimNextQueuedPandaDeliveryIntent, recordPandaDeliveryIntent } from './panda-delivery-intents.ts';
@@ -83,7 +85,12 @@ const NOW = new Date('2026-01-01T00:00:00.000Z');
 const CLAIMED_AT = new Date('2026-01-01T00:10:00.000Z');
 const MESSAGE_CREATED_AT = new Date('2026-01-01T00:05:00.000Z');
 const helperSource = await readFile(new URL('./panda-delivery-intents.ts', import.meta.url), 'utf8');
+const dryRunSource = await readFile(new URL('./local-panda-dispatch-dry-run.ts', import.meta.url), 'utf8');
+const dryRunCliSource = await readFile(new URL('./local-panda-dispatch-dry-run-cli.ts', import.meta.url), 'utf8');
 const payloadSource = await readFile(new URL('./local-panda-dispatch-payload.ts', import.meta.url), 'utf8');
+const appSource = await readFile(new URL('./app.ts', import.meta.url), 'utf8');
+const consoleWidgetSettingsSource = await readFile(new URL('./console-widget-settings.ts', import.meta.url), 'utf8');
+const serverPackageSource = await readFile(new URL('../package.json', import.meta.url), 'utf8');
 const migrationSource = await readFile(new URL('./migrations/0005_panda_delivery_intents.ts', import.meta.url), 'utf8');
 const claimMigrationSource = await readFile(
   new URL('./migrations/0006_panda_delivery_intent_claims.ts', import.meta.url),
@@ -763,6 +770,176 @@ test('buildLocalPandaDispatchPayloadV1 idempotency is stable and changes with va
   assert.doesNotMatch(idempotencySource, /\.join\(/);
 });
 
+test('prepareNextLocalPandaDispatchDryRun reports no queued intent without building a payload', async () => {
+  const fake = createFakeDatabase([], { messages: [messageRow()] });
+
+  assert.deepEqual(await prepareNextLocalPandaDispatchDryRun(fake.database, { now: CLAIMED_AT }), {
+    prepared: false,
+    reason: 'no_queued_intent',
+  });
+  assert.equal(fake.transactions, 1);
+  assert.deepEqual(fake.updates, []);
+  assert.equal(fake.selects.some((select) => select.table === 'messages'), false);
+});
+
+test('prepareNextLocalPandaDispatchDryRun claims the oldest queued intent and returns the v1 payload', async () => {
+  const olderCreatedAt = new Date('2026-01-01T00:01:00.000Z');
+  const newerCreatedAt = new Date('2026-01-01T00:02:00.000Z');
+  const fake = createFakeDatabase(
+    [
+      intentRow('intent-newer', { created_at: newerCreatedAt }),
+      intentRow('intent-older', {
+        widget_id: 'widget-oldest',
+        conversation_id: 'conversation-oldest',
+        visitor_session_id: 'visitor-session-oldest',
+        visitor_message_id: 'visitor-message-oldest',
+        client_message_id: 'client-message-oldest',
+        route_handle_snapshot: 'panda:workspace/oldest',
+        created_at: olderCreatedAt,
+      }),
+    ],
+    {
+      messages: [
+        messageRow({
+          id: 'visitor-message-oldest',
+          conversation_id: 'conversation-oldest',
+          client_message_id: 'client-message-oldest',
+          body: 'Oldest queued visitor message',
+        }),
+      ],
+    },
+  );
+
+  const result = await prepareNextLocalPandaDispatchDryRun(fake.database, { now: CLAIMED_AT });
+
+  if (!result.prepared) {
+    assert.fail(`expected a prepared payload, got ${result.reason}`);
+  }
+
+  assert.match(result.payload.idempotencyKey, /^local-panda-dispatch-v1:[0-9a-f]{64}$/);
+  assert.deepEqual(result, {
+    prepared: true,
+    payload: {
+      version: 1,
+      kind: 'local-panda-future-dispatch',
+      idempotencyKey: result.payload.idempotencyKey,
+      routeHandleSnapshot: 'panda:workspace/oldest',
+      intent: {
+        id: 'intent-older',
+        status: 'claimed',
+        createdAt: olderCreatedAt.toISOString(),
+        claimedAt: CLAIMED_AT.toISOString(),
+      },
+      widget: { id: 'widget-oldest' },
+      conversation: { id: 'conversation-oldest' },
+      visitorSession: { id: 'visitor-session-oldest' },
+      visitorMessage: {
+        id: 'visitor-message-oldest',
+        clientMessageId: 'client-message-oldest',
+        body: 'Oldest queued visitor message',
+        text: 'Oldest queued visitor message',
+        createdAt: MESSAGE_CREATED_AT.toISOString(),
+      },
+      correlationIds: {
+        intentId: 'intent-older',
+        widgetId: 'widget-oldest',
+        conversationId: 'conversation-oldest',
+        visitorSessionId: 'visitor-session-oldest',
+        visitorMessageId: 'visitor-message-oldest',
+        clientMessageId: 'client-message-oldest',
+      },
+      metadata: {
+        locality: 'local-only',
+        dispatch: 'future-dispatch',
+        contract: 'contract-only',
+        network: 'no-network',
+        stateMutation: 'no-state-mutation',
+        replyHandling: 'no-reply-handling',
+      },
+    },
+  });
+  assert.equal(fake.intents.find((intent) => intent.id === 'intent-older')?.status, 'claimed');
+  assert.equal(fake.intents.find((intent) => intent.id === 'intent-older')?.claimed_at, CLAIMED_AT);
+  assert.equal(fake.intents.find((intent) => intent.id === 'intent-newer')?.status, 'queued');
+});
+
+test('prepareNextLocalPandaDispatchDryRun returns a controlled build failure after claiming', async () => {
+  const fake = createFakeDatabase([intentRow('intent-1')]);
+
+  assert.deepEqual(await prepareNextLocalPandaDispatchDryRun(fake.database, { now: CLAIMED_AT }), {
+    prepared: false,
+    reason: 'visitor_message_not_found',
+  });
+  assert.equal(fake.intents[0]?.status, 'claimed');
+  assert.equal(fake.intents[0]?.claimed_at, CLAIMED_AT);
+});
+
+test('runLocalPandaDispatchDryRunCli prints explicit JSON for prepared results and closes the database', async () => {
+  const database = {} as DatabaseClient;
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const exitCodes: number[] = [];
+  const result = { prepared: false, reason: 'no_queued_intent' } as const;
+  let closedDatabase: DatabaseClient | undefined;
+
+  await runLocalPandaDispatchDryRunCli({
+    loadDatabaseConfig: () => ({ url: 'postgresql://user:pass@127.0.0.1:5432/widget' }),
+    createDatabase: (config) => {
+      assert.equal(config.url, 'postgresql://user:pass@127.0.0.1:5432/widget');
+
+      return database;
+    },
+    prepareNextLocalPandaDispatchDryRun: async (client) => {
+      assert.equal(client, database);
+
+      return result;
+    },
+    closeDatabase: async (client) => {
+      closedDatabase = client;
+    },
+    stdout: { write: (chunk) => stdout.push(chunk) },
+    stderr: { write: (chunk) => stderr.push(chunk) },
+    setExitCode: (exitCode) => exitCodes.push(exitCode),
+  });
+
+  assert.equal(closedDatabase, database);
+  assert.deepEqual(stdout, [`${JSON.stringify(result, null, 2)}\n`]);
+  assert.deepEqual(stderr, []);
+  assert.deepEqual(exitCodes, []);
+});
+
+test('runLocalPandaDispatchDryRunCli writes safe stderr and exit 1 for unexpected errors', async () => {
+  const database = {} as DatabaseClient;
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const exitCodes: number[] = [];
+  let closedDatabase: DatabaseClient | undefined;
+
+  await runLocalPandaDispatchDryRunCli({
+    loadDatabaseConfig: () => ({ url: 'postgresql://user:super-secret@127.0.0.1:5432/widget' }),
+    createDatabase: () => database,
+    prepareNextLocalPandaDispatchDryRun: async () => {
+      throw new Error('database refused postgresql://user:super-secret@127.0.0.1:5432/widget');
+    },
+    closeDatabase: async (client) => {
+      closedDatabase = client;
+    },
+    stdout: { write: (chunk) => stdout.push(chunk) },
+    stderr: { write: (chunk) => stderr.push(chunk) },
+    setExitCode: (exitCode) => exitCodes.push(exitCode),
+  });
+
+  assert.equal(closedDatabase, database);
+  assert.deepEqual(stdout, []);
+  assert.deepEqual(exitCodes, [1]);
+  assert.equal(stderr[0], 'failed to prepare local Panda dispatch payload dry run\n');
+  assert.deepEqual(JSON.parse(stderr[1] ?? '{}'), {
+    name: 'Error',
+    message: 'database refused postgresql://user:[redacted]@127.0.0.1:5432/widget',
+  });
+  assert.equal(stderr.join('').includes('super-secret'), false);
+});
+
 test('buildLocalPandaDispatchPayloadV1 only reads messages and has no dispatch side effects', async () => {
   const fake = createFakeDatabase([], { messages: [messageRow()] });
 
@@ -797,8 +974,37 @@ test('buildLocalPandaDispatchPayloadV1 only reads messages and has no dispatch s
   );
 });
 
+test('local Panda dispatch dry run composes existing local helpers without dispatch, network, or worker behavior', () => {
+  const combinedSource = `${dryRunSource}\n${dryRunCliSource}`;
+
+  assert.match(dryRunSource, /claimNextQueuedPandaDeliveryIntent/);
+  assert.match(dryRunSource, /buildLocalPandaDispatchPayloadV1/);
+  assert.doesNotMatch(dryRunSource, /insertInto|updateTable|transaction\(\)/);
+  assert.doesNotMatch(
+    combinedSource,
+    /fetch\s*\(|WebSocket|node:child_process|child_process|setTimeout\s*\(|setInterval\s*\(|Worker\s*\(|Gateway|panda\s+a2a|panda\s+send|panda\s+gateway|retry|dead-letter|reply-ingestion|dispatcher|daemon|status:\s*'sent'|status:\s*'delivered'|status:\s*'failed'/i,
+  );
+});
+
+test('local Panda dispatch dry run stays on the server CLI surface only', () => {
+  const serverPackage = JSON.parse(serverPackageSource) as { scripts?: Record<string, string> };
+
+  assert.equal(
+    serverPackage.scripts?.['local-panda:dispatch-dry-run'],
+    'node src/local-panda-dispatch-dry-run-cli.ts',
+  );
+  assert.doesNotMatch(appSource, /local-panda-dispatch-dry-run|prepareNextLocalPandaDispatchDryRun|runLocalPandaDispatchDryRunCli/);
+  assert.doesNotMatch(
+    consoleWidgetSettingsSource,
+    /local-panda-dispatch-dry-run|prepareNextLocalPandaDispatchDryRun|runLocalPandaDispatchDryRunCli/,
+  );
+});
+
 test('panda delivery intent helper is local-only storage and claim plumbing without dispatch behavior', () => {
-  assert.doesNotMatch(helperSource, /buildLocalPandaDispatchPayloadV1|LocalPandaDispatchPayloadV1|idempotencyKey|future-dispatch/);
+  assert.doesNotMatch(
+    helperSource,
+    /buildLocalPandaDispatchPayloadV1|LocalPandaDispatchPayloadV1|idempotencyKey|future-dispatch|local-panda-dispatch-dry-run|prepareNextLocalPandaDispatchDryRun/,
+  );
   assert.match(helperSource, /insertInto\('panda_delivery_intents'\)/);
   assert.match(helperSource, /onConflict/);
   assert.match(helperSource, /transaction\(\)\.execute\(async \(transaction\) =>/);

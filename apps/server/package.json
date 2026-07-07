@@ -10,7 +10,8 @@
     "lint": "echo \"TODO: lint command not implemented yet for server API/DB/SSE service\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "db:migrate": "node src/migrate.ts",
-    "db:seed": "node src/seed.ts"
+    "db:seed": "node src/seed.ts",
+    "local-panda:dispatch-dry-run": "node src/local-panda-dispatch-dry-run-cli.ts"
   },
   "description": "Owns the future API, database, and SSE service for the chat widget.",
   "dependencies": {
