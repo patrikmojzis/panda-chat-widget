@@ -62,6 +62,7 @@ type StoredWidget = {
   id: string;
   site_id: string;
   public_key: string;
+  panda_route_handle: string | null;
   name: string;
   assistant_display_name: string;
   launcher_label: string;
@@ -235,6 +236,7 @@ function widgetRow(id: string, siteId: string, publicKey: string, name: string):
     id,
     site_id: siteId,
     public_key: publicKey,
+    panda_route_handle: null,
     name,
     assistant_display_name: 'Support',
     launcher_label: 'Chat',
@@ -699,7 +701,7 @@ test('console widget settings/domains are scoped through owning workspace, site,
       method: 'PATCH',
       url: `/api/console/sites/${SITE_B}/widgets/${WIDGET_B}/settings`,
       headers: csrfHeaders(TOKEN_A),
-      payload: { name: 'Wrong workspace' },
+      payload: { connection: { routeHandle: 'panda:wrong-workspace' } },
     });
     assert.equal(crossWorkspacePatch.statusCode, 404);
     assert.deepEqual(crossWorkspacePatch.json(), { error: 'widget_not_found' });
@@ -714,6 +716,26 @@ test('console widget settings/domains are scoped through owning workspace, site,
     assert.equal(wrongSiteCreate.statusCode, 404);
     assert.deepEqual(wrongSiteCreate.json(), { error: 'widget_not_found' });
     assertOwnedWidgetQuery(fake, WORKSPACE_A, SITE_A2, WIDGET_A);
+
+    const wrongSitePatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/console/sites/${SITE_A2}/widgets/${WIDGET_A}/settings`,
+      headers: csrfHeaders(TOKEN_A),
+      payload: { connection: { routeHandle: 'panda:wrong-site' } },
+    });
+    assert.equal(wrongSitePatch.statusCode, 404);
+    assert.deepEqual(wrongSitePatch.json(), { error: 'widget_not_found' });
+    assertOwnedWidgetQuery(fake, WORKSPACE_A, SITE_A2, WIDGET_A);
+
+    const wrongWidgetPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/console/sites/${SITE_A}/widgets/${WIDGET_A2}/settings`,
+      headers: csrfHeaders(TOKEN_A),
+      payload: { connection: { routeHandle: 'panda:wrong-widget' } },
+    });
+    assert.equal(wrongWidgetPatch.statusCode, 404);
+    assert.deepEqual(wrongWidgetPatch.json(), { error: 'widget_not_found' });
+    assertOwnedWidgetQuery(fake, WORKSPACE_A, SITE_A, WIDGET_A2);
 
     const otherWidgetDomainDelete = await app.inject({
       method: 'DELETE',
@@ -782,6 +804,11 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
       { config: { welcome: { html: '<strong>Hi</strong>' } } },
       { config: { theme: { colorMode: 'sepia' } } },
       { config: { assistant: { displayName: '<b>Bad</b>' } } },
+      { connection: { status: 'configured_placeholder' } },
+      { connection: { routeHandle: '   ' } },
+      { connection: { routeHandle: '<script>' } },
+      { connection: { routeHandle: 'x'.repeat(201) } },
+      { connection: { routeHandle: 123 } },
       { name: '   ' },
       {},
     ]) {
@@ -827,6 +854,63 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
     assert.equal('public_key' in update.updates, false);
     assert.equal('enabled' in update.updates, false);
     assertOwnedWidgetQuery(fake, WORKSPACE_A, SITE_A, WIDGET_A);
+  } finally {
+    await app.close();
+  }
+});
+
+
+test('console widget settings GET and PATCH manage the Panda connection placeholder with no-store responses', async () => {
+  const fake = createFakeConsoleWidgetSettingsDatabase();
+  const app = createConsoleApp(fake);
+
+  try {
+    const initial = await app.inject({
+      method: 'GET',
+      url: `/api/console/sites/${SITE_A}/widgets/${WIDGET_A}/settings`,
+      headers: { cookie: sessionCookie(TOKEN_A) },
+    });
+
+    assert.equal(initial.statusCode, 200);
+    assert.equal(initial.headers['cache-control'], 'no-store');
+    assert.deepEqual(initial.json().connection, { status: 'not_configured', routeHandle: null });
+
+    const configured = await app.inject({
+      method: 'PATCH',
+      url: `/api/console/sites/${SITE_A}/widgets/${WIDGET_A}/settings`,
+      headers: csrfHeaders(TOKEN_A),
+      payload: { connection: { routeHandle: '  panda:workspace/alpha  ' } },
+    });
+
+    assert.equal(configured.statusCode, 200);
+    assert.equal(configured.headers['cache-control'], 'no-store');
+    assert.deepEqual(configured.json().connection, {
+      status: 'configured_placeholder',
+      routeHandle: 'panda:workspace/alpha',
+    });
+
+    const configureUpdate = widgetUpdateLogs(fake).at(-1);
+    assert.ok(configureUpdate);
+    assert.equal(configureUpdate.updates.panda_route_handle, 'panda:workspace/alpha');
+    assert.equal(configureUpdate.updates.updated_at instanceof Date, true);
+    assert.equal('status' in configureUpdate.updates, false);
+    assertOwnedWidgetQuery(fake, WORKSPACE_A, SITE_A, WIDGET_A);
+
+    const cleared = await app.inject({
+      method: 'PATCH',
+      url: `/api/console/sites/${SITE_A}/widgets/${WIDGET_A}/settings`,
+      headers: csrfHeaders(TOKEN_A),
+      payload: { connection: { routeHandle: null } },
+    });
+
+    assert.equal(cleared.statusCode, 200);
+    assert.equal(cleared.headers['cache-control'], 'no-store');
+    assert.deepEqual(cleared.json().connection, { status: 'not_configured', routeHandle: null });
+
+    const clearUpdate = widgetUpdateLogs(fake).at(-1);
+    assert.ok(clearUpdate);
+    assert.equal(clearUpdate.updates.panda_route_handle, null);
+    assert.equal(clearUpdate.updates.updated_at instanceof Date, true);
   } finally {
     await app.close();
   }

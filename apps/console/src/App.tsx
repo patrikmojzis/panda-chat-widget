@@ -796,7 +796,9 @@ function WidgetSettingsPage({
   const [state, setState] = useState<WidgetSettingsState>({ status: 'loading' });
   const [form, setForm] = useState<WidgetSettingsForm | null>(null);
   const [domainDraft, setDomainDraft] = useState('');
+  const [connectionDraft, setConnectionDraft] = useState('');
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
+  const [connectionSubmitState, setConnectionSubmitState] = useState<SubmitState>('idle');
   const [domainSubmitState, setDomainSubmitState] = useState<SubmitState>('idle');
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
 
@@ -813,6 +815,7 @@ function WidgetSettingsPage({
         if (isCurrent) {
           setState({ status: 'ready', settings, domains });
           setForm(formFromSettings(settings));
+          setConnectionDraft(settings.connection.routeHandle ?? '');
           setCopyState('idle');
         }
       } catch (error) {
@@ -826,6 +829,7 @@ function WidgetSettingsPage({
 
     setState({ status: 'loading' });
     setForm(null);
+    setConnectionDraft('');
     void loadWidgetSettings();
 
     return () => {
@@ -840,6 +844,7 @@ function WidgetSettingsPage({
     ]);
     setState({ status: 'ready', settings, domains });
     setForm(formFromSettings(settings));
+    setConnectionDraft(settings.connection.routeHandle ?? '');
     setCopyState('idle');
   }
 
@@ -875,6 +880,55 @@ function WidgetSettingsPage({
         setState({ status: 'notFound' });
       } else {
         setSubmitState('error');
+      }
+    }
+  }
+
+  async function handleConnectionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const routeHandle = connectionDraft.trim();
+
+    if (!routeHandle) {
+      return;
+    }
+
+    setConnectionSubmitState('submitting');
+
+    try {
+      const settings = await updateWidgetSettings(siteId, widgetId, { connection: { routeHandle } });
+
+      if (state.status === 'ready') {
+        setState({ status: 'ready', settings, domains: state.domains });
+      }
+
+      setConnectionDraft(settings.connection.routeHandle ?? '');
+      setConnectionSubmitState('idle');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setState({ status: 'notFound' });
+      } else {
+        setConnectionSubmitState('error');
+      }
+    }
+  }
+
+  async function handleConnectionClear() {
+    setConnectionSubmitState('submitting');
+
+    try {
+      const settings = await updateWidgetSettings(siteId, widgetId, { connection: { routeHandle: null } });
+
+      if (state.status === 'ready') {
+        setState({ status: 'ready', settings, domains: state.domains });
+      }
+
+      setConnectionDraft('');
+      setConnectionSubmitState('idle');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setState({ status: 'notFound' });
+      } else {
+        setConnectionSubmitState('error');
       }
     }
   }
@@ -1042,6 +1096,44 @@ function WidgetSettingsPage({
         </div>
       </form>
 
+      <section className="dashboard-card" aria-labelledby="panda-connection-title">
+        <div>
+          <p className="eyebrow">Panda connection</p>
+          <h2 id="panda-connection-title">Connection placeholder</h2>
+          <p>This stores only an opaque route handle for future Panda delivery. Visitor messages still use the local fake reply loop.</p>
+        </div>
+        <div className="connection-status">
+          <span className="row-pill">{formatConnectionStatus(state.settings.connection.status)}</span>
+          <small>{state.settings.connection.routeHandle ? 'A placeholder route handle is saved.' : 'No route handle is saved yet.'}</small>
+        </div>
+        <form className="inline-form" onSubmit={handleConnectionSubmit} aria-busy={connectionSubmitState === 'submitting'}>
+          <label className="field" htmlFor="widget-connection-route-handle">
+            <span>Route handle</span>
+            <input
+              id="widget-connection-route-handle"
+              placeholder="panda:workspace/route"
+              value={connectionDraft}
+              onChange={(event) => setConnectionDraft(event.currentTarget.value)}
+              disabled={connectionSubmitState === 'submitting'}
+            />
+          </label>
+          <button className="primary-button" type="submit" disabled={connectionSubmitState === 'submitting' || !connectionDraft.trim()}>
+            Save placeholder
+          </button>
+        </form>
+        <div className="button-row">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void handleConnectionClear()}
+            disabled={connectionSubmitState === 'submitting' || (!state.settings.connection.routeHandle && !connectionDraft.trim())}
+          >
+            Clear connection
+          </button>
+        </div>
+        <FormStatus state={connectionSubmitState} error="Panda connection placeholder could not be saved. Check the route handle and try again." />
+      </section>
+
       <section className="dashboard-card" aria-labelledby="allowed-domains-title">
         <div>
           <p className="eyebrow">Allowed domains</p>
@@ -1116,6 +1208,10 @@ function WidgetSettingsPage({
       </section>
     </section>
   );
+}
+
+function formatConnectionStatus(status: ConsoleWidgetSettings['connection']['status']): string {
+  return status === 'configured_placeholder' ? 'Configured placeholder' : 'Not configured';
 }
 
 function formFromSettings(settings: ConsoleWidgetSettings): WidgetSettingsForm {

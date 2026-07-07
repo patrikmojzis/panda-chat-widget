@@ -38,9 +38,17 @@ export type ConsoleAllowedDomain = {
   createdAt: string;
 };
 
+export type ConsoleWidgetConnectionStatus = 'not_configured' | 'configured_placeholder';
+
+export type ConsoleWidgetConnection = {
+  status: ConsoleWidgetConnectionStatus;
+  routeHandle: string | null;
+};
+
 export type ConsoleWidgetSettingsResponse = {
   widget: ConsoleSettingsWidget;
   config: WidgetBootstrapConfig;
+  connection: ConsoleWidgetConnection;
   install: {
     snippetAvailable: boolean;
     snippet: string | null;
@@ -137,7 +145,9 @@ type InvalidWidgetSettingsRequestReason =
   | 'invalid_welcome_subtitle'
   | 'invalid_theme_color_mode'
   | 'invalid_theme_accent'
-  | 'invalid_theme_radius';
+  | 'invalid_theme_radius'
+  | 'missing_route_handle'
+  | 'invalid_route_handle';
 
 type InvalidDomainRequestReason =
   | 'missing_site_id'
@@ -195,6 +205,7 @@ type WidgetSettingsRow = WidgetBootstrapConfigRow & {
   id: string;
   site_id: string;
   public_key: string;
+  panda_route_handle?: string | null;
   name: string;
   enabled: boolean;
   created_at: Date | string;
@@ -219,13 +230,15 @@ const DISPLAY_NAME_MAX_LENGTH = 100;
 const LAUNCHER_LABEL_MAX_LENGTH = 100;
 const WELCOME_TITLE_MAX_LENGTH = 120;
 const WELCOME_SUBTITLE_MAX_LENGTH = 240;
+const ROUTE_HANDLE_MAX_LENGTH = 200;
 
-const SETTINGS_TOP_LEVEL_KEYS = new Set(['name', 'config']);
+const SETTINGS_TOP_LEVEL_KEYS = new Set(['name', 'config', 'connection']);
 const CONFIG_SECTION_KEYS = new Set(['assistant', 'launcher', 'welcome', 'theme']);
 const ASSISTANT_KEYS = new Set(['displayName']);
 const LAUNCHER_KEYS = new Set(['label', 'icon']);
 const WELCOME_KEYS = new Set(['title', 'subtitle']);
 const THEME_KEYS = new Set(['colorMode', 'accent', 'radius']);
+const CONNECTION_KEYS = new Set(['routeHandle']);
 
 export function registerConsoleWidgetSettingsRoutes(
   app: FastifyInstance,
@@ -630,6 +643,21 @@ function parseWidgetSettingsPatch(body: unknown): SettingsPatchParseResult {
     hasUpdate = hasUpdate || configUpdates.hasUpdate;
   }
 
+  if ('connection' in body) {
+    if (!isRecord(body.connection) || hasUnknownKeys(body.connection, CONNECTION_KEYS)) {
+      return { status: 'invalid', reason: isRecord(body.connection) ? 'unknown_field' : 'invalid_body' };
+    }
+
+    const connectionUpdates = readConnectionUpdates(body.connection);
+
+    if (connectionUpdates.status === 'invalid') {
+      return connectionUpdates;
+    }
+
+    Object.assign(updates, connectionUpdates.updates);
+    hasUpdate = hasUpdate || connectionUpdates.hasUpdate;
+  }
+
   if (!hasUpdate) {
     return { status: 'invalid', reason: 'missing_update' };
   }
@@ -777,6 +805,64 @@ function readConfigUpdates(config: Record<string, unknown>):
   return { status: 'valid', updates, hasUpdate };
 }
 
+
+function readConnectionUpdates(connection: Record<string, unknown>):
+  | {
+      status: 'valid';
+      updates: Updateable<DatabaseSchema['widgets']>;
+      hasUpdate: boolean;
+    }
+  | {
+      status: 'invalid';
+      reason: InvalidWidgetSettingsRequestReason;
+    } {
+  const updates: Updateable<DatabaseSchema['widgets']> = {};
+
+  if (!('routeHandle' in connection)) {
+    return { status: 'valid', updates, hasUpdate: false };
+  }
+
+  const routeHandle = readRouteHandleField(connection.routeHandle);
+
+  if (routeHandle.status === 'invalid') {
+    return { status: 'invalid', reason: routeHandle.reason };
+  }
+
+  updates.panda_route_handle = routeHandle.value;
+
+  return { status: 'valid', updates, hasUpdate: true };
+}
+
+function readRouteHandleField(value: unknown):
+  | {
+      status: 'valid';
+      value: string | null;
+    }
+  | {
+      status: 'invalid';
+      reason: InvalidWidgetSettingsRequestReason;
+    } {
+  if (value === null) {
+    return { status: 'valid', value: null };
+  }
+
+  if (typeof value !== 'string') {
+    return { status: 'invalid', reason: 'invalid_route_handle' };
+  }
+
+  const routeHandle = value.trim();
+
+  if (!routeHandle) {
+    return { status: 'invalid', reason: 'missing_route_handle' };
+  }
+
+  if (routeHandle.length > ROUTE_HANDLE_MAX_LENGTH || /[<>]/.test(routeHandle)) {
+    return { status: 'invalid', reason: 'invalid_route_handle' };
+  }
+
+  return { status: 'valid', value: routeHandle };
+}
+
 function readPlainTextField(
   value: unknown,
   maxLength: number,
@@ -823,6 +909,7 @@ async function findOwnedWidgetSettingsRow(
       'widgets.id as id',
       'widgets.site_id as site_id',
       'widgets.public_key as public_key',
+      'widgets.panda_route_handle as panda_route_handle',
       'widgets.name as name',
       'widgets.assistant_display_name as assistant_display_name',
       'widgets.launcher_label as launcher_label',
@@ -860,11 +947,20 @@ async function toConsoleWidgetSettingsResponse(
   return {
     widget: toConsoleSettingsWidget(row),
     config: toWidgetBootstrapConfig(row),
+    connection: toConsoleWidgetConnection(row),
     install: {
       snippetAvailable: hasEnabledDomain,
       snippet: hasEnabledDomain ? createInstallSnippet(row.public_key) : null,
     },
   };
+}
+
+function toConsoleWidgetConnection(row: WidgetSettingsRow): ConsoleWidgetConnection {
+  const routeHandle = typeof row.panda_route_handle === 'string' ? row.panda_route_handle.trim() : '';
+
+  return routeHandle
+    ? { status: 'configured_placeholder', routeHandle }
+    : { status: 'not_configured', routeHandle: null };
 }
 
 function toConsoleSettingsWidget(row: WidgetSettingsRow): ConsoleSettingsWidget {

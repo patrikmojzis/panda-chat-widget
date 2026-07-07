@@ -13,6 +13,7 @@ type WidgetLookupRow = {
   widgetId: string;
   siteId: string;
   publicKey: string;
+  panda_route_handle?: string | null;
   widgetEnabled: boolean;
   siteEnabled: boolean;
 };
@@ -46,11 +47,19 @@ const VISITOR_KEY_A = `pvk_${'A'.repeat(43)}`;
 const VISITOR_KEY_B = `pvk_${'B'.repeat(43)}`;
 const visitorSessionSource = await readFile(new URL('./visitor-session.ts', import.meta.url), 'utf8');
 
+
+function assertNoPandaConnectionFields(value: unknown): void {
+  const serialized = JSON.stringify(value);
+
+  assert.doesNotMatch(serialized, /connection|routeHandle|panda_route_handle/);
+}
+
 function enabledDemoWidget(): WidgetLookupRow {
   return {
     widgetId: 'widget-id',
     siteId: 'site-id',
     publicKey: DEMO_SEED_DATA.publicWidgetKey,
+    panda_route_handle: 'panda:workspace/alpha',
     widgetEnabled: true,
     siteEnabled: true,
   };
@@ -206,6 +215,7 @@ test('POST /api/widgets/:publicKey/visitor-session creates a visitor session for
         visitorKey: VISITOR_KEY_A,
       },
     });
+    assertNoPandaConnectionFields(response.json());
     assert.deepEqual(fake.publicKeyLookups, [DEMO_SEED_DATA.publicWidgetKey]);
     assert.deepEqual(fake.allowedDomainWidgetLookups, ['widget-id']);
     assert.deepEqual(fake.enabledDomainFilters, [true]);

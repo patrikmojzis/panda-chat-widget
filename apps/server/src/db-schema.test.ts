@@ -54,7 +54,7 @@ test('message inserts support ordering and visitor idempotency', () => {
 });
 
 
-test('widget inserts can rely on DB defaults while safe bootstrap settings are updateable', () => {
+test('widget inserts can rely on DB defaults while safe bootstrap and Panda connection settings are updateable', () => {
   const widgetInsert = {
     site_id: 'site-id',
     public_key: 'widget-public-key',
@@ -63,6 +63,7 @@ test('widget inserts can rely on DB defaults while safe bootstrap settings are u
 
   const widgetSafeSettingsUpdate = {
     name: 'Updated Widget',
+    panda_route_handle: 'panda:workspace/route',
     assistant_display_name: 'Helper',
     launcher_label: 'Ask us',
     launcher_icon: 'message',
@@ -74,8 +75,15 @@ test('widget inserts can rely on DB defaults while safe bootstrap settings are u
     updated_at: new Date('2026-01-01T00:00:00.000Z'),
   } satisfies Updateable<DatabaseSchema['widgets']>;
 
+  const widgetConnectionClear = {
+    panda_route_handle: null,
+  } satisfies Updateable<DatabaseSchema['widgets']>;
+
   assert.equal(widgetInsert.public_key, 'widget-public-key');
   assert.equal('assistant_display_name' in widgetInsert, false);
+  assert.equal('panda_route_handle' in widgetInsert, false);
+  assert.equal(widgetSafeSettingsUpdate.panda_route_handle, 'panda:workspace/route');
+  assert.equal(widgetConnectionClear.panda_route_handle, null);
   assert.equal(widgetSafeSettingsUpdate.theme_color_mode, 'dark');
   assert.equal(widgetSafeSettingsUpdate.theme_accent, 'blue');
 });

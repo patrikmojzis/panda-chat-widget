@@ -71,9 +71,15 @@ export type ConsoleWidgetInstall = {
   snippet: string | null;
 };
 
+export type ConsoleWidgetConnection = {
+  status: 'not_configured' | 'configured_placeholder';
+  routeHandle: string | null;
+};
+
 export type ConsoleWidgetSettings = {
   widget: ConsoleWidget;
   config: WidgetBootstrapConfig;
+  connection: ConsoleWidgetConnection;
   install: ConsoleWidgetInstall;
 };
 
@@ -112,6 +118,9 @@ export type UpdateWidgetSettingsInput = {
       accent?: 'blue';
       radius?: 'md';
     };
+  };
+  connection?: {
+    routeHandle?: string | null;
   };
 };
 

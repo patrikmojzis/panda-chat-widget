@@ -12,6 +12,7 @@ type WidgetLookupRow = {
   widgetId: string;
   siteId: string;
   publicKey: string;
+  panda_route_handle?: string | null;
   widgetEnabled: boolean;
   siteEnabled: boolean;
 };
@@ -110,11 +111,19 @@ const DEFAULT_WIDGET_CONFIG_ROW = {
   theme_radius: 'md',
 } satisfies WidgetBootstrapConfigRow;
 
+
+function assertNoPandaConnectionFields(value: unknown): void {
+  const serialized = JSON.stringify(value);
+
+  assert.doesNotMatch(serialized, /connection|routeHandle|panda_route_handle/);
+}
+
 function enabledDemoWidget(): WidgetLookupRow {
   return {
     widgetId: 'widget-id',
     siteId: 'site-id',
     publicKey: DEMO_SEED_DATA.publicWidgetKey,
+    panda_route_handle: 'panda:workspace/alpha',
     widgetEnabled: true,
     siteEnabled: true,
   };
@@ -202,6 +211,7 @@ test('GET /api/widgets/:publicKey/bootstrap returns safe bootstrap JSON for an e
       },
       config: DEFAULT_WIDGET_BOOTSTRAP_CONFIG,
     });
+    assertNoPandaConnectionFields(response.json());
     assert.deepEqual(fake.publicKeyLookups, [DEMO_SEED_DATA.publicWidgetKey]);
     assert.deepEqual(fake.configWidgetLookups, ['widget-id']);
     assert.deepEqual(fake.allowedDomainWidgetLookups, ['widget-id']);
@@ -242,6 +252,7 @@ test('GET /api/widgets/:publicKey/bootstrap returns persisted safe config fields
       welcome: { title: 'Welcome in', subtitle: 'Plain text only.' },
       theme: { colorMode: 'dark', accent: 'blue', radius: 'md' },
     });
+    assertNoPandaConnectionFields(response.json());
     assert.deepEqual(fake.configWidgetLookups, ['widget-id']);
   } finally {
     await app.close();
