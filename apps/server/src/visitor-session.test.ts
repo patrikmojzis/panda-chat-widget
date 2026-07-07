@@ -53,7 +53,7 @@ function assertNoPandaConnectionFields(value: unknown): void {
 
   assert.doesNotMatch(
     serialized,
-    /connection|routeHandle|panda_route_handle|deliveryIntent|deliveryStatus|panda_delivery_intent|pandaDeliveryIntent|intentId/i,
+    /connection|routeHandle|panda_route_handle|deliveryIntent|deliveryStatus|panda_delivery_intent|pandaDeliveryIntent|intentId|localDelivery|queuedIntentCount|lastQueuedAt/i,
   );
 }
 

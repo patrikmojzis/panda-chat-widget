@@ -71,9 +71,15 @@ export type ConsoleWidgetInstall = {
   snippet: string | null;
 };
 
+export type ConsoleWidgetLocalDelivery = {
+  queuedIntentCount: number;
+  lastQueuedAt: string | null;
+};
+
 export type ConsoleWidgetConnection = {
   status: 'not_configured' | 'configured_placeholder';
   routeHandle: string | null;
+  localDelivery: ConsoleWidgetLocalDelivery;
 };
 
 export type ConsoleWidgetSettings = {

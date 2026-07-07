@@ -40,9 +40,15 @@ export type ConsoleAllowedDomain = {
 
 export type ConsoleWidgetConnectionStatus = 'not_configured' | 'configured_placeholder';
 
+export type ConsoleWidgetLocalDelivery = {
+  queuedIntentCount: number;
+  lastQueuedAt: string | null;
+};
+
 export type ConsoleWidgetConnection = {
   status: ConsoleWidgetConnectionStatus;
   routeHandle: string | null;
+  localDelivery: ConsoleWidgetLocalDelivery;
 };
 
 export type ConsoleWidgetSettingsResponse = {
@@ -218,6 +224,11 @@ type AllowedDomainRow = {
   domain: string;
   enabled: boolean;
   created_at: Date | string;
+};
+
+type LocalDeliveryStatusRow = {
+  queued_intent_count: string | number | bigint;
+  last_queued_at: Date | string | null;
 };
 
 type DomainCreateBody = {
@@ -943,11 +954,12 @@ async function toConsoleWidgetSettingsResponse(
     .where('enabled', '=', true)
     .limit(1)
     .executeTakeFirst());
+  const localDelivery = await readConsoleWidgetLocalDelivery(database, row.id);
 
   return {
     widget: toConsoleSettingsWidget(row),
     config: toWidgetBootstrapConfig(row),
-    connection: toConsoleWidgetConnection(row),
+    connection: toConsoleWidgetConnection(row, localDelivery),
     install: {
       snippetAvailable: hasEnabledDomain,
       snippet: hasEnabledDomain ? createInstallSnippet(row.public_key) : null,
@@ -955,12 +967,35 @@ async function toConsoleWidgetSettingsResponse(
   };
 }
 
-function toConsoleWidgetConnection(row: WidgetSettingsRow): ConsoleWidgetConnection {
+async function readConsoleWidgetLocalDelivery(
+  database: DatabaseClient,
+  widgetId: string,
+): Promise<ConsoleWidgetLocalDelivery> {
+  const row = (await database
+    .selectFrom('panda_delivery_intents')
+    .select((eb) => [
+      eb.fn.count<string | number | bigint>('id').as('queued_intent_count'),
+      eb.fn.max<Date | string | null>('created_at').as('last_queued_at'),
+    ])
+    .where('widget_id', '=', widgetId)
+    .where('status', '=', 'queued')
+    .executeTakeFirst()) as LocalDeliveryStatusRow | undefined;
+
+  return {
+    queuedIntentCount: toCountNumber(row?.queued_intent_count),
+    lastQueuedAt: row?.last_queued_at ? toIsoString(row.last_queued_at) : null,
+  };
+}
+
+function toConsoleWidgetConnection(
+  row: WidgetSettingsRow,
+  localDelivery: ConsoleWidgetLocalDelivery,
+): ConsoleWidgetConnection {
   const routeHandle = typeof row.panda_route_handle === 'string' ? row.panda_route_handle.trim() : '';
 
   return routeHandle
-    ? { status: 'configured_placeholder', routeHandle }
-    : { status: 'not_configured', routeHandle: null };
+    ? { status: 'configured_placeholder', routeHandle, localDelivery }
+    : { status: 'not_configured', routeHandle: null, localDelivery };
 }
 
 function toConsoleSettingsWidget(row: WidgetSettingsRow): ConsoleSettingsWidget {
@@ -996,6 +1031,22 @@ function escapeHtmlAttribute(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toCountNumber(value: string | number | bigint | null | undefined): number {
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    return Number(value);
+  }
+
+  return 0;
 }
 
 function toIsoString(value: Date | string): string {
