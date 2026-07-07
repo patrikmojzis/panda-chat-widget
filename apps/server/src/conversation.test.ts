@@ -16,6 +16,7 @@ type WidgetLookupRow = {
   widgetId: string;
   siteId: string;
   publicKey: string;
+  panda_route_handle?: string | null;
   widgetEnabled: boolean;
   siteEnabled: boolean;
 };
@@ -59,11 +60,22 @@ const VISITOR_SESSION_ID_A = 'visitor-session-a';
 const VISITOR_SESSION_ID_B = 'visitor-session-b';
 const conversationSource = await readFile(new URL('./conversation.ts', import.meta.url), 'utf8');
 
+
+function assertNoPandaConnectionFields(value: unknown): void {
+  const serialized = JSON.stringify(value);
+
+  assert.doesNotMatch(
+    serialized,
+    /connection|routeHandle|panda_route_handle|deliveryIntent|deliveryStatus|panda_delivery_intent|pandaDeliveryIntent|intentId/i,
+  );
+}
+
 function enabledDemoWidget(): WidgetLookupRow {
   return {
     widgetId: 'widget-id',
     siteId: 'site-id',
     publicKey: DEMO_SEED_DATA.publicWidgetKey,
+    panda_route_handle: 'panda:workspace/alpha',
     widgetEnabled: true,
     siteEnabled: true,
   };
@@ -299,6 +311,7 @@ test('POST /api/widgets/:publicKey/conversations creates an open conversation fo
         status: 'open',
       },
     });
+    assertNoPandaConnectionFields(response.json());
     assert.deepEqual(fake.publicKeyLookups, [DEMO_SEED_DATA.publicWidgetKey]);
     assert.deepEqual(fake.allowedDomainWidgetLookups, ['widget-id']);
     assert.deepEqual(fake.enabledDomainFilters, [true]);

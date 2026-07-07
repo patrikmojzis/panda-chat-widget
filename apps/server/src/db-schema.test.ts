@@ -15,6 +15,7 @@ test('DatabaseSchema exposes auth, workspace, and widget tables', () => {
     'visitor_sessions',
     'conversations',
     'messages',
+    'panda_delivery_intents',
   ] satisfies Array<keyof DatabaseSchema>;
 
   assert.deepEqual(tableNames, [
@@ -27,6 +28,7 @@ test('DatabaseSchema exposes auth, workspace, and widget tables', () => {
     'visitor_sessions',
     'conversations',
     'messages',
+    'panda_delivery_intents',
   ]);
 });
 
@@ -51,6 +53,29 @@ test('message inserts support ordering and visitor idempotency', () => {
   assert.equal(visitorMessage.sender, 'visitor');
   assert.equal(visitorMessage.client_message_id, 'client-message-id');
   assert.equal(agentMessage.sender, 'agent');
+});
+
+
+test('panda delivery intent inserts capture queued internal visitor delivery correlation', () => {
+  const intentInsert = {
+    widget_id: 'widget-id',
+    conversation_id: 'conversation-id',
+    visitor_session_id: 'visitor-session-id',
+    visitor_message_id: 'message-id',
+    client_message_id: 'client-message-id',
+    route_handle_snapshot: 'panda:workspace/route',
+    status: 'queued',
+    created_at: new Date('2026-01-01T00:00:00.000Z'),
+    updated_at: new Date('2026-01-01T00:00:00.000Z'),
+  } satisfies Insertable<DatabaseSchema['panda_delivery_intents']>;
+
+  assert.equal(intentInsert.status, 'queued');
+  assert.equal(intentInsert.widget_id, 'widget-id');
+  assert.equal(intentInsert.conversation_id, 'conversation-id');
+  assert.equal(intentInsert.visitor_session_id, 'visitor-session-id');
+  assert.equal(intentInsert.visitor_message_id, 'message-id');
+  assert.equal(intentInsert.client_message_id, 'client-message-id');
+  assert.equal(intentInsert.route_handle_snapshot, 'panda:workspace/route');
 });
 
 

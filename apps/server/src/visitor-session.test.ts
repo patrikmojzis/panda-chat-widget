@@ -51,7 +51,10 @@ const visitorSessionSource = await readFile(new URL('./visitor-session.ts', impo
 function assertNoPandaConnectionFields(value: unknown): void {
   const serialized = JSON.stringify(value);
 
-  assert.doesNotMatch(serialized, /connection|routeHandle|panda_route_handle/);
+  assert.doesNotMatch(
+    serialized,
+    /connection|routeHandle|panda_route_handle|deliveryIntent|deliveryStatus|panda_delivery_intent|pandaDeliveryIntent|intentId/i,
+  );
 }
 
 function enabledDemoWidget(): WidgetLookupRow {

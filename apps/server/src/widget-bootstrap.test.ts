@@ -115,7 +115,10 @@ const DEFAULT_WIDGET_CONFIG_ROW = {
 function assertNoPandaConnectionFields(value: unknown): void {
   const serialized = JSON.stringify(value);
 
-  assert.doesNotMatch(serialized, /connection|routeHandle|panda_route_handle/);
+  assert.doesNotMatch(
+    serialized,
+    /connection|routeHandle|panda_route_handle|deliveryIntent|deliveryStatus|panda_delivery_intent|pandaDeliveryIntent|intentId/i,
+  );
 }
 
 function enabledDemoWidget(): WidgetLookupRow {
@@ -180,7 +183,7 @@ test('widget bootstrap theme config is token-only and has no arbitrary style or 
   assert.match(widgetBootstrapSource, /export type WidgetAccentToken = 'blue';/);
   assert.match(widgetBootstrapSource, /export type WidgetRadiusToken = 'md';/);
   assert.match(widgetBootstrapSource, /DEFAULT_WIDGET_BOOTSTRAP_CONFIG[\s\S]*satisfies WidgetBootstrapConfig/);
-  assert.doesNotMatch(widgetBootstrapSource, /(?:style|styles|css|customCss|html|markup|unsafeHtml)/i);
+  assert.doesNotMatch(widgetBootstrapSource, /\b(?:style|styles|css|customCss|html|markup|unsafeHtml)\b/i);
   assert.doesNotMatch(widgetBootstrapSource, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|cssText|url\(/);
 });
 

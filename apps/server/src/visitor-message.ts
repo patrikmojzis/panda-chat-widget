@@ -14,6 +14,7 @@ import {
   type ConversationMessage,
 } from './message.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
+import { recordPandaDeliveryIntent } from './panda-delivery-intents.ts';
 import {
   toRateLimitErrorResponse,
   type PublicWriteRateLimitHook,
@@ -194,26 +195,43 @@ export function registerVisitorMessageRoutes(app: FastifyInstance, options: Visi
       return reply.status(429).send(toRateLimitErrorResponse(rateLimit));
     }
 
-    const messageResult = await insertVisitorConversationMessage(options.database, {
-      conversationId: conversation.conversationId,
-      sender: 'visitor',
-      clientMessageId: messageRequest.request.clientMessageId,
-      body: messageRequest.request.body,
+    const messageWrite = await options.database.transaction().execute(async (transaction) => {
+      const messageResult = await insertVisitorConversationMessage(transaction, {
+        conversationId: conversation.conversationId,
+        sender: 'visitor',
+        clientMessageId: messageRequest.request.clientMessageId,
+        body: messageRequest.request.body,
+      });
+      const messagesToEmit: ConversationMessage[] = [];
+
+      if (messageResult.inserted) {
+        await recordPandaDeliveryIntent(transaction, {
+          widgetId: widgetLookup.widget.id,
+          conversationId: conversation.conversationId,
+          visitorSessionId: visitorSession.visitorSessionId,
+          visitorMessageId: messageResult.message.id,
+          clientMessageId: messageRequest.request.clientMessageId,
+          routeHandle: widgetLookup.widget.pandaRouteHandle,
+        });
+
+        const fakeReply = createFakeResponderReply({ visitorMessage: { body: messageResult.message.body } });
+        const fakeReplyMessage = await insertConversationMessage(transaction, {
+          conversationId: conversation.conversationId,
+          sender: 'agent',
+          body: fakeReply.body,
+        });
+
+        messagesToEmit.push(messageResult.message, fakeReplyMessage);
+      }
+
+      return { messageResult, messagesToEmit };
     });
 
-    if (messageResult.inserted) {
-      const fakeReply = createFakeResponderReply({ visitorMessage: { body: messageResult.message.body } });
-      const fakeReplyMessage = await insertConversationMessage(options.database, {
-        conversationId: conversation.conversationId,
-        sender: 'agent',
-        body: fakeReply.body,
-      });
-
-      options.messageEvents.emit(messageResult.message);
-      options.messageEvents.emit(fakeReplyMessage);
+    for (const message of messageWrite.messagesToEmit) {
+      options.messageEvents.emit(message);
     }
 
-    return reply.send({ message: messageResult.message });
+    return reply.send({ message: messageWrite.messageResult.message });
   });
 
   app.get<VisitorMessageListRoute>('/api/widgets/:publicKey/messages', async (request, reply) => {

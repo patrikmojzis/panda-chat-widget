@@ -1,6 +1,6 @@
 # Panda Chat Widget
 
-TypeScript/pnpm workspace for an embeddable chat widget spine. Current V1 work is still local/dev-only: vanilla loader, React/Vite iframe UI, Fastify API seams, Kysely/Postgres schema, first-owner auth/workspace foundation, protected console shell with workspace-scoped site/widget list-create plus widget settings/domain/snippet/Panda connection placeholder flows, local demo seed data, visitor sessions, conversations, messages, SSE contracts, and a deterministic fake reply.
+TypeScript/pnpm workspace for an embeddable chat widget spine. Current V1 work is still local/dev-only: vanilla loader, React/Vite iframe UI, Fastify API seams, Kysely/Postgres schema, first-owner auth/workspace foundation, protected console shell with workspace-scoped site/widget list-create plus widget settings/domain/snippet/Panda connection placeholder flows, a local-only Panda delivery-intent table for configured widgets, local demo seed data, visitor sessions, conversations, messages, SSE contracts, and a deterministic fake reply.
 
 There is no Panda Gateway/Panda agent integration in this repo yet.
 
@@ -112,7 +112,7 @@ Use separate terminals for the server and the demo server.
 
 7. Open <http://127.0.0.1:4173/>, click the bottom-right `Chat` launcher, type a visitor message, and press `Send`.
 
-Expected result: the message appears in the widget, then the backend stores a deterministic local fake agent reply and delivers it through the same API/SSE/polling flow:
+Expected result: the message appears in the widget, then the backend stores a deterministic local fake agent reply and delivers it through the same API/SSE/polling flow. If the widget has a Panda route handle configured, the backend also records one internal queued local delivery intent for the new visitor message; this is not exposed publicly and does not send anything to Panda/Gateway/CLI:
 
 ```text
 Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but your message was received.
@@ -147,8 +147,8 @@ docker compose down -v
 ## Current limitations
 
 - Fake reply only: visitor messages receive a deterministic local fake agent reply; no real AI/Gateway/Panda integration.
-- Panda connection settings are placeholder-only: the saved route handle is an opaque label, not a secret/token, and it is not used for runtime delivery yet.
-- SSE is process-local memory only; no durable queue or multi-process fanout.
+- Panda connection settings are placeholder-only: the saved route handle is an opaque label, not a secret/token. Configured widgets record internal queued local delivery intents for new visitor messages, but no Panda/Gateway/CLI delivery exists yet.
+- SSE fanout is process-local memory only; delivery intents are durable local records, not a retry worker, dispatcher, dead-letter queue, or multi-process fanout.
 - Browser screenshots/live click smoke require browser automation and a running local Postgres stack.
 - DB-backed live validation for GitHub issue #5 remains separate until it has real Docker/Postgres/browser evidence in the target environment.
 - Auth is intentionally minimal: first owner + one workspace, email/password login, HttpOnly cookie sessions, no invites, no teams/RBAC UI, no billing/plans/usage.

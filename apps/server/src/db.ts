@@ -1,5 +1,5 @@
 import { Kysely, PostgresDialect } from 'kysely';
-import type { ColumnType, Generated } from 'kysely';
+import type { ColumnType, Generated, Transaction } from 'kysely';
 import { Pool } from 'pg';
 
 import type { DatabaseConfig } from './config.ts';
@@ -10,6 +10,7 @@ type NullableText = ColumnType<string | null, string | null | undefined, string 
 
 export type ConversationStatus = 'open' | 'closed';
 export type MessageSender = 'visitor' | 'agent' | 'system';
+export type PandaDeliveryIntentStatus = 'queued';
 
 export type UsersTable = {
   id: Generated<string>;
@@ -101,6 +102,19 @@ export type MessagesTable = {
   created_at: Timestamp;
 };
 
+export type PandaDeliveryIntentsTable = {
+  id: Generated<string>;
+  widget_id: string;
+  conversation_id: string;
+  visitor_session_id: string;
+  visitor_message_id: string;
+  client_message_id: string;
+  route_handle_snapshot: string;
+  status: Generated<PandaDeliveryIntentStatus>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+};
+
 export type DatabaseSchema = {
   users: UsersTable;
   workspaces: WorkspacesTable;
@@ -111,9 +125,11 @@ export type DatabaseSchema = {
   visitor_sessions: VisitorSessionsTable;
   conversations: ConversationsTable;
   messages: MessagesTable;
+  panda_delivery_intents: PandaDeliveryIntentsTable;
 };
 
 export type DatabaseClient = Kysely<DatabaseSchema>;
+export type DatabaseExecutor = DatabaseClient | Transaction<DatabaseSchema>;
 
 export function createDatabase(config: DatabaseConfig): DatabaseClient {
   const pool = new Pool({ connectionString: config.url });
