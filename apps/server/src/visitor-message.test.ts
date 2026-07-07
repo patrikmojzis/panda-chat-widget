@@ -5,7 +5,7 @@ import test from 'node:test';
 import { buildApp } from './app.ts';
 import { createFakeResponderReply } from './fake-responder.ts';
 import { createConversationMessageEventEmitter } from './message-events.ts';
-import type { ConversationStatus, DatabaseClient, MessageSender } from './db.ts';
+import type { ConversationStatus, DatabaseClient, MessageSender, PandaDeliveryIntentStatus } from './db.ts';
 import type { AllowedDomainRecord } from './origin-domain.ts';
 import type { PublicWriteRateLimitInput } from './rate-limit.ts';
 import { DEMO_SEED_DATA } from './seed-data.ts';
@@ -44,12 +44,35 @@ type StoredMessage = {
 
 type MessageInsertValues = Omit<StoredMessage, 'id'>;
 
+type MessageInsertConflictTarget = {
+  columns: string[];
+  where: { column: string; operator: string; value: null } | null;
+};
+
+type StoredPandaDeliveryIntent = {
+  id: string;
+  widget_id: string;
+  conversation_id: string;
+  visitor_session_id: string;
+  visitor_message_id: string;
+  client_message_id: string;
+  route_handle_snapshot: string;
+  status: PandaDeliveryIntentStatus;
+  created_at: Date;
+  updated_at: Date;
+};
+
+type PandaDeliveryIntentInsertValues = Omit<StoredPandaDeliveryIntent, 'id'>;
+
 type FakeDatabaseOptions = {
   widget?: WidgetLookupRow;
   allowedDomains?: AllowedDomainRecord[];
   visitorSessions?: StoredVisitorSession[];
   conversations?: StoredConversation[];
   messages?: StoredMessage[];
+  deliveryIntents?: StoredPandaDeliveryIntent[];
+  intentInsertError?: Error;
+  visitorInsertRaceMessage?: StoredMessage;
 };
 
 type FakeDatabase = {
@@ -63,7 +86,14 @@ type FakeDatabase = {
   messageClientMessageLookups: Array<{ conversationId: string; clientMessageId: string }>;
   messageReadLookups: Array<{ conversationId: string; afterSeq?: number }>;
   messageInserts: MessageInsertValues[];
+  messageInsertConflictTargets: MessageInsertConflictTarget[];
+  messageInsertConflictDoNothingCount: number;
+  deliveryIntentConflictColumns: string[];
+  deliveryIntentInserts: PandaDeliveryIntentInsertValues[];
+  deliveryIntents: StoredPandaDeliveryIntent[];
   messages: StoredMessage[];
+  operationLog: string[];
+  transactions: number;
 };
 
 const VISITOR_SESSION_ID_A = 'visitor-session-a';
@@ -79,7 +109,10 @@ const visitorMessageEventRouteSource = `${visitorMessageSource}\n${visitorMessag
 function assertNoPandaConnectionFields(value: unknown): void {
   const serialized = JSON.stringify(value);
 
-  assert.doesNotMatch(serialized, /connection|routeHandle|panda_route_handle/);
+  assert.doesNotMatch(
+    serialized,
+    /connection|routeHandle|panda_route_handle|deliveryIntent|deliveryStatus|panda_delivery_intent|pandaDeliveryIntent|intentId/i,
+  );
 }
 
 function enabledDemoWidget(): WidgetLookupRow {
@@ -103,9 +136,17 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
   const messageClientMessageLookups: Array<{ conversationId: string; clientMessageId: string }> = [];
   const messageReadLookups: Array<{ conversationId: string; afterSeq?: number }> = [];
   const messageInserts: MessageInsertValues[] = [];
+  const messageInsertConflictTargets: MessageInsertConflictTarget[] = [];
+  let messageInsertConflictDoNothingCount = 0;
+  const deliveryIntentConflictColumns: string[] = [];
+  const deliveryIntentInserts: PandaDeliveryIntentInsertValues[] = [];
+  const operationLog: string[] = [];
+  let transactions = 0;
+  let visitorInsertRaceMessage = options.visitorInsertRaceMessage;
   const visitorSessions = [...(options.visitorSessions ?? [])];
   const conversations = [...(options.conversations ?? [])];
   const messages = [...(options.messages ?? [])];
+  const deliveryIntents = [...(options.deliveryIntents ?? [])];
 
   const widgetQuery = {
     innerJoin: () => widgetQuery,
@@ -322,26 +363,167 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
   function createMessageInsertQuery(tableName: string) {
     assert.equal(tableName, 'messages');
     let pendingValues: MessageInsertValues | undefined;
+    let conflictTarget: MessageInsertConflictTarget | null = null;
+    let doNothingOnConflict = false;
+
+    const conflictBuilder = {
+      where: (column: string, operator: string, value: null) => {
+        if (!conflictTarget) {
+          throw new Error('missing conflict target before where');
+        }
+
+        conflictTarget.where = { column, operator, value };
+
+        return conflictBuilder;
+      },
+      doNothing: () => {
+        doNothingOnConflict = true;
+        messageInsertConflictDoNothingCount += 1;
+
+        return query;
+      },
+    };
 
     const query = {
       values: (values: MessageInsertValues) => {
         pendingValues = values;
         return query;
       },
+      onConflict: (
+        buildConflict: (builder: {
+          columns: (columns: string[]) => typeof conflictBuilder;
+        }) => unknown,
+      ) => {
+        buildConflict({
+          columns: (columns: string[]) => {
+            conflictTarget = { columns, where: null };
+            messageInsertConflictTargets.push(conflictTarget);
+
+            return conflictBuilder;
+          },
+        });
+
+        return query;
+      },
       returning: () => query,
+      executeTakeFirst: async () => executeInsert(),
       executeTakeFirstOrThrow: async () => {
-        if (!pendingValues) {
-          throw new Error('missing message insert values');
+        const row = await executeInsert();
+
+        if (!row) {
+          throw new Error('message insert returned no row');
         }
 
-        messageInserts.push(pendingValues);
-        const newMessage = {
-          id: `message-${messages.length + 1}`,
+        return row;
+      },
+    };
+
+    function executeInsert(): StoredMessage | undefined {
+      if (!pendingValues) {
+        throw new Error('missing message insert values');
+      }
+
+      if (
+        visitorInsertRaceMessage &&
+        pendingValues.sender === 'visitor' &&
+        visitorInsertRaceMessage.conversation_id === pendingValues.conversation_id &&
+        visitorInsertRaceMessage.client_message_id === pendingValues.client_message_id
+      ) {
+        messages.push(visitorInsertRaceMessage);
+        visitorInsertRaceMessage = undefined;
+      }
+
+      const duplicateVisitorMessage = pendingValues.sender === 'visitor'
+        ? messages.find(
+            (message) =>
+              message.conversation_id === pendingValues?.conversation_id &&
+              message.client_message_id === pendingValues?.client_message_id &&
+              message.client_message_id !== null,
+          )
+        : undefined;
+
+      if (duplicateVisitorMessage) {
+        assert.deepEqual(conflictTarget, {
+          columns: ['conversation_id', 'client_message_id'],
+          where: { column: 'client_message_id', operator: 'is not', value: null },
+        });
+        assert.equal(doNothingOnConflict, true);
+
+        operationLog.push('insert:message:visitor_conflict');
+        return undefined;
+      }
+
+      operationLog.push(`insert:message:${pendingValues.sender}`);
+      messageInserts.push(pendingValues);
+      const newMessage = {
+        id: `message-${messages.length + 1}`,
+        ...pendingValues,
+      };
+      messages.push(newMessage);
+
+      return newMessage;
+    }
+
+    return query;
+  }
+
+  function createPandaDeliveryIntentInsertQuery(tableName: string) {
+    assert.equal(tableName, 'panda_delivery_intents');
+    let pendingValues: PandaDeliveryIntentInsertValues | undefined;
+    let conflictColumn: string | undefined;
+
+    const query = {
+      values: (values: PandaDeliveryIntentInsertValues) => {
+        pendingValues = values;
+        return query;
+      },
+      onConflict: (
+        buildConflict: (builder: {
+          column: (column: string) => {
+            doNothing: () => unknown;
+          };
+        }) => unknown,
+      ) => {
+        buildConflict({
+          column: (column: string) => {
+            conflictColumn = column;
+            deliveryIntentConflictColumns.push(column);
+
+            return {
+              doNothing: () => query,
+            };
+          },
+        });
+
+        return query;
+      },
+      returning: () => query,
+      executeTakeFirst: async () => {
+        if (!pendingValues) {
+          throw new Error('missing panda delivery intent insert values');
+        }
+
+        assert.equal(conflictColumn, 'visitor_message_id');
+
+        if (options.intentInsertError) {
+          operationLog.push('insert:intent:fail');
+          throw options.intentInsertError;
+        }
+
+        operationLog.push('insert:intent');
+        deliveryIntentInserts.push(pendingValues);
+
+        if (deliveryIntents.some((intent) => intent.visitor_message_id === pendingValues?.visitor_message_id)) {
+          return undefined;
+        }
+
+        const newIntent = {
+          id: `intent-${deliveryIntents.length + 1}`,
           ...pendingValues,
         };
-        messages.push(newMessage);
+        deliveryIntents.push(newIntent);
 
-        return newMessage;
+        return { id: newIntent.id };
       },
     };
 
@@ -349,7 +531,33 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
   }
 
   const database = {
-    insertInto: createMessageInsertQuery,
+    transaction: () => ({
+      execute: async (callback: (transaction: DatabaseClient) => Promise<unknown>) => {
+        transactions += 1;
+        operationLog.push('transaction:start');
+
+        try {
+          const result = await callback(database as unknown as DatabaseClient);
+          operationLog.push('transaction:commit');
+
+          return result;
+        } catch (error) {
+          operationLog.push('transaction:rollback');
+          throw error;
+        }
+      },
+    }),
+    insertInto: (table: string) => {
+      if (table === 'messages') {
+        return createMessageInsertQuery(table);
+      }
+
+      if (table === 'panda_delivery_intents') {
+        return createPandaDeliveryIntentInsertQuery(table);
+      }
+
+      throw new Error(`Unexpected insert table: ${table}`);
+    },
     selectFrom: (table: string) => {
       if (table === 'widgets') {
         return widgetQuery;
@@ -386,14 +594,25 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
     messageClientMessageLookups,
     messageReadLookups,
     messageInserts,
+    messageInsertConflictTargets,
+    get messageInsertConflictDoNothingCount() {
+      return messageInsertConflictDoNothingCount;
+    },
+    deliveryIntentConflictColumns,
+    deliveryIntentInserts,
+    deliveryIntents,
     messages,
+    operationLog,
+    get transactions() {
+      return transactions;
+    },
   };
 }
 
-function createEnabledFakeDatabase(options: Omit<FakeDatabaseOptions, 'widget' | 'allowedDomains'> = {}): FakeDatabase {
+function createEnabledFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
   const fakeOptions: FakeDatabaseOptions = {
-    widget: enabledDemoWidget(),
-    allowedDomains: [{ domain: 'localhost', enabled: true }],
+    widget: options.widget ?? enabledDemoWidget(),
+    allowedDomains: options.allowedDomains ?? [{ domain: 'localhost', enabled: true }],
     visitorSessions: options.visitorSessions ?? [
       { id: VISITOR_SESSION_ID_A, widget_id: 'widget-id' },
       { id: VISITOR_SESSION_ID_B, widget_id: 'widget-id' },
@@ -418,6 +637,18 @@ function createEnabledFakeDatabase(options: Omit<FakeDatabaseOptions, 'widget' |
     fakeOptions.messages = options.messages;
   }
 
+  if (options.deliveryIntents) {
+    fakeOptions.deliveryIntents = options.deliveryIntents;
+  }
+
+  if (options.intentInsertError) {
+    fakeOptions.intentInsertError = options.intentInsertError;
+  }
+
+  if (options.visitorInsertRaceMessage) {
+    fakeOptions.visitorInsertRaceMessage = options.visitorInsertRaceMessage;
+  }
+
   return createFakeDatabase(fakeOptions);
 }
 
@@ -436,6 +667,7 @@ test('POST /api/widgets/:publicKey/messages stores a visitor message then a fake
   const messageEvents = createConversationMessageEventEmitter();
   const emittedMessages: Array<{ event: string; seq: number; sender: string; clientMessageId: string | null; body: string }> = [];
   const subscription = messageEvents.subscribe(CONVERSATION_ID_A, (event) => {
+    fake.operationLog.push(`emit:${event.message.sender}:${event.message.seq}`);
     emittedMessages.push({
       event: event.event,
       seq: event.message.seq,
@@ -510,6 +742,30 @@ test('POST /api/widgets/:publicKey/messages stores a visitor message then a fake
         },
       ],
     );
+    assert.deepEqual(
+      fake.deliveryIntentInserts.map((values) => ({
+        widget_id: values.widget_id,
+        conversation_id: values.conversation_id,
+        visitor_session_id: values.visitor_session_id,
+        visitor_message_id: values.visitor_message_id,
+        client_message_id: values.client_message_id,
+        route_handle_snapshot: values.route_handle_snapshot,
+        status: values.status,
+      })),
+      [
+        {
+          widget_id: 'widget-id',
+          conversation_id: CONVERSATION_ID_A,
+          visitor_session_id: VISITOR_SESSION_ID_A,
+          visitor_message_id: 'message-2',
+          client_message_id: 'client-message-1',
+          route_handle_snapshot: 'panda:workspace/alpha',
+          status: 'queued',
+        },
+      ],
+    );
+    assert.deepEqual(fake.deliveryIntentConflictColumns, ['visitor_message_id']);
+    assert.equal(fake.deliveryIntents.length, 1);
     assert.deepEqual(emittedMessages, [
       {
         event: 'message',
@@ -526,12 +782,96 @@ test('POST /api/widgets/:publicKey/messages stores a visitor message then a fake
         body: createFakeResponderReply({ visitorMessage: { body: 'Hello from visitor' } }).body,
       },
     ]);
+    assert.equal(fake.transactions, 1);
+    assert.deepEqual(fake.operationLog, [
+      'transaction:start',
+      'insert:message:visitor',
+      'insert:intent',
+      'insert:message:agent',
+      'transaction:commit',
+      'emit:visitor:2',
+      'emit:agent:3',
+    ]);
   } finally {
     subscription.close();
     await app.close();
   }
 });
 
+
+test('POST /api/widgets/:publicKey/messages skips delivery intents for unconfigured widgets but keeps fake replies', async () => {
+  const fake = createEnabledFakeDatabase({
+    widget: { ...enabledDemoWidget(), panda_route_handle: null },
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: validMessagePayload(),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assertNoPandaConnectionFields(response.json());
+    assert.deepEqual(fake.deliveryIntentInserts, []);
+    assert.deepEqual(fake.deliveryIntents, []);
+    assert.deepEqual(
+      fake.messageInserts.map((values) => ({ sender: values.sender, seq: values.seq, body: values.body })),
+      [
+        { sender: 'visitor', seq: 1, body: 'Hello from visitor' },
+        {
+          sender: 'agent',
+          seq: 2,
+          body: createFakeResponderReply({ visitorMessage: { body: 'Hello from visitor' } }).body,
+        },
+      ],
+    );
+    assert.equal(fake.transactions, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test('POST /api/widgets/:publicKey/messages does not emit uncommitted messages when intent recording fails', async () => {
+  const fake = createEnabledFakeDatabase({ intentInsertError: new Error('intent insert failed') });
+  const messageEvents = createConversationMessageEventEmitter();
+  const emittedMessages: Array<{ sender: string; seq: number }> = [];
+  const subscription = messageEvents.subscribe(CONVERSATION_ID_A, (event) => {
+    fake.operationLog.push(`emit:${event.message.sender}:${event.message.seq}`);
+    emittedMessages.push({ sender: event.message.sender, seq: event.message.seq });
+  });
+  const app = buildApp({ database: fake.database, messageEvents });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: validMessagePayload(),
+    });
+
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(response.json(), { error: 'internal_server_error' });
+    assert.deepEqual(emittedMessages, []);
+    assert.deepEqual(fake.deliveryIntentInserts, []);
+    assert.deepEqual(
+      fake.messageInserts.map((values) => ({ sender: values.sender, seq: values.seq, body: values.body })),
+      [{ sender: 'visitor', seq: 1, body: 'Hello from visitor' }],
+    );
+    assert.equal(fake.transactions, 1);
+    assert.deepEqual(fake.operationLog, [
+      'transaction:start',
+      'insert:message:visitor',
+      'insert:intent:fail',
+      'transaction:rollback',
+    ]);
+  } finally {
+    subscription.close();
+    await app.close();
+  }
+});
 
 
 test('public message routes reject invalid public keys before lookup or writes', async () => {
@@ -607,6 +947,7 @@ test('POST /api/widgets/:publicKey/messages rate-limit hook can reject before me
       clientMessageId: 'client-message-1',
     }]);
     assert.deepEqual(fake.messageInserts, []);
+    assert.deepEqual(fake.deliveryIntentInserts, []);
     assert.deepEqual(fake.messages, []);
   } finally {
     await app.close();
@@ -654,7 +995,87 @@ test('POST /api/widgets/:publicKey/messages replays the original visitor message
         },
       ],
     );
+    assert.deepEqual(
+      fake.deliveryIntentInserts.map((values) => ({
+        visitor_message_id: values.visitor_message_id,
+        client_message_id: values.client_message_id,
+        route_handle_snapshot: values.route_handle_snapshot,
+        status: values.status,
+      })),
+      [
+        {
+          visitor_message_id: 'message-1',
+          client_message_id: 'client-message-1',
+          route_handle_snapshot: 'panda:workspace/alpha',
+          status: 'queued',
+        },
+      ],
+    );
+    assert.equal(fake.transactions, 2);
   } finally {
+    await app.close();
+  }
+});
+
+
+test('POST /api/widgets/:publicKey/messages replays concurrent duplicate visitor inserts without fake reply or intent', async () => {
+  const fake = createEnabledFakeDatabase({
+    visitorInsertRaceMessage: messageRow({
+      id: 'message-race',
+      conversationId: CONVERSATION_ID_A,
+      seq: 1,
+      clientMessageId: 'client-message-1',
+      body: 'Original body',
+    }),
+  });
+  const messageEvents = createConversationMessageEventEmitter();
+  const emittedMessages: Array<{ sender: string; seq: number }> = [];
+  const subscription = messageEvents.subscribe(CONVERSATION_ID_A, (event) => {
+    emittedMessages.push({ sender: event.message.sender, seq: event.message.seq });
+  });
+  const app = buildApp({ database: fake.database, messageEvents });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/messages`,
+      headers: { origin: 'http://localhost:5173' },
+      payload: { ...validMessagePayload(), body: 'Conflicting retry body' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual({ ...response.json().message, createdAt: '<iso-date>' }, {
+      id: 'message-race',
+      conversationId: CONVERSATION_ID_A,
+      seq: 1,
+      sender: 'visitor',
+      clientMessageId: 'client-message-1',
+      body: 'Original body',
+      createdAt: '<iso-date>',
+    });
+    assertNoPandaConnectionFields(response.json());
+    assert.deepEqual(fake.messageClientMessageLookups, [
+      { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
+      { conversationId: CONVERSATION_ID_A, clientMessageId: 'client-message-1' },
+    ]);
+    assert.deepEqual(fake.messageSeqLookups, [CONVERSATION_ID_A]);
+    assert.deepEqual(fake.messageInserts, []);
+    assert.deepEqual(fake.deliveryIntentInserts, []);
+    assert.deepEqual(emittedMessages, []);
+    assert.deepEqual(fake.messageInsertConflictTargets, [
+      {
+        columns: ['conversation_id', 'client_message_id'],
+        where: { column: 'client_message_id', operator: 'is not', value: null },
+      },
+    ]);
+    assert.equal(fake.messageInsertConflictDoNothingCount, 1);
+    assert.deepEqual(fake.operationLog, [
+      'transaction:start',
+      'insert:message:visitor_conflict',
+      'transaction:commit',
+    ]);
+  } finally {
+    subscription.close();
     await app.close();
   }
 });
@@ -751,6 +1172,28 @@ test('POST /api/widgets/:publicKey/messages scopes duplicate client ids to a con
           body: createFakeResponderReply({
             visitorMessage: { body: 'Same client id in another conversation' },
           }).body,
+        },
+      ],
+    );
+    assert.deepEqual(
+      fake.deliveryIntentInserts.map((values) => ({
+        conversation_id: values.conversation_id,
+        visitor_session_id: values.visitor_session_id,
+        visitor_message_id: values.visitor_message_id,
+        client_message_id: values.client_message_id,
+      })),
+      [
+        {
+          conversation_id: CONVERSATION_ID_A,
+          visitor_session_id: VISITOR_SESSION_ID_A,
+          visitor_message_id: 'message-1',
+          client_message_id: 'client-message-1',
+        },
+        {
+          conversation_id: CONVERSATION_ID_B,
+          visitor_session_id: VISITOR_SESSION_ID_B,
+          visitor_message_id: 'message-3',
+          client_message_id: 'client-message-1',
         },
       ],
     );
@@ -949,6 +1392,7 @@ test('GET /api/widgets/:publicKey/messages/events treats afterSeq as reconnect c
 
     assert.equal(response.statusCode, 200);
     assert.match(String(response.headers['content-type']), /^text\/event-stream/);
+    assertNoPandaConnectionFields(response.body);
     assert.equal(response.headers['cache-control'], 'no-cache, no-transform');
     assert.equal(response.headers.connection, 'keep-alive');
     assert.deepEqual(
@@ -990,6 +1434,7 @@ test('GET /api/widgets/:publicKey/messages/events returns a ready event when no 
 
     assert.equal(response.statusCode, 200);
     assert.match(String(response.headers['content-type']), /^text\/event-stream/);
+    assertNoPandaConnectionFields(response.body);
     assert.deepEqual(parseServerSentEvents(response.body), [{ event: 'ready', data: {} }]);
     assert.deepEqual(fake.messageReadLookups, [{ conversationId: CONVERSATION_ID_A, afterSeq: 1 }]);
     assert.deepEqual(fake.messageInserts, []);
@@ -1439,7 +1884,7 @@ test('findConversationForVisitorMessage distinguishes open, closed, and wrong-ow
   }), { status: 'not_found' });
 });
 
-test('visitor message route has SSE catch-up and live stream seams without Gateway or UI behavior', () => {
+test('visitor message route has SSE catch-up, fake reply, and local intent seams without Gateway/CLI/network/worker behavior', () => {
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages/);
   assert.match(visitorMessageSource, /\/api\/widgets\/:publicKey\/messages\/events/);
   assert.match(visitorMessageEventRouteSource, /text\/event-stream/);
@@ -1451,12 +1896,13 @@ test('visitor message route has SSE catch-up and live stream seams without Gatew
   assert.match(visitorMessageSource, /createFakeResponderReply/);
   assert.match(visitorMessageSource, /insertVisitorConversationMessage/);
   assert.match(visitorMessageSource, /insertConversationMessage/);
+  assert.match(visitorMessageSource, /recordPandaDeliveryIntent/);
   assert.match(visitorMessageSource, /sender: 'agent'/);
   assert.match(visitorMessageSource, /readMessagesForConversation/);
   assert.match(visitorMessageSource, /clientMessageId/);
   assert.doesNotMatch(
     visitorMessageEventRouteSource,
-    /sender: 'system'|onConflict|EventSource|WebSocket|Gateway|localStorage|postMessage|setTimeout|setInterval|durable|queue/i,
+    /sender: 'system'|EventSource|WebSocket|Gateway|\bCLI\b|fetch|child_process|Worker|localStorage|postMessage|setTimeout|setInterval/i,
   );
 });
 

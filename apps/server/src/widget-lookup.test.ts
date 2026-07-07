@@ -9,6 +9,7 @@ type LookupRow = {
   widgetId: string;
   siteId: string;
   publicKey: string;
+  panda_route_handle?: string | null;
   widgetEnabled: boolean;
   siteEnabled: boolean;
 };
@@ -43,6 +44,7 @@ test('findWidgetByPublicKey returns server-owned fields for an enabled public wi
     widgetId: 'widget-id',
     siteId: 'site-id',
     publicKey: DEMO_SEED_DATA.publicWidgetKey,
+    panda_route_handle: '  panda:workspace/alpha  ',
     widgetEnabled: true,
     siteEnabled: true,
   });
@@ -56,6 +58,7 @@ test('findWidgetByPublicKey returns server-owned fields for an enabled public wi
       id: 'widget-id',
       siteId: 'site-id',
       publicKey: 'demo-local-widget',
+      pandaRouteHandle: 'panda:workspace/alpha',
     },
   });
 });

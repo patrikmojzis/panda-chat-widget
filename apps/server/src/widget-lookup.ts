@@ -4,6 +4,8 @@ export type PublicWidget = {
   id: string;
   siteId: string;
   publicKey: string;
+  /** Internal lookup-only data for server-side delivery intent recording; never include in public DTOs. */
+  pandaRouteHandle: string | null;
 };
 
 export type PublicWidgetLookupResult =
@@ -23,6 +25,7 @@ type PublicWidgetLookupRow = {
   widgetId: string;
   siteId: string;
   publicKey: string;
+  panda_route_handle?: string | null;
   widgetEnabled: boolean;
   siteEnabled: boolean;
 };
@@ -38,6 +41,7 @@ export async function findWidgetByPublicKey(
       'widgets.id as widgetId',
       'widgets.site_id as siteId',
       'widgets.public_key as publicKey',
+      'widgets.panda_route_handle as panda_route_handle',
       'widgets.enabled as widgetEnabled',
       'sites.enabled as siteEnabled',
     ])
@@ -66,6 +70,17 @@ function toPublicWidgetLookupResult(row: PublicWidgetLookupRow | undefined): Pub
       id: row.widgetId,
       siteId: row.siteId,
       publicKey: row.publicKey,
+      pandaRouteHandle: normalizePandaRouteHandle(row.panda_route_handle),
     },
   };
+}
+
+function normalizePandaRouteHandle(routeHandle: string | null | undefined): string | null {
+  if (typeof routeHandle !== 'string') {
+    return null;
+  }
+
+  const trimmed = routeHandle.trim();
+
+  return trimmed ? trimmed : null;
 }

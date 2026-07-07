@@ -1,6 +1,6 @@
 import type { Insertable } from 'kysely';
 
-import type { DatabaseClient, DatabaseSchema, MessageSender } from './db.ts';
+import type { DatabaseExecutor, DatabaseSchema, MessageSender } from './db.ts';
 
 export type ConversationMessage = {
   id: string;
@@ -44,7 +44,7 @@ type MessageRow = {
   created_at: Date;
 };
 
-export async function getNextMessageSeq(database: DatabaseClient, conversationId: string): Promise<number> {
+export async function getNextMessageSeq(database: DatabaseExecutor, conversationId: string): Promise<number> {
   const lastMessage = (await database
     .selectFrom('messages')
     .select('seq')
@@ -64,7 +64,7 @@ export type InsertVisitorConversationMessageResult = {
 };
 
 export async function insertConversationMessage(
-  database: DatabaseClient,
+  database: DatabaseExecutor,
   input: InsertConversationMessageInput,
 ): Promise<ConversationMessage> {
   if (input.sender === 'visitor') {
@@ -77,7 +77,7 @@ export async function insertConversationMessage(
 }
 
 export async function insertVisitorConversationMessage(
-  database: DatabaseClient,
+  database: DatabaseExecutor,
   input: VisitorConversationMessageInput,
 ): Promise<InsertVisitorConversationMessageResult> {
   const existingMessage = await findVisitorMessageByClientMessageId(database, {
@@ -89,28 +89,26 @@ export async function insertVisitorConversationMessage(
     return { inserted: false, message: existingMessage };
   }
 
-  try {
-    const message = await insertNewConversationMessage(database, input);
+  const insertedMessage = await insertNewVisitorConversationMessage(database, input);
 
-    return { inserted: true, message };
-  } catch (error) {
-    if (isUniqueViolation(error)) {
-      const retryExistingMessage = await findVisitorMessageByClientMessageId(database, {
-        conversationId: input.conversationId,
-        clientMessageId: input.clientMessageId,
-      });
-
-      if (retryExistingMessage) {
-        return { inserted: false, message: retryExistingMessage };
-      }
-    }
-
-    throw error;
+  if (insertedMessage) {
+    return { inserted: true, message: insertedMessage };
   }
+
+  const replayedMessage = await findVisitorMessageByClientMessageId(database, {
+    conversationId: input.conversationId,
+    clientMessageId: input.clientMessageId,
+  });
+
+  if (!replayedMessage) {
+    throw new Error('visitor message insert conflict did not return an existing message');
+  }
+
+  return { inserted: false, message: replayedMessage };
 }
 
 async function insertNewConversationMessage(
-  database: DatabaseClient,
+  database: DatabaseExecutor,
   input: InsertConversationMessageInput,
 ): Promise<ConversationMessage> {
   const seq = await getNextMessageSeq(database, input.conversationId);
@@ -133,13 +131,43 @@ async function insertNewConversationMessage(
   return toConversationMessage(row);
 }
 
+async function insertNewVisitorConversationMessage(
+  database: DatabaseExecutor,
+  input: VisitorConversationMessageInput,
+): Promise<ConversationMessage | null> {
+  const seq = await getNextMessageSeq(database, input.conversationId);
+  const createdAt = input.now ?? new Date();
+  const values = {
+    conversation_id: input.conversationId,
+    seq,
+    sender: input.sender,
+    client_message_id: input.clientMessageId,
+    body: input.body,
+    created_at: createdAt,
+  } satisfies Insertable<DatabaseSchema['messages']>;
+
+  const row = (await database
+    .insertInto('messages')
+    .values(values)
+    .onConflict((oc) =>
+      oc
+        .columns(['conversation_id', 'client_message_id'])
+        .where('client_message_id', 'is not', null)
+        .doNothing(),
+    )
+    .returning(['id', 'conversation_id', 'seq', 'sender', 'client_message_id', 'body', 'created_at'])
+    .executeTakeFirst()) as MessageRow | undefined;
+
+  return row ? toConversationMessage(row) : null;
+}
+
 type FindVisitorMessageByClientMessageIdInput = {
   conversationId: string;
   clientMessageId: string;
 };
 
 async function findVisitorMessageByClientMessageId(
-  database: DatabaseClient,
+  database: DatabaseExecutor,
   input: FindVisitorMessageByClientMessageIdInput,
 ): Promise<ConversationMessage | null> {
   const row = (await database
@@ -158,7 +186,7 @@ export type ReadMessagesForConversationOptions = {
 };
 
 export async function readMessagesForConversation(
-  database: DatabaseClient,
+  database: DatabaseExecutor,
   conversationId: string,
   options: ReadMessagesForConversationOptions = {},
 ): Promise<ConversationMessage[]> {
@@ -176,9 +204,6 @@ export async function readMessagesForConversation(
   return rows.map(toConversationMessage);
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
-}
 
 function toConversationMessage(row: MessageRow): ConversationMessage {
   return {

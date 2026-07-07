@@ -22,11 +22,22 @@ type StoredMessage = {
 
 type MessageInsertValues = Omit<StoredMessage, 'id'>;
 
+type MessageInsertConflictTarget = {
+  columns: string[];
+  where: { column: string; operator: string; value: null } | null;
+};
+
+type FakeDatabaseOptions = {
+  visitorInsertRaceMessage?: StoredMessage;
+};
+
 type FakeDatabase = {
   database: DatabaseClient;
   messageSelects: Array<{ conversationId: string; order: 'asc' | 'desc'; limit?: number; afterSeq?: number }>;
   messageClientMessageLookups: Array<{ conversationId: string; clientMessageId: string }>;
   messageInserts: MessageInsertValues[];
+  messageInsertConflictTargets: MessageInsertConflictTarget[];
+  messageInsertConflictDoNothingCount: number;
   messages: StoredMessage[];
 };
 
@@ -34,10 +45,13 @@ const FIRST_CREATED_AT = new Date('2026-01-01T00:00:00Z');
 const SECOND_CREATED_AT = new Date('2026-01-01T00:01:00Z');
 const messageSource = await readFile(new URL('./message.ts', import.meta.url), 'utf8');
 
-function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase {
+function createFakeDatabase(initialMessages: StoredMessage[] = [], options: FakeDatabaseOptions = {}): FakeDatabase {
   const messageSelects: Array<{ conversationId: string; order: 'asc' | 'desc'; limit?: number; afterSeq?: number }> = [];
   const messageClientMessageLookups: Array<{ conversationId: string; clientMessageId: string }> = [];
   const messageInserts: MessageInsertValues[] = [];
+  const messageInsertConflictTargets: MessageInsertConflictTarget[] = [];
+  let messageInsertConflictDoNothingCount = 0;
+  let visitorInsertRaceMessage = options.visitorInsertRaceMessage;
   const messages = [...initialMessages];
 
   function createMessageSelectQuery(tableName: string) {
@@ -124,29 +138,106 @@ function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase
   function createMessageInsertQuery(tableName: string) {
     assert.equal(tableName, 'messages');
     let pendingValues: MessageInsertValues | undefined;
+    let conflictTarget: MessageInsertConflictTarget | null = null;
+    let doNothingOnConflict = false;
+
+    const conflictBuilder = {
+      where: (column: string, operator: string, value: null) => {
+        if (!conflictTarget) {
+          throw new Error('missing conflict target before where');
+        }
+
+        conflictTarget.where = { column, operator, value };
+
+        return conflictBuilder;
+      },
+      doNothing: () => {
+        doNothingOnConflict = true;
+        messageInsertConflictDoNothingCount += 1;
+
+        return query;
+      },
+    };
 
     const query = {
       values: (values: MessageInsertValues) => {
         pendingValues = values;
         return query;
       },
+      onConflict: (
+        buildConflict: (builder: {
+          columns: (columns: string[]) => typeof conflictBuilder;
+        }) => unknown,
+      ) => {
+        buildConflict({
+          columns: (columns: string[]) => {
+            conflictTarget = { columns, where: null };
+            messageInsertConflictTargets.push(conflictTarget);
+
+            return conflictBuilder;
+          },
+        });
+
+        return query;
+      },
       returning: () => query,
+      executeTakeFirst: async () => executeInsert(),
       executeTakeFirstOrThrow: async () => {
-        if (!pendingValues) {
-          throw new Error('missing message insert values');
+        const row = await executeInsert();
+
+        if (!row) {
+          throw new Error('message insert returned no row');
         }
 
-        assert.equal(pendingValues.seq > 0, true);
-        messageInserts.push(pendingValues);
-        const newMessage = {
-          id: `message-${messages.length + 1}`,
-          ...pendingValues,
-        };
-        messages.push(newMessage);
-
-        return newMessage;
+        return row;
       },
     };
+
+    function executeInsert(): StoredMessage | undefined {
+      if (!pendingValues) {
+        throw new Error('missing message insert values');
+      }
+
+      assert.equal(pendingValues.seq > 0, true);
+
+      if (
+        visitorInsertRaceMessage &&
+        pendingValues.sender === 'visitor' &&
+        visitorInsertRaceMessage.conversation_id === pendingValues.conversation_id &&
+        visitorInsertRaceMessage.client_message_id === pendingValues.client_message_id
+      ) {
+        messages.push(visitorInsertRaceMessage);
+        visitorInsertRaceMessage = undefined;
+      }
+
+      const duplicateVisitorMessage = pendingValues.sender === 'visitor'
+        ? messages.find(
+            (message) =>
+              message.conversation_id === pendingValues?.conversation_id &&
+              message.client_message_id === pendingValues?.client_message_id &&
+              message.client_message_id !== null,
+          )
+        : undefined;
+
+      if (duplicateVisitorMessage) {
+        assert.deepEqual(conflictTarget, {
+          columns: ['conversation_id', 'client_message_id'],
+          where: { column: 'client_message_id', operator: 'is not', value: null },
+        });
+        assert.equal(doNothingOnConflict, true);
+
+        return undefined;
+      }
+
+      messageInserts.push(pendingValues);
+      const newMessage = {
+        id: `message-${messages.length + 1}`,
+        ...pendingValues,
+      };
+      messages.push(newMessage);
+
+      return newMessage;
+    }
 
     return query;
   }
@@ -180,7 +271,17 @@ function createFakeDatabase(initialMessages: StoredMessage[] = []): FakeDatabase
     selectFrom: createMessageSelectQuery,
   } as unknown as DatabaseClient;
 
-  return { database, messageSelects, messageClientMessageLookups, messageInserts, messages };
+  return {
+    database,
+    messageSelects,
+    messageClientMessageLookups,
+    messageInserts,
+    messageInsertConflictTargets,
+    get messageInsertConflictDoNothingCount() {
+      return messageInsertConflictDoNothingCount;
+    },
+    messages,
+  };
 }
 
 test('getNextMessageSeq starts at 1 and increments from the highest conversation seq', async () => {
@@ -319,6 +420,51 @@ test('insertConversationMessage replays an existing visitor message without allo
   assert.deepEqual(fake.messageInserts, []);
 });
 
+
+test('insertVisitorConversationMessage replays a concurrent duplicate without throwing a unique violation', async () => {
+  const fake = createFakeDatabase([], {
+    visitorInsertRaceMessage: messageRow({
+      id: 'message-race',
+      conversationId: 'conversation-a',
+      seq: 1,
+      clientMessageId: 'client-message-1',
+      body: 'Original body',
+    }),
+  });
+
+  const result = await insertVisitorConversationMessage(fake.database, {
+    conversationId: 'conversation-a',
+    sender: 'visitor',
+    clientMessageId: 'client-message-1',
+    body: 'Conflicting retry body',
+    now: SECOND_CREATED_AT,
+  });
+
+  assert.equal(result.inserted, false);
+  assert.deepEqual(result.message, {
+    id: 'message-race',
+    conversationId: 'conversation-a',
+    seq: 1,
+    sender: 'visitor',
+    clientMessageId: 'client-message-1',
+    body: 'Original body',
+    createdAt: FIRST_CREATED_AT,
+  });
+  assert.deepEqual(fake.messageClientMessageLookups, [
+    { conversationId: 'conversation-a', clientMessageId: 'client-message-1' },
+    { conversationId: 'conversation-a', clientMessageId: 'client-message-1' },
+  ]);
+  assert.deepEqual(fake.messageSelects, [{ conversationId: 'conversation-a', order: 'desc', limit: 1 }]);
+  assert.deepEqual(fake.messageInserts, []);
+  assert.deepEqual(fake.messageInsertConflictTargets, [
+    {
+      columns: ['conversation_id', 'client_message_id'],
+      where: { column: 'client_message_id', operator: 'is not', value: null },
+    },
+  ]);
+  assert.equal(fake.messageInsertConflictDoNothingCount, 1);
+});
+
 test('insertConversationMessage keeps visitor client message ids scoped to a conversation', async () => {
   const fake = createFakeDatabase([
     messageRow({
@@ -439,17 +585,19 @@ test('readMessagesForConversation can return only messages after a seq', async (
   assert.deepEqual(fake.messageSelects, [{ conversationId: 'conversation-a', order: 'asc', afterSeq: 1 }]);
 });
 
-test('message seam has no HTTP route, onConflict, streaming, fake reply, or UI behavior', () => {
+test('message seam has no HTTP route, streaming, Gateway/CLI/network, worker, timer, fake reply, or UI behavior', () => {
   assert.match(messageSource, /selectFrom\('messages'\)/);
   assert.match(messageSource, /insertInto\('messages'\)/);
   assert.match(messageSource, /insertVisitorConversationMessage/);
+  assert.match(messageSource, /onConflict/);
+  assert.match(messageSource, /doNothing/);
   assert.match(messageSource, /where\('client_message_id', '=', input\.clientMessageId\)/);
   assert.match(messageSource, /where\('seq', '>', options\.afterSeq\)/);
   assert.match(messageSource, /orderBy\('seq', 'asc'\)/);
   assert.match(messageSource, /orderBy\('seq', 'desc'\)/);
   assert.doesNotMatch(
     messageSource,
-    /Fastify|app\.post|visitor-session|conversation route|onConflict|EventSource|WebSocket|Gateway|localStorage|setTimeout|fake/i,
+    /Fastify|app\.post|visitor-session|conversation route|23505|isUniqueViolation|EventSource|WebSocket|Gateway|\bCLI\b|fetch|child_process|Worker|localStorage|setTimeout|setInterval|fake/i,
   );
 });
 
