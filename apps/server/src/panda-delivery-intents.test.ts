@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-import type { DatabaseClient, PandaDeliveryIntentStatus } from './db.ts';
+import type { DatabaseClient, MessageSender, PandaDeliveryIntentStatus } from './db.ts';
+import { buildLocalPandaDispatchPayloadV1 } from './local-panda-dispatch-payload.ts';
+import type { ClaimedPandaDeliveryIntent } from './panda-delivery-intents.ts';
 import { claimNextQueuedPandaDeliveryIntent, recordPandaDeliveryIntent } from './panda-delivery-intents.ts';
 
 type StoredPandaDeliveryIntent = {
@@ -21,6 +23,16 @@ type StoredPandaDeliveryIntent = {
 
 type PandaDeliveryIntentInsertValues = Omit<StoredPandaDeliveryIntent, 'id' | 'claimed_at'> & {
   claimed_at?: Date | null;
+};
+
+type StoredMessage = {
+  id: string;
+  conversation_id: string;
+  seq: number;
+  sender: MessageSender;
+  client_message_id: string | null;
+  body: string;
+  created_at: Date;
 };
 
 type WhereClause = {
@@ -53,6 +65,7 @@ type UpdateLog = {
 
 type FakeDatabaseOptions = {
   failClaimUpdate?: boolean;
+  messages?: StoredMessage[];
 };
 
 type FakeDatabase = {
@@ -60,6 +73,7 @@ type FakeDatabase = {
   conflictColumns: string[];
   insertAttempts: PandaDeliveryIntentInsertValues[];
   intents: StoredPandaDeliveryIntent[];
+  messages: StoredMessage[];
   selects: SelectLog[];
   updates: UpdateLog[];
   transactions: number;
@@ -67,7 +81,9 @@ type FakeDatabase = {
 
 const NOW = new Date('2026-01-01T00:00:00.000Z');
 const CLAIMED_AT = new Date('2026-01-01T00:10:00.000Z');
+const MESSAGE_CREATED_AT = new Date('2026-01-01T00:05:00.000Z');
 const helperSource = await readFile(new URL('./panda-delivery-intents.ts', import.meta.url), 'utf8');
+const payloadSource = await readFile(new URL('./local-panda-dispatch-payload.ts', import.meta.url), 'utf8');
 const migrationSource = await readFile(new URL('./migrations/0005_panda_delivery_intents.ts', import.meta.url), 'utf8');
 const claimMigrationSource = await readFile(
   new URL('./migrations/0006_panda_delivery_intent_claims.ts', import.meta.url),
@@ -81,6 +97,7 @@ function createFakeDatabase(
   const conflictColumns: string[] = [];
   const insertAttempts: PandaDeliveryIntentInsertValues[] = [];
   const intents = [...initialIntents];
+  const messages = [...(options.messages ?? [])];
   const selects: SelectLog[] = [];
   const updates: UpdateLog[] = [];
   let transactions = 0;
@@ -195,6 +212,38 @@ function createFakeDatabase(
     return query;
   }
 
+  function createMessageSelectQuery(tableName: string) {
+    assert.equal(tableName, 'messages');
+    let selectedColumns: string[] = [];
+    const wheres: WhereClause[] = [];
+
+    const query = {
+      select: (columns: string | string[]) => {
+        selectedColumns = Array.isArray(columns) ? columns : [columns];
+        return query;
+      },
+      where: (column: string, operator: string, value: unknown) => {
+        wheres.push({ column, operator, value });
+        return query;
+      },
+      executeTakeFirst: async () => {
+        selects.push({
+          table: tableName,
+          selectedColumns: [...selectedColumns],
+          wheres: wheres.map((where) => ({ ...where })),
+          orders: [],
+          forUpdate: false,
+          skipLocked: false,
+          limit: undefined,
+        });
+
+        return messages.find((row) => matchesWhereClauses(row, wheres));
+      },
+    };
+
+    return query;
+  }
+
   function createIntentUpdateQuery(tableName: string) {
     assert.equal(tableName, 'panda_delivery_intents');
     let updateValues: Record<string, unknown> = {};
@@ -249,7 +298,17 @@ function createFakeDatabase(
       },
     }),
     insertInto: createIntentInsertQuery,
-    selectFrom: createIntentSelectQuery,
+    selectFrom: (tableName: string) => {
+      if (tableName === 'panda_delivery_intents') {
+        return createIntentSelectQuery(tableName);
+      }
+
+      if (tableName === 'messages') {
+        return createMessageSelectQuery(tableName);
+      }
+
+      throw new Error(`Unexpected select table ${tableName}`);
+    },
     updateTable: createIntentUpdateQuery,
   } as unknown as DatabaseClient;
 
@@ -258,6 +317,7 @@ function createFakeDatabase(
     conflictColumns,
     insertAttempts,
     intents,
+    messages,
     selects,
     updates,
     get transactions() {
@@ -279,6 +339,35 @@ function intentRow(id: string, values: Partial<StoredPandaDeliveryIntent> = {}):
     claimed_at: null,
     created_at: NOW,
     updated_at: NOW,
+    ...values,
+  };
+}
+
+function messageRow(values: Partial<StoredMessage> = {}): StoredMessage {
+  return {
+    id: 'visitor-message-1',
+    conversation_id: 'conversation-1',
+    seq: 1,
+    sender: 'visitor',
+    client_message_id: 'client-message-1',
+    body: 'Hello from the visitor',
+    created_at: MESSAGE_CREATED_AT,
+    ...values,
+  };
+}
+
+function claimedIntent(values: Partial<ClaimedPandaDeliveryIntent> = {}): ClaimedPandaDeliveryIntent {
+  return {
+    id: 'intent-1',
+    widgetId: 'widget-1',
+    conversationId: 'conversation-1',
+    visitorSessionId: 'visitor-session-1',
+    visitorMessageId: 'visitor-message-1',
+    clientMessageId: 'client-message-1',
+    routeHandleSnapshot: 'panda:workspace/alpha',
+    status: 'claimed',
+    createdAt: NOW,
+    claimedAt: CLAIMED_AT,
     ...values,
   };
 }
@@ -457,6 +546,7 @@ test('claimNextQueuedPandaDeliveryIntent updates only claim fields and returns c
     'createdAt',
     'id',
     'routeHandleSnapshot',
+    'status',
     'visitorMessageId',
     'visitorSessionId',
     'widgetId',
@@ -469,6 +559,7 @@ test('claimNextQueuedPandaDeliveryIntent updates only claim fields and returns c
     visitorMessageId: 'visitor-message-1',
     clientMessageId: 'client-message-1',
     routeHandleSnapshot: 'panda:workspace/one',
+    status: 'claimed',
     createdAt,
     claimedAt: CLAIMED_AT,
   });
@@ -490,6 +581,7 @@ test('claimNextQueuedPandaDeliveryIntent updates only claim fields and returns c
         'visitor_message_id',
         'client_message_id',
         'route_handle_snapshot',
+        'status',
         'created_at',
         'claimed_at',
       ],
@@ -522,7 +614,191 @@ test('claimNextQueuedPandaDeliveryIntent throws when the selected queued row can
   assert.equal(fake.intents[0]?.claimed_at, null);
 });
 
+test('buildLocalPandaDispatchPayloadV1 builds a local-only v1 envelope from a claimed intent and visitor message', async () => {
+  const fake = createFakeDatabase([], { messages: [messageRow()] });
+
+  const result = await buildLocalPandaDispatchPayloadV1(fake.database, claimedIntent());
+
+  if (!result.built) {
+    assert.fail(`expected payload to be built, got ${result.reason}`);
+  }
+
+  assert.match(result.payload.idempotencyKey, /^local-panda-dispatch-v1:[0-9a-f]{64}$/);
+  assert.deepEqual(result.payload, {
+    version: 1,
+    kind: 'local-panda-future-dispatch',
+    idempotencyKey: result.payload.idempotencyKey,
+    routeHandleSnapshot: 'panda:workspace/alpha',
+    intent: {
+      id: 'intent-1',
+      status: 'claimed',
+      createdAt: NOW.toISOString(),
+      claimedAt: CLAIMED_AT.toISOString(),
+    },
+    widget: { id: 'widget-1' },
+    conversation: { id: 'conversation-1' },
+    visitorSession: { id: 'visitor-session-1' },
+    visitorMessage: {
+      id: 'visitor-message-1',
+      clientMessageId: 'client-message-1',
+      body: 'Hello from the visitor',
+      text: 'Hello from the visitor',
+      createdAt: MESSAGE_CREATED_AT.toISOString(),
+    },
+    correlationIds: {
+      intentId: 'intent-1',
+      widgetId: 'widget-1',
+      conversationId: 'conversation-1',
+      visitorSessionId: 'visitor-session-1',
+      visitorMessageId: 'visitor-message-1',
+      clientMessageId: 'client-message-1',
+    },
+    metadata: {
+      locality: 'local-only',
+      dispatch: 'future-dispatch',
+      contract: 'contract-only',
+      network: 'no-network',
+      stateMutation: 'no-state-mutation',
+      replyHandling: 'no-reply-handling',
+    },
+  });
+});
+
+test('buildLocalPandaDispatchPayloadV1 refuses unclaimed intents before reading visitor messages', async () => {
+  const cases: ClaimedPandaDeliveryIntent[] = [
+    { ...claimedIntent(), status: 'queued' } as unknown as ClaimedPandaDeliveryIntent,
+    { ...claimedIntent(), claimedAt: null } as unknown as ClaimedPandaDeliveryIntent,
+    claimedIntent({ claimedAt: new Date('not-a-date') }),
+  ];
+
+  for (const intent of cases) {
+    const fake = createFakeDatabase([], { messages: [messageRow()] });
+
+    assert.deepEqual(await buildLocalPandaDispatchPayloadV1(fake.database, intent), {
+      built: false,
+      reason: 'intent_not_claimed',
+    });
+    assert.deepEqual(fake.selects, []);
+  }
+});
+
+test('buildLocalPandaDispatchPayloadV1 refuses missing route snapshots before reading visitor messages', async () => {
+  const fake = createFakeDatabase([], { messages: [messageRow()] });
+
+  assert.deepEqual(
+    await buildLocalPandaDispatchPayloadV1(fake.database, claimedIntent({ routeHandleSnapshot: '   ' })),
+    { built: false, reason: 'missing_route_handle' },
+  );
+  assert.deepEqual(fake.selects, []);
+});
+
+test('buildLocalPandaDispatchPayloadV1 validates visitor message context and correlation', async () => {
+  const cases: Array<{
+    messages: StoredMessage[];
+    reason: 'visitor_message_not_found' | 'visitor_message_not_visitor' | 'message_correlation_mismatch';
+  }> = [
+    { messages: [], reason: 'visitor_message_not_found' },
+    { messages: [messageRow({ sender: 'agent', client_message_id: null })], reason: 'visitor_message_not_visitor' },
+    { messages: [messageRow({ client_message_id: null })], reason: 'message_correlation_mismatch' },
+    { messages: [messageRow({ client_message_id: 'other-client-message' })], reason: 'message_correlation_mismatch' },
+    { messages: [messageRow({ conversation_id: 'other-conversation' })], reason: 'message_correlation_mismatch' },
+  ];
+
+  for (const testCase of cases) {
+    const fake = createFakeDatabase([], { messages: testCase.messages });
+
+    assert.deepEqual(await buildLocalPandaDispatchPayloadV1(fake.database, claimedIntent()), {
+      built: false,
+      reason: testCase.reason,
+    });
+    assert.deepEqual(fake.selects, [
+      {
+        table: 'messages',
+        selectedColumns: ['id', 'conversation_id', 'sender', 'client_message_id', 'body', 'created_at'],
+        wheres: [{ column: 'id', operator: '=', value: 'visitor-message-1' }],
+        orders: [],
+        forUpdate: false,
+        skipLocked: false,
+        limit: undefined,
+      },
+    ]);
+  }
+});
+
+test('buildLocalPandaDispatchPayloadV1 idempotency is stable and changes with valid correlation changes', async () => {
+  const fake = createFakeDatabase([], { messages: [messageRow()] });
+
+  const first = await buildLocalPandaDispatchPayloadV1(fake.database, claimedIntent());
+  const second = await buildLocalPandaDispatchPayloadV1(fake.database, claimedIntent());
+  const changedTimestamps = await buildLocalPandaDispatchPayloadV1(
+    createFakeDatabase([], { messages: [messageRow({ created_at: new Date('2026-01-01T00:06:00.000Z') })] }).database,
+    claimedIntent({ createdAt: new Date('2026-01-01T00:02:00.000Z'), claimedAt: new Date('2026-01-01T00:11:00.000Z') }),
+  );
+  const changedBody = await buildLocalPandaDispatchPayloadV1(
+    createFakeDatabase([], { messages: [messageRow({ body: 'Edited visitor body' })] }).database,
+    claimedIntent(),
+  );
+  const changed = await buildLocalPandaDispatchPayloadV1(
+    createFakeDatabase([], {
+      messages: [messageRow({ id: 'visitor-message-2', client_message_id: 'client-message-2' })],
+    }).database,
+    claimedIntent({ visitorMessageId: 'visitor-message-2', clientMessageId: 'client-message-2' }),
+  );
+
+  if (!first.built || !second.built || !changedTimestamps.built || !changedBody.built || !changed.built) {
+    assert.fail('expected all idempotency payloads to be validly built');
+  }
+
+  assert.equal(first.payload.idempotencyKey, second.payload.idempotencyKey);
+  assert.equal(first.payload.idempotencyKey, changedTimestamps.payload.idempotencyKey);
+  assert.equal(first.payload.idempotencyKey, changedBody.payload.idempotencyKey);
+  assert.notEqual(first.payload.idempotencyKey, changed.payload.idempotencyKey);
+
+  const idempotencySource = sourceBetween(
+    payloadSource,
+    'function buildLocalPandaDispatchPayloadV1IdempotencyKey',
+    '\nfunction isValidDate',
+  );
+  assert.match(idempotencySource, /JSON\.stringify\(fields\)/);
+  assert.doesNotMatch(idempotencySource, /\.join\(/);
+});
+
+test('buildLocalPandaDispatchPayloadV1 only reads messages and has no dispatch side effects', async () => {
+  const fake = createFakeDatabase([], { messages: [messageRow()] });
+
+  const result = await buildLocalPandaDispatchPayloadV1(fake.database, claimedIntent());
+
+  assert.equal(result.built, true);
+  assert.deepEqual(fake.selects, [
+    {
+      table: 'messages',
+      selectedColumns: ['id', 'conversation_id', 'sender', 'client_message_id', 'body', 'created_at'],
+      wheres: [{ column: 'id', operator: '=', value: 'visitor-message-1' }],
+      orders: [],
+      forUpdate: false,
+      skipLocked: false,
+      limit: undefined,
+    },
+  ]);
+  assert.deepEqual(fake.insertAttempts, []);
+  assert.deepEqual(fake.updates, []);
+  assert.equal(fake.transactions, 0);
+
+  const builderSource = sourceBetween(
+    payloadSource,
+    'export async function buildLocalPandaDispatchPayloadV1',
+    '\nfunction toLocalPandaDispatchPayloadV1',
+  );
+  assert.equal((builderSource.match(/selectFrom\('/g) ?? []).length, 1);
+  assert.match(builderSource, /selectFrom\('messages'\)/);
+  assert.doesNotMatch(
+    builderSource,
+    /insertInto|updateTable|transaction\(\)|Gateway|\bCLI\b|fetch|WebSocket|child_process|dispatcher|Worker|setTimeout|setInterval|retry|dead-letter|delivered|failed|reply-ingestion/i,
+  );
+});
+
 test('panda delivery intent helper is local-only storage and claim plumbing without dispatch behavior', () => {
+  assert.doesNotMatch(helperSource, /buildLocalPandaDispatchPayloadV1|LocalPandaDispatchPayloadV1|idempotencyKey|future-dispatch/);
   assert.match(helperSource, /insertInto\('panda_delivery_intents'\)/);
   assert.match(helperSource, /onConflict/);
   assert.match(helperSource, /transaction\(\)\.execute\(async \(transaction\) =>/);
@@ -542,6 +818,7 @@ test('panda delivery intent helper is local-only storage and claim plumbing with
     'visitor_message_id',
     'client_message_id',
     'route_handle_snapshot',
+    'status',
     'created_at',
     'claimed_at',
   ]) {
@@ -588,9 +865,18 @@ test('panda delivery intent claim migration adds local claimed state and reversi
   assert.match(claimMigrationSource, /drop column claimed_at/);
 });
 
-function matchesWhereClauses(row: StoredPandaDeliveryIntent, wheres: WhereClause[]): boolean {
+function sourceBetween(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  assert.notEqual(startIndex, -1, `missing source start ${start}`);
+  const endIndex = source.indexOf(end, startIndex);
+  assert.notEqual(endIndex, -1, `missing source end ${end}`);
+
+  return source.slice(startIndex, endIndex);
+}
+
+function matchesWhereClauses<Row extends object>(row: Row, wheres: WhereClause[]): boolean {
   return wheres.every((where) => {
-    const value = row[where.column as keyof StoredPandaDeliveryIntent];
+    const value = row[where.column as keyof Row];
 
     if (where.operator === '=') {
       return value === where.value;
