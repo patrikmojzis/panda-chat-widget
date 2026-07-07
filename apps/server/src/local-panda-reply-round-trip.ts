@@ -110,7 +110,7 @@ export type LocalPandaReplyRoundTripOptions = {
   now?: Date;
 };
 
-type LocalPandaReplyRoundTripDispatchPreparationResult =
+export type LocalPandaReplyRoundTripDispatchPreparationResult =
   | {
       prepared: true;
       dispatchIntentSource: LocalPandaReplyRoundTripDispatchIntentSource;
@@ -193,7 +193,7 @@ export async function runNextLocalPandaReplyRoundTrip(
   );
 }
 
-async function prepareLocalPandaReplyRoundTripDispatch(
+export async function prepareLocalPandaReplyRoundTripDispatch(
   database: DatabaseClient,
   options: LocalPandaReplyRoundTripOptions,
 ): Promise<LocalPandaReplyRoundTripDispatchPreparationResult> {
