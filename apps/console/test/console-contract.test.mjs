@@ -45,7 +45,8 @@ test('console API client uses relative authenticated routes, cookie credentials,
   assert.match(apiSource, /createWidget[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
   assert.match(apiSource, /getWidgetSettings[\s\S]*\/settings`/);
   assert.match(apiSource, /updateWidgetSettings[\s\S]*method: 'PATCH'/);
-  assert.match(apiSource, /ConsoleWidgetConnection[\s\S]*routeHandle: string \| null/);
+  assert.match(apiSource, /ConsoleWidgetLocalDelivery[\s\S]*queuedIntentCount: number;[\s\S]*lastQueuedAt: string \| null/);
+  assert.match(apiSource, /ConsoleWidgetConnection[\s\S]*routeHandle: string \| null;[\s\S]*localDelivery: ConsoleWidgetLocalDelivery/);
   assert.match(apiSource, /connection\?: \{[\s\S]*routeHandle\?: string \| null/);
   assert.match(apiSource, /listWidgetDomains[\s\S]*\/domains`/);
   assert.match(apiSource, /createWidgetDomain[\s\S]*method: 'POST'/);
@@ -74,6 +75,9 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.match(appSource, /Copy snippet/);
   assert.match(appSource, /Panda connection/);
   assert.match(appSource, /Connection placeholder/);
+  assert.match(appSource, /Local future-dispatch status only/);
+  assert.match(appSource, /Gateway\/CLI dispatch is not connected yet/);
+  assert.match(appSource, /Local future-dispatch queue/);
   assert.match(appSource, /local fake reply loop/);
   assert.match(appSource, /Save placeholder/);
   assert.match(appSource, /Clear connection/);
@@ -84,7 +88,13 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.match(appSource, /window\.history\.pushState/);
   assert.match(appSource, /role="alert"/);
   assert.match(appSource, /autoFocus/);
-  assert.doesNotMatch(`${appSource}\n${apiSource}`, /billing|plans|usage|invite|RBAC|Gateway|SalesPanda|CRM|customCss|unsafeHtml|dangerouslySetInnerHTML/i);
+  const sourceWithAllowedFutureDispatchCopyRemoved = `${appSource}\n${apiSource}`
+    .replaceAll('Gateway/CLI dispatch is not connected yet', '');
+  assert.doesNotMatch(
+    sourceWithAllowedFutureDispatchCopyRemoved,
+    /billing|plans|usage|invite|RBAC|Gateway|\bCLI\b|SalesPanda|CRM|customCss|unsafeHtml|dangerouslySetInnerHTML/i,
+  );
+  assert.doesNotMatch(sourceWithAllowedFutureDispatchCopyRemoved, /EventSource|WebSocket|child_process|Worker|setTimeout|setInterval/i);
 });
 
 test('console shell CSS uses semantic tokens and overflow-safe site/widget layouts', () => {

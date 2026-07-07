@@ -85,6 +85,13 @@ type StoredDomain = {
   created_at: Date | string;
 };
 
+type StoredPandaDeliveryIntent = {
+  id: string;
+  widget_id: string;
+  status: string;
+  created_at: Date | string;
+};
+
 type WhereClause = {
   column: string;
   operator: string;
@@ -128,6 +135,7 @@ type FakeConsoleWidgetSettingsDatabase = {
   sites: StoredSite[];
   widgets: StoredWidget[];
   domains: StoredDomain[];
+  deliveryIntents: StoredPandaDeliveryIntent[];
   selects: SelectLog[];
   updates: UpdateLog[];
   inserts: InsertLog[];
@@ -204,6 +212,7 @@ function createFakeConsoleWidgetSettingsDatabase(): FakeConsoleWidgetSettingsDat
       domainRow(DOMAIN_A2, WIDGET_A2, 'alpha2.example'),
       domainRow(DOMAIN_B, WIDGET_B, 'beta.example'),
     ],
+    deliveryIntents: [],
     selects: [],
     updates: [],
     inserts: [],
@@ -259,6 +268,20 @@ function domainRow(id: string, widgetId: string, domain: string): StoredDomain {
     domain,
     enabled: true,
     created_at: NOW,
+  };
+}
+
+function deliveryIntentRow(
+  id: string,
+  widgetId: string,
+  status: string,
+  createdAt: Date | string,
+): StoredPandaDeliveryIntent {
+  return {
+    id,
+    widget_id: widgetId,
+    status,
+    created_at: createdAt,
   };
 }
 
@@ -440,6 +463,8 @@ function selectRows(
     rows = selectOwnedWidgets(fake, wheres);
   } else if (table === 'allowed_domains') {
     rows = sortRows(fake.domains.filter((domain) => matchesWhereClauses(domain, wheres)), orders);
+  } else if (table === 'panda_delivery_intents') {
+    rows = [selectLocalDeliveryStatusRow(fake, wheres)];
   } else {
     throw new Error(`Unexpected select table: ${table}`);
   }
@@ -475,6 +500,22 @@ function selectOwnedWidgets(fake: FakeConsoleWidgetSettingsDatabase, wheres: Whe
       return matchesWhereClause(widget, where);
     });
   });
+}
+
+function selectLocalDeliveryStatusRow(
+  fake: FakeConsoleWidgetSettingsDatabase,
+  wheres: WhereClause[],
+): { queued_intent_count: string; last_queued_at: Date | string | null } {
+  const intents = fake.deliveryIntents.filter((intent) => matchesWhereClauses(intent, wheres));
+  let lastQueuedAt: Date | string | null = null;
+
+  for (const intent of intents) {
+    if (lastQueuedAt === null || comparableValue(intent.created_at) > comparableValue(lastQueuedAt)) {
+      lastQueuedAt = intent.created_at;
+    }
+  }
+
+  return { queued_intent_count: String(intents.length), last_queued_at: lastQueuedAt };
 }
 
 function selectAuthSessionRow(fake: FakeConsoleWidgetSettingsDatabase, wheres: WhereClause[]): unknown | undefined {
@@ -614,6 +655,16 @@ function assertNoWidgetDomainWrites(fake: FakeConsoleWidgetSettingsDatabase): vo
 
 function hasWhere(log: SelectLog, column: string, value: unknown): boolean {
   return log.wheres.some((where) => where.column === column && where.operator === '=' && where.value === value);
+}
+
+function assertLocalDeliveryQuery(fake: FakeConsoleWidgetSettingsDatabase, widgetId: string): void {
+  assert.equal(
+    fake.selects.some((log) =>
+      log.table === 'panda_delivery_intents' && hasWhere(log, 'widget_id', widgetId) && hasWhere(log, 'status', 'queued'),
+    ),
+    true,
+    `expected queued local delivery status query for widget ${widgetId}`,
+  );
 }
 
 function assertOwnedWidgetQuery(fake: FakeConsoleWidgetSettingsDatabase, workspaceId: string, siteId: string, widgetId: string): void {
@@ -805,6 +856,9 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
       { config: { theme: { colorMode: 'sepia' } } },
       { config: { assistant: { displayName: '<b>Bad</b>' } } },
       { connection: { status: 'configured_placeholder' } },
+      { connection: { localDelivery: { queuedIntentCount: 99, lastQueuedAt: NOW.toISOString() } } },
+      { connection: { queuedIntentCount: 99 } },
+      { connection: { lastQueuedAt: NOW.toISOString() } },
       { connection: { routeHandle: '   ' } },
       { connection: { routeHandle: '<script>' } },
       { connection: { routeHandle: 'x'.repeat(201) } },
@@ -873,7 +927,11 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
 
     assert.equal(initial.statusCode, 200);
     assert.equal(initial.headers['cache-control'], 'no-store');
-    assert.deepEqual(initial.json().connection, { status: 'not_configured', routeHandle: null });
+    assert.deepEqual(initial.json().connection, {
+      status: 'not_configured',
+      routeHandle: null,
+      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null },
+    });
 
     const configured = await app.inject({
       method: 'PATCH',
@@ -887,6 +945,7 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
     assert.deepEqual(configured.json().connection, {
       status: 'configured_placeholder',
       routeHandle: 'panda:workspace/alpha',
+      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null },
     });
 
     const configureUpdate = widgetUpdateLogs(fake).at(-1);
@@ -905,12 +964,45 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
 
     assert.equal(cleared.statusCode, 200);
     assert.equal(cleared.headers['cache-control'], 'no-store');
-    assert.deepEqual(cleared.json().connection, { status: 'not_configured', routeHandle: null });
+    assert.deepEqual(cleared.json().connection, {
+      status: 'not_configured',
+      routeHandle: null,
+      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null },
+    });
 
     const clearUpdate = widgetUpdateLogs(fake).at(-1);
     assert.ok(clearUpdate);
     assert.equal(clearUpdate.updates.panda_route_handle, null);
     assert.equal(clearUpdate.updates.updated_at instanceof Date, true);
+  } finally {
+    await app.close();
+  }
+});
+
+test('console widget settings GET exposes queued local delivery status for the owned widget only', async () => {
+  const fake = createFakeConsoleWidgetSettingsDatabase();
+  fake.deliveryIntents = [
+    deliveryIntentRow('intent-a-1', WIDGET_A, 'queued', '2026-01-01T00:01:00.000Z'),
+    deliveryIntentRow('intent-a-2', WIDGET_A, 'queued', new Date('2026-01-01T00:03:00.000Z')),
+    deliveryIntentRow('intent-a-ignored', WIDGET_A, 'sent', '2026-01-01T00:04:00.000Z'),
+    deliveryIntentRow('intent-a2', WIDGET_A2, 'queued', '2026-01-01T00:05:00.000Z'),
+    deliveryIntentRow('intent-b', WIDGET_B, 'queued', '2026-01-01T00:06:00.000Z'),
+  ];
+  const app = createConsoleApp(fake);
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/console/sites/${SITE_A}/widgets/${WIDGET_A}/settings`,
+      headers: { cookie: sessionCookie(TOKEN_A) },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().connection.localDelivery, {
+      queuedIntentCount: 2,
+      lastQueuedAt: '2026-01-01T00:03:00.000Z',
+    });
+    assertLocalDeliveryQuery(fake, WIDGET_A);
   } finally {
     await app.close();
   }

@@ -1100,11 +1100,12 @@ function WidgetSettingsPage({
         <div>
           <p className="eyebrow">Panda connection</p>
           <h2 id="panda-connection-title">Connection placeholder</h2>
-          <p>This stores only an opaque route handle for future Panda delivery. Visitor messages still use the local fake reply loop.</p>
+          <p>Local future-dispatch status only; Gateway/CLI dispatch is not connected yet, so visitor messages still use the local fake reply loop.</p>
         </div>
         <div className="connection-status">
           <span className="row-pill">{formatConnectionStatus(state.settings.connection.status)}</span>
           <small>{state.settings.connection.routeHandle ? 'A placeholder route handle is saved.' : 'No route handle is saved yet.'}</small>
+          <small>{formatLocalDeliveryStatus(state.settings.connection.localDelivery)}</small>
         </div>
         <form className="inline-form" onSubmit={handleConnectionSubmit} aria-busy={connectionSubmitState === 'submitting'}>
           <label className="field" htmlFor="widget-connection-route-handle">
@@ -1212,6 +1213,15 @@ function WidgetSettingsPage({
 
 function formatConnectionStatus(status: ConsoleWidgetSettings['connection']['status']): string {
   return status === 'configured_placeholder' ? 'Configured placeholder' : 'Not configured';
+}
+
+function formatLocalDeliveryStatus(localDelivery: ConsoleWidgetSettings['connection']['localDelivery']): string {
+  const queued = localDelivery.queuedIntentCount === 1
+    ? '1 queued intent'
+    : `${localDelivery.queuedIntentCount} queued intents`;
+  const lastQueued = localDelivery.lastQueuedAt ? `last queued ${formatDate(localDelivery.lastQueuedAt)}` : 'last queued never';
+
+  return `Local future-dispatch queue: ${queued}; ${lastQueued}.`;
 }
 
 function formFromSettings(settings: ConsoleWidgetSettings): WidgetSettingsForm {
