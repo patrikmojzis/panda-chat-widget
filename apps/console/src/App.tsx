@@ -1100,7 +1100,7 @@ function WidgetSettingsPage({
         <div>
           <p className="eyebrow">Panda connection</p>
           <h2 id="panda-connection-title">Connection placeholder</h2>
-          <p>Local future-dispatch status only; Gateway/CLI dispatch is not connected yet, so visitor messages still use the local fake reply loop.</p>
+          <p>Owner-only local deterministic fake reply diagnostic. It shows queued and claimed local future-dispatch intents plus fake reply rows applied locally; Gateway/CLI dispatch is not connected yet, so visitor messages still use the local fake reply loop.</p>
         </div>
         <div className="connection-status">
           <span className="row-pill">{formatConnectionStatus(state.settings.connection.status)}</span>
@@ -1222,14 +1222,22 @@ function formatLocalDeliveryStatus(localDelivery: ConsoleWidgetSettings['connect
   const claimed = localDelivery.claimedIntentCount === 1
     ? '1 intent claimed locally'
     : `${localDelivery.claimedIntentCount} intents claimed locally`;
+  const applied = localDelivery.appliedLocalReplyCount === 1
+    ? '1 fake reply application'
+    : `${localDelivery.appliedLocalReplyCount} fake reply applications`;
   const lastQueued = localDelivery.lastQueuedAt ? `last queued ${formatDate(localDelivery.lastQueuedAt)}` : 'last queued never';
   const lastClaimed = localDelivery.lastClaimedAt
     ? `last claimed locally ${formatDate(localDelivery.lastClaimedAt)}`
     : localDelivery.claimedIntentCount > 0
       ? 'last claimed timestamp unavailable'
       : 'last claimed locally never';
+  const lastApplied = localDelivery.lastAppliedLocalReplyAt
+    ? `last applied locally ${formatDate(localDelivery.lastAppliedLocalReplyAt)}`
+    : localDelivery.appliedLocalReplyCount > 0
+      ? 'last applied timestamp unavailable'
+      : 'last applied locally never';
 
-  return `Local future-dispatch queue: ${queued}; ${lastQueued}. Claimed locally: ${claimed}; ${lastClaimed}.`;
+  return `Local deterministic fake reply diagnostic. Local future-dispatch queue: ${queued}; ${lastQueued}. Claimed locally: ${claimed}; ${lastClaimed}. Applied locally: ${applied}; ${lastApplied}.`;
 }
 
 function formFromSettings(settings: ConsoleWidgetSettings): WidgetSettingsForm {

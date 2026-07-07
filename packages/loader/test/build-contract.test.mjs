@@ -7,6 +7,7 @@ import * as ts from 'typescript';
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const buildConfig = JSON.parse(await readFile(new URL('../tsconfig.build.json', import.meta.url), 'utf8'));
 const source = await readFile(new URL('../src/panda-chat-widget-loader.ts', import.meta.url), 'utf8');
+const ownerOnlyLocalDeliveryPattern = /localDelivery|queuedIntentCount|lastQueuedAt|claimedIntentCount|lastClaimedAt|appliedLocalReplyCount|lastAppliedLocalReplyAt/i;
 const compiledLoader = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.None,
@@ -159,6 +160,7 @@ test('loader entry reads config and creates a URL-built iframe shell', () => {
   assert.match(source, /PandaChatWidgetConfig/);
   assert.match(source, /PandaChatWidgetLoader/);
   assert.doesNotMatch(source, /fetch\(|innerHTML|onclick|postMessage/);
+  assert.doesNotMatch(source, ownerOnlyLocalDeliveryPattern);
 });
 
 test('loader host styling is static and avoids arbitrary CSS or HTML injection APIs', () => {

@@ -76,6 +76,8 @@ export type ConsoleWidgetLocalDelivery = {
   lastQueuedAt: string | null;
   claimedIntentCount: number;
   lastClaimedAt: string | null;
+  appliedLocalReplyCount: number;
+  lastAppliedLocalReplyAt: string | null;
 };
 
 export type ConsoleWidgetConnection = {

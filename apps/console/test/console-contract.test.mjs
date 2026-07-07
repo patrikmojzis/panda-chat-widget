@@ -45,7 +45,7 @@ test('console API client uses relative authenticated routes, cookie credentials,
   assert.match(apiSource, /createWidget[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
   assert.match(apiSource, /getWidgetSettings[\s\S]*\/settings`/);
   assert.match(apiSource, /updateWidgetSettings[\s\S]*method: 'PATCH'/);
-  assert.match(apiSource, /ConsoleWidgetLocalDelivery[\s\S]*queuedIntentCount: number;[\s\S]*lastQueuedAt: string \| null;[\s\S]*claimedIntentCount: number;[\s\S]*lastClaimedAt: string \| null/);
+  assert.match(apiSource, /ConsoleWidgetLocalDelivery[\s\S]*queuedIntentCount: number;[\s\S]*lastQueuedAt: string \| null;[\s\S]*claimedIntentCount: number;[\s\S]*lastClaimedAt: string \| null;[\s\S]*appliedLocalReplyCount: number;[\s\S]*lastAppliedLocalReplyAt: string \| null/);
   assert.match(apiSource, /ConsoleWidgetConnection[\s\S]*routeHandle: string \| null;[\s\S]*localDelivery: ConsoleWidgetLocalDelivery/);
   assert.match(apiSource, /connection\?: \{[\s\S]*routeHandle\?: string \| null/);
   assert.match(apiSource, /listWidgetDomains[\s\S]*\/domains`/);
@@ -75,12 +75,17 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.match(appSource, /Copy snippet/);
   assert.match(appSource, /Panda connection/);
   assert.match(appSource, /Connection placeholder/);
-  assert.match(appSource, /Local future-dispatch status only/);
+  assert.match(appSource, /Owner-only local deterministic fake reply diagnostic/);
   assert.match(appSource, /Gateway\/CLI dispatch is not connected yet/);
   assert.match(appSource, /Local future-dispatch queue/);
   assert.match(appSource, /Claimed locally/);
   assert.match(appSource, /claimed locally/);
   assert.match(appSource, /last claimed timestamp unavailable/);
+  assert.match(appSource, /Local deterministic fake reply diagnostic/);
+  assert.match(appSource, /Applied locally/);
+  assert.match(appSource, /fake reply applications/);
+  assert.match(appSource, /last applied locally/);
+  assert.match(appSource, /last applied timestamp unavailable/);
   assert.match(appSource, /local fake reply loop/);
   assert.match(appSource, /Save placeholder/);
   assert.match(appSource, /Clear connection/);
