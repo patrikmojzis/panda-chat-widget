@@ -1219,9 +1219,17 @@ function formatLocalDeliveryStatus(localDelivery: ConsoleWidgetSettings['connect
   const queued = localDelivery.queuedIntentCount === 1
     ? '1 queued intent'
     : `${localDelivery.queuedIntentCount} queued intents`;
+  const claimed = localDelivery.claimedIntentCount === 1
+    ? '1 intent claimed locally'
+    : `${localDelivery.claimedIntentCount} intents claimed locally`;
   const lastQueued = localDelivery.lastQueuedAt ? `last queued ${formatDate(localDelivery.lastQueuedAt)}` : 'last queued never';
+  const lastClaimed = localDelivery.lastClaimedAt
+    ? `last claimed locally ${formatDate(localDelivery.lastClaimedAt)}`
+    : localDelivery.claimedIntentCount > 0
+      ? 'last claimed timestamp unavailable'
+      : 'last claimed locally never';
 
-  return `Local future-dispatch queue: ${queued}; ${lastQueued}.`;
+  return `Local future-dispatch queue: ${queued}; ${lastQueued}. Claimed locally: ${claimed}; ${lastClaimed}.`;
 }
 
 function formFromSettings(settings: ConsoleWidgetSettings): WidgetSettingsForm {

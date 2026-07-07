@@ -104,11 +104,25 @@ type OrderClause = {
   direction: string;
 };
 
+type AggregateFilter = {
+  column: string;
+  operator: string;
+  value: unknown;
+};
+
+type AggregateSelection = {
+  functionName: 'count' | 'max';
+  targetColumn: keyof StoredPandaDeliveryIntent;
+  alias: string;
+  filters: AggregateFilter[];
+};
+
 type SelectLog = {
   table: string;
   joins: string[];
   wheres: WhereClause[];
   orders: OrderClause[];
+  aggregateSelections: AggregateSelection[];
   mode: 'execute' | 'executeTakeFirst';
 };
 
@@ -301,6 +315,7 @@ function createSelectQuery(fake: FakeConsoleWidgetSettingsDatabase, table: strin
   const joins: string[] = [];
   const wheres: WhereClause[] = [];
   const orders: OrderClause[] = [];
+  const aggregateSelections: AggregateSelection[] = [];
   let limitCount: number | undefined;
 
   const query = {
@@ -308,7 +323,13 @@ function createSelectQuery(fake: FakeConsoleWidgetSettingsDatabase, table: strin
       joins.push(joinedTable);
       return query;
     },
-    select: () => query,
+    select: (selection?: unknown) => {
+      if (typeof selection === 'function') {
+        selection(createAggregateExpressionBuilder(aggregateSelections));
+      }
+
+      return query;
+    },
     where: (column: string, operator: string, value: unknown) => {
       wheres.push({ column, operator, value });
       return query;
@@ -322,16 +343,46 @@ function createSelectQuery(fake: FakeConsoleWidgetSettingsDatabase, table: strin
       return query;
     },
     execute: async () => {
-      fake.selects.push(cloneSelectLog(table, joins, wheres, orders, 'execute'));
-      return selectRows(fake, table, wheres, orders, limitCount);
+      fake.selects.push(cloneSelectLog(table, joins, wheres, orders, aggregateSelections, 'execute'));
+      return selectRows(fake, table, wheres, orders, aggregateSelections, limitCount);
     },
     executeTakeFirst: async () => {
-      fake.selects.push(cloneSelectLog(table, joins, wheres, orders, 'executeTakeFirst'));
-      return selectRows(fake, table, wheres, orders, limitCount)[0];
+      fake.selects.push(cloneSelectLog(table, joins, wheres, orders, aggregateSelections, 'executeTakeFirst'));
+      return selectRows(fake, table, wheres, orders, aggregateSelections, limitCount)[0];
     },
   };
 
   return query;
+}
+
+
+function createAggregateExpressionBuilder(aggregateSelections: AggregateSelection[]) {
+  return {
+    fn: {
+      count: (targetColumn: keyof StoredPandaDeliveryIntent) => createAggregateBuilder(aggregateSelections, 'count', targetColumn),
+      max: (targetColumn: keyof StoredPandaDeliveryIntent) => createAggregateBuilder(aggregateSelections, 'max', targetColumn),
+    },
+  };
+}
+
+function createAggregateBuilder(
+  aggregateSelections: AggregateSelection[],
+  functionName: AggregateSelection['functionName'],
+  targetColumn: keyof StoredPandaDeliveryIntent,
+) {
+  const filters: AggregateFilter[] = [];
+  const builder = {
+    filterWhere: (column: string, operator: string, value: unknown) => {
+      filters.push({ column, operator, value });
+      return builder;
+    },
+    as: (alias: string) => {
+      aggregateSelections.push({ functionName, targetColumn, alias, filters: filters.map((filter) => ({ ...filter })) });
+      return builder;
+    },
+  };
+
+  return builder;
 }
 
 function createUpdateQuery(fake: FakeConsoleWidgetSettingsDatabase, table: string) {
@@ -455,6 +506,7 @@ function selectRows(
   table: string,
   wheres: WhereClause[],
   orders: OrderClause[],
+  aggregateSelections: AggregateSelection[],
   limitCount: number | undefined,
 ): unknown[] {
   let rows: unknown[];
@@ -467,7 +519,7 @@ function selectRows(
   } else if (table === 'allowed_domains') {
     rows = sortRows(fake.domains.filter((domain) => matchesWhereClauses(domain, wheres)), orders);
   } else if (table === 'panda_delivery_intents') {
-    rows = [selectLocalDeliveryStatusRow(fake, wheres)];
+    rows = [selectLocalDeliveryStatusRow(fake, wheres, aggregateSelections)];
   } else {
     throw new Error(`Unexpected select table: ${table}`);
   }
@@ -508,17 +560,26 @@ function selectOwnedWidgets(fake: FakeConsoleWidgetSettingsDatabase, wheres: Whe
 function selectLocalDeliveryStatusRow(
   fake: FakeConsoleWidgetSettingsDatabase,
   wheres: WhereClause[],
-): { queued_intent_count: string; last_queued_at: Date | string | null } {
+  aggregateSelections: AggregateSelection[],
+): Record<string, string | Date | null> {
   const intents = fake.deliveryIntents.filter((intent) => matchesWhereClauses(intent, wheres));
-  let lastQueuedAt: Date | string | null = null;
+  const row: Record<string, string | Date | null> = {};
 
-  for (const intent of intents) {
-    if (lastQueuedAt === null || comparableValue(intent.created_at) > comparableValue(lastQueuedAt)) {
-      lastQueuedAt = intent.created_at;
+  for (const selection of aggregateSelections) {
+    const filteredIntents = intents.filter((intent) => matchesWhereClauses(intent, selection.filters));
+
+    if (selection.functionName === 'count') {
+      row[selection.alias] = String(filteredIntents.length);
+      continue;
     }
+
+    const values = filteredIntents
+      .map((intent) => intent[selection.targetColumn])
+      .filter((value): value is Date | string => value instanceof Date || typeof value === 'string');
+    row[selection.alias] = maxDateValue(values);
   }
 
-  return { queued_intent_count: String(intents.length), last_queued_at: lastQueuedAt };
+  return row;
 }
 
 function selectAuthSessionRow(fake: FakeConsoleWidgetSettingsDatabase, wheres: WhereClause[]): unknown | undefined {
@@ -562,6 +623,7 @@ function cloneSelectLog(
   joins: string[],
   wheres: WhereClause[],
   orders: OrderClause[],
+  aggregateSelections: AggregateSelection[],
   mode: SelectLog['mode'],
 ): SelectLog {
   return {
@@ -569,6 +631,10 @@ function cloneSelectLog(
     joins: [...joins],
     wheres: wheres.map((where) => ({ ...where })),
     orders: orders.map((order) => ({ ...order })),
+    aggregateSelections: aggregateSelections.map((selection) => ({
+      ...selection,
+      filters: selection.filters.map((filter) => ({ ...filter })),
+    })),
     mode,
   };
 }
@@ -613,6 +679,18 @@ function sortRows<T extends Record<string, unknown>>(rows: T[], orders: OrderCla
 
     return 0;
   });
+}
+
+function maxDateValue(values: Array<Date | string>): Date | string | null {
+  let maxValue: Date | string | null = null;
+
+  for (const value of values) {
+    if (maxValue === null || comparableValue(value) > comparableValue(maxValue)) {
+      maxValue = value;
+    }
+  }
+
+  return maxValue;
 }
 
 function comparableValue(value: unknown): string {
@@ -661,13 +739,36 @@ function hasWhere(log: SelectLog, column: string, value: unknown): boolean {
 }
 
 function assertLocalDeliveryQuery(fake: FakeConsoleWidgetSettingsDatabase, widgetId: string): void {
-  assert.equal(
-    fake.selects.some((log) =>
-      log.table === 'panda_delivery_intents' && hasWhere(log, 'widget_id', widgetId) && hasWhere(log, 'status', 'queued'),
-    ),
-    true,
-    `expected queued local delivery status query for widget ${widgetId}`,
-  );
+  const log = fake.selects.find((select) => select.table === 'panda_delivery_intents' && hasWhere(select, 'widget_id', widgetId));
+
+  assert.ok(log, `expected local delivery status query for widget ${widgetId}`);
+  assert.deepEqual(log.wheres, [{ column: 'widget_id', operator: '=', value: widgetId }]);
+  assert.deepEqual(log.aggregateSelections, [
+    {
+      functionName: 'count',
+      targetColumn: 'id',
+      alias: 'queued_intent_count',
+      filters: [{ column: 'status', operator: '=', value: 'queued' }],
+    },
+    {
+      functionName: 'max',
+      targetColumn: 'created_at',
+      alias: 'last_queued_at',
+      filters: [{ column: 'status', operator: '=', value: 'queued' }],
+    },
+    {
+      functionName: 'count',
+      targetColumn: 'id',
+      alias: 'claimed_intent_count',
+      filters: [{ column: 'status', operator: '=', value: 'claimed' }],
+    },
+    {
+      functionName: 'max',
+      targetColumn: 'claimed_at',
+      alias: 'last_claimed_at',
+      filters: [{ column: 'status', operator: '=', value: 'claimed' }],
+    },
+  ]);
 }
 
 function assertOwnedWidgetQuery(fake: FakeConsoleWidgetSettingsDatabase, workspaceId: string, siteId: string, widgetId: string): void {
@@ -850,6 +951,18 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
   const app = createConsoleApp(fake);
 
   try {
+    fake.deliveryIntents = [
+      deliveryIntentRow('intent-read-only-queued', WIDGET_A, 'queued', '2026-01-01T00:01:00.000Z'),
+      deliveryIntentRow(
+        'intent-read-only-claimed',
+        WIDGET_A,
+        'claimed',
+        '2026-01-01T00:02:00.000Z',
+        '2026-01-01T00:02:30.000Z',
+      ),
+    ];
+    const deliveryIntentSnapshot = fake.deliveryIntents.map((intent) => ({ ...intent }));
+
     for (const payload of [
       { publicKey: 'client-key' },
       { enabled: false },
@@ -859,9 +972,20 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
       { config: { theme: { colorMode: 'sepia' } } },
       { config: { assistant: { displayName: '<b>Bad</b>' } } },
       { connection: { status: 'configured_placeholder' } },
-      { connection: { localDelivery: { queuedIntentCount: 99, lastQueuedAt: NOW.toISOString() } } },
+      {
+        connection: {
+          localDelivery: {
+            queuedIntentCount: 99,
+            lastQueuedAt: NOW.toISOString(),
+            claimedIntentCount: 99,
+            lastClaimedAt: NOW.toISOString(),
+          },
+        },
+      },
       { connection: { queuedIntentCount: 99 } },
       { connection: { lastQueuedAt: NOW.toISOString() } },
+      { connection: { claimedIntentCount: 99 } },
+      { connection: { lastClaimedAt: NOW.toISOString() } },
       { connection: { routeHandle: '   ' } },
       { connection: { routeHandle: '<script>' } },
       { connection: { routeHandle: 'x'.repeat(201) } },
@@ -881,6 +1005,7 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
     }
 
     assert.equal(widgetUpdateLogs(fake).length, 0);
+    assert.deepEqual(fake.deliveryIntents, deliveryIntentSnapshot);
 
     const response = await app.inject({
       method: 'PATCH',
@@ -933,7 +1058,7 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
     assert.deepEqual(initial.json().connection, {
       status: 'not_configured',
       routeHandle: null,
-      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null },
+      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null, claimedIntentCount: 0, lastClaimedAt: null },
     });
 
     const configured = await app.inject({
@@ -948,7 +1073,7 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
     assert.deepEqual(configured.json().connection, {
       status: 'configured_placeholder',
       routeHandle: 'panda:workspace/alpha',
-      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null },
+      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null, claimedIntentCount: 0, lastClaimedAt: null },
     });
 
     const configureUpdate = widgetUpdateLogs(fake).at(-1);
@@ -970,7 +1095,7 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
     assert.deepEqual(cleared.json().connection, {
       status: 'not_configured',
       routeHandle: null,
-      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null },
+      localDelivery: { queuedIntentCount: 0, lastQueuedAt: null, claimedIntentCount: 0, lastClaimedAt: null },
     });
 
     const clearUpdate = widgetUpdateLogs(fake).at(-1);
@@ -982,7 +1107,7 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
   }
 });
 
-test('console widget settings GET exposes queued local delivery status for the owned widget only', async () => {
+test('console widget settings GET exposes queued and claimed local delivery status for the owned widget only', async () => {
   const fake = createFakeConsoleWidgetSettingsDatabase();
   fake.deliveryIntents = [
     deliveryIntentRow('intent-a-1', WIDGET_A, 'queued', '2026-01-01T00:01:00.000Z'),
@@ -994,8 +1119,9 @@ test('console widget settings GET exposes queued local delivery status for the o
       '2026-01-01T00:04:00.000Z',
       '2026-01-01T00:04:30.000Z',
     ),
-    deliveryIntentRow('intent-a2', WIDGET_A2, 'queued', '2026-01-01T00:05:00.000Z'),
-    deliveryIntentRow('intent-b', WIDGET_B, 'queued', '2026-01-01T00:06:00.000Z'),
+    deliveryIntentRow('intent-a-claimed-null', WIDGET_A, 'claimed', '2026-01-01T00:05:00.000Z'),
+    deliveryIntentRow('intent-a2-claimed-null', WIDGET_A2, 'claimed', '2026-01-01T00:06:00.000Z'),
+    deliveryIntentRow('intent-b', WIDGET_B, 'claimed', '2026-01-01T00:07:00.000Z', '2026-01-01T00:07:30.000Z'),
   ];
   const app = createConsoleApp(fake);
 
@@ -1010,8 +1136,25 @@ test('console widget settings GET exposes queued local delivery status for the o
     assert.deepEqual(response.json().connection.localDelivery, {
       queuedIntentCount: 2,
       lastQueuedAt: '2026-01-01T00:03:00.000Z',
+      claimedIntentCount: 2,
+      lastClaimedAt: '2026-01-01T00:04:30.000Z',
     });
     assertLocalDeliveryQuery(fake, WIDGET_A);
+
+    const nullClaimedAt = await app.inject({
+      method: 'GET',
+      url: `/api/console/sites/${SITE_A2}/widgets/${WIDGET_A2}/settings`,
+      headers: { cookie: sessionCookie(TOKEN_A) },
+    });
+
+    assert.equal(nullClaimedAt.statusCode, 200);
+    assert.deepEqual(nullClaimedAt.json().connection.localDelivery, {
+      queuedIntentCount: 0,
+      lastQueuedAt: null,
+      claimedIntentCount: 1,
+      lastClaimedAt: null,
+    });
+    assertLocalDeliveryQuery(fake, WIDGET_A2);
   } finally {
     await app.close();
   }

@@ -43,6 +43,8 @@ export type ConsoleWidgetConnectionStatus = 'not_configured' | 'configured_place
 export type ConsoleWidgetLocalDelivery = {
   queuedIntentCount: number;
   lastQueuedAt: string | null;
+  claimedIntentCount: number;
+  lastClaimedAt: string | null;
 };
 
 export type ConsoleWidgetConnection = {
@@ -229,6 +231,8 @@ type AllowedDomainRow = {
 type LocalDeliveryStatusRow = {
   queued_intent_count: string | number | bigint;
   last_queued_at: Date | string | null;
+  claimed_intent_count: string | number | bigint;
+  last_claimed_at: Date | string | null;
 };
 
 type DomainCreateBody = {
@@ -974,16 +978,19 @@ async function readConsoleWidgetLocalDelivery(
   const row = (await database
     .selectFrom('panda_delivery_intents')
     .select((eb) => [
-      eb.fn.count<string | number | bigint>('id').as('queued_intent_count'),
-      eb.fn.max<Date | string | null>('created_at').as('last_queued_at'),
+      eb.fn.count<string | number | bigint>('id').filterWhere('status', '=', 'queued').as('queued_intent_count'),
+      eb.fn.max<Date | string | null>('created_at').filterWhere('status', '=', 'queued').as('last_queued_at'),
+      eb.fn.count<string | number | bigint>('id').filterWhere('status', '=', 'claimed').as('claimed_intent_count'),
+      eb.fn.max<Date | string | null>('claimed_at').filterWhere('status', '=', 'claimed').as('last_claimed_at'),
     ])
     .where('widget_id', '=', widgetId)
-    .where('status', '=', 'queued')
     .executeTakeFirst()) as LocalDeliveryStatusRow | undefined;
 
   return {
     queuedIntentCount: toCountNumber(row?.queued_intent_count),
     lastQueuedAt: row?.last_queued_at ? toIsoString(row.last_queued_at) : null,
+    claimedIntentCount: toCountNumber(row?.claimed_intent_count),
+    lastClaimedAt: row?.last_claimed_at ? toIsoString(row.last_claimed_at) : null,
   };
 }
 
