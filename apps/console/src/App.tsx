@@ -3,19 +3,27 @@ import {
   ApiError,
   createSite,
   createWidget,
+  createWidgetDomain,
+  deleteWidgetDomain,
   getCurrentContext,
   getSetupStatus,
   getSite,
+  getWidgetSettings,
   listSites,
+  listWidgetDomains,
   listWidgets,
   login,
   logout,
   setupFirstOwner,
+  updateWidgetSettings,
+  type ConsoleAllowedDomain,
   type ConsoleSite,
   type ConsoleWidget,
+  type ConsoleWidgetSettings,
   type CurrentContext,
   type LoginInput,
   type SetupInput,
+  type UpdateWidgetSettingsInput,
 } from './console-api';
 
 type AppState =
@@ -53,6 +61,11 @@ type ConsoleRoute =
   | {
       page: 'createWidget';
       siteId: string;
+    }
+  | {
+      page: 'widgetDetail';
+      siteId: string;
+      widgetId: string;
     }
   | {
       page: 'notFound';
@@ -317,7 +330,7 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
     onLoggedOut();
   }
 
-  const sitesActive = route.page === 'sites' || route.page === 'createSite' || route.page === 'siteDetail' || route.page === 'createWidget';
+  const sitesActive = route.page === 'sites' || route.page === 'createSite' || route.page === 'siteDetail' || route.page === 'createWidget' || route.page === 'widgetDetail';
 
   return (
     <div className="console-shell">
@@ -375,6 +388,10 @@ function ConsoleRouteView({ onNavigate, route }: { onNavigate: NavigateHandler; 
 
   if (route.page === 'createWidget') {
     return <CreateWidgetPage onNavigate={onNavigate} siteId={route.siteId} />;
+  }
+
+  if (route.page === 'widgetDetail') {
+    return <WidgetSettingsPage onNavigate={onNavigate} siteId={route.siteId} widgetId={route.widgetId} />;
   }
 
   return <NotFoundPage onNavigate={onNavigate} />;
@@ -611,13 +628,18 @@ function SiteDetailPage({ onNavigate, siteId }: { onNavigate: NavigateHandler; s
         ) : (
           <div className="list-card list-card--nested" aria-label="Site widgets">
             {state.widgets.map((widget) => (
-              <div className="list-row list-row--static" key={widget.id}>
+              <button
+                className="list-row"
+                key={widget.id}
+                type="button"
+                onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/${widget.id}`)}
+              >
                 <span>
                   <strong>{widget.name}</strong>
                   <small>Public key</small>
                 </span>
                 <code className="public-key">{widget.publicKey}</code>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -736,6 +758,377 @@ function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler;
   );
 }
 
+
+type WidgetSettingsState =
+  | {
+      status: 'loading';
+    }
+  | {
+      status: 'ready';
+      settings: ConsoleWidgetSettings;
+      domains: ConsoleAllowedDomain[];
+    }
+  | {
+      status: 'notFound';
+    }
+  | {
+      status: 'error';
+    };
+
+type WidgetSettingsForm = {
+  name: string;
+  assistantDisplayName: string;
+  launcherLabel: string;
+  welcomeTitle: string;
+  welcomeSubtitle: string;
+  colorMode: 'light' | 'dark' | 'system';
+};
+
+function WidgetSettingsPage({
+  onNavigate,
+  siteId,
+  widgetId,
+}: {
+  onNavigate: NavigateHandler;
+  siteId: string;
+  widgetId: string;
+}) {
+  const [state, setState] = useState<WidgetSettingsState>({ status: 'loading' });
+  const [form, setForm] = useState<WidgetSettingsForm | null>(null);
+  const [domainDraft, setDomainDraft] = useState('');
+  const [submitState, setSubmitState] = useState<SubmitState>('idle');
+  const [domainSubmitState, setDomainSubmitState] = useState<SubmitState>('idle');
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadWidgetSettings() {
+      try {
+        const [settings, domains] = await Promise.all([
+          getWidgetSettings(siteId, widgetId),
+          listWidgetDomains(siteId, widgetId),
+        ]);
+
+        if (isCurrent) {
+          setState({ status: 'ready', settings, domains });
+          setForm(formFromSettings(settings));
+          setCopyState('idle');
+        }
+      } catch (error) {
+        if (!isCurrent) {
+          return;
+        }
+
+        setState(error instanceof ApiError && error.status === 404 ? { status: 'notFound' } : { status: 'error' });
+      }
+    }
+
+    setState({ status: 'loading' });
+    setForm(null);
+    void loadWidgetSettings();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [siteId, widgetId]);
+
+  async function refreshReadyState() {
+    const [settings, domains] = await Promise.all([
+      getWidgetSettings(siteId, widgetId),
+      listWidgetDomains(siteId, widgetId),
+    ]);
+    setState({ status: 'ready', settings, domains });
+    setForm(formFromSettings(settings));
+    setCopyState('idle');
+  }
+
+  async function handleSettingsSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!form) {
+      return;
+    }
+
+    setSubmitState('submitting');
+
+    try {
+      const input: UpdateWidgetSettingsInput = {
+        name: form.name,
+        config: {
+          assistant: { displayName: form.assistantDisplayName },
+          launcher: { label: form.launcherLabel, icon: 'message' },
+          welcome: { title: form.welcomeTitle, subtitle: form.welcomeSubtitle },
+          theme: { colorMode: form.colorMode, accent: 'blue', radius: 'md' },
+        },
+      };
+      const settings = await updateWidgetSettings(siteId, widgetId, input);
+
+      if (state.status === 'ready') {
+        setState({ status: 'ready', settings, domains: state.domains });
+      }
+
+      setForm(formFromSettings(settings));
+      setSubmitState('idle');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setState({ status: 'notFound' });
+      } else {
+        setSubmitState('error');
+      }
+    }
+  }
+
+  async function handleDomainSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const domain = domainDraft.trim();
+
+    if (!domain) {
+      return;
+    }
+
+    setDomainSubmitState('submitting');
+
+    try {
+      await createWidgetDomain(siteId, widgetId, { domain });
+      setDomainDraft('');
+      await refreshReadyState();
+      setDomainSubmitState('idle');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setState({ status: 'notFound' });
+      } else {
+        setDomainSubmitState('error');
+      }
+    }
+  }
+
+  async function handleDeleteDomain(domainId: string) {
+    setDomainSubmitState('submitting');
+
+    try {
+      await deleteWidgetDomain(siteId, widgetId, domainId);
+      await refreshReadyState();
+      setDomainSubmitState('idle');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        setState({ status: 'notFound' });
+      } else {
+        setDomainSubmitState('error');
+      }
+    }
+  }
+
+  function handleCopySnippet(snippet: string) {
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(snippet).then(() => setCopyState('copied'));
+    }
+  }
+
+  if (state.status === 'loading') {
+    return <InlineState title="Loading widget settings…" body="Fetching safe settings, allowed domains, and install status." />;
+  }
+
+  if (state.status === 'notFound') {
+    return <InlineState tone="error" title="Widget not found" body="This widget is not available in the current workspace." />;
+  }
+
+  if (state.status === 'error' || !form) {
+    return <InlineState tone="error" title="Widget settings unavailable" body="Refresh the page and try again." />;
+  }
+
+  const snippet = state.settings.install.snippet;
+  const hasSnippet = state.settings.install.snippetAvailable && snippet !== null;
+  const canSaveSettings = Boolean(
+    form.name.trim() &&
+    form.assistantDisplayName.trim() &&
+    form.launcherLabel.trim() &&
+    form.welcomeTitle.trim() &&
+    form.welcomeSubtitle.trim(),
+  );
+
+  return (
+    <section className="content-section" aria-labelledby="widget-settings-title">
+      <PageHeader
+        eyebrow="Widget settings"
+        title={state.settings.widget.name}
+        body="Manage safe widget copy, allowed domains, and the install snippet for this public key."
+        action={(
+          <button className="secondary-button" type="button" onClick={() => onNavigate(`/console/sites/${siteId}`)}>
+            Back to site
+          </button>
+        )}
+        titleId="widget-settings-title"
+      />
+
+      <section className="dashboard-card" aria-labelledby="widget-public-key-title">
+        <p className="eyebrow">Public key</p>
+        <h2 id="widget-public-key-title">Server-owned key</h2>
+        <p>Use this public key only in the loader snippet. It is safe to publish on allowed domains.</p>
+        <code className="public-key">{state.settings.widget.publicKey}</code>
+      </section>
+
+      <form className="dashboard-card form-card form-card--wide" onSubmit={handleSettingsSubmit} aria-busy={submitState === 'submitting'}>
+        <div>
+          <p className="eyebrow">Safe config</p>
+          <h2>Widget copy</h2>
+          <p>Only plain text and existing theme tokens are supported here.</p>
+        </div>
+        <div className="settings-grid">
+          <label className="field" htmlFor="widget-settings-name">
+            <span>Widget name</span>
+            <input
+              id="widget-settings-name"
+              value={form.name}
+              onChange={(event) => setForm({ ...form, name: event.currentTarget.value })}
+              disabled={submitState === 'submitting'}
+            />
+          </label>
+          <label className="field" htmlFor="widget-settings-assistant">
+            <span>Assistant display name</span>
+            <input
+              id="widget-settings-assistant"
+              value={form.assistantDisplayName}
+              onChange={(event) => setForm({ ...form, assistantDisplayName: event.currentTarget.value })}
+              disabled={submitState === 'submitting'}
+            />
+          </label>
+          <label className="field" htmlFor="widget-settings-launcher">
+            <span>Launcher label</span>
+            <input
+              id="widget-settings-launcher"
+              value={form.launcherLabel}
+              onChange={(event) => setForm({ ...form, launcherLabel: event.currentTarget.value })}
+              disabled={submitState === 'submitting'}
+            />
+          </label>
+          <label className="field" htmlFor="widget-settings-color-mode">
+            <span>Theme color mode</span>
+            <select
+              id="widget-settings-color-mode"
+              value={form.colorMode}
+              onChange={(event) => setForm({ ...form, colorMode: event.currentTarget.value as WidgetSettingsForm['colorMode'] })}
+              disabled={submitState === 'submitting'}
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <label className="field settings-grid__wide" htmlFor="widget-settings-title-input">
+            <span>Welcome title</span>
+            <input
+              id="widget-settings-title-input"
+              value={form.welcomeTitle}
+              onChange={(event) => setForm({ ...form, welcomeTitle: event.currentTarget.value })}
+              disabled={submitState === 'submitting'}
+            />
+          </label>
+          <label className="field settings-grid__wide" htmlFor="widget-settings-subtitle">
+            <span>Welcome subtitle</span>
+            <input
+              id="widget-settings-subtitle"
+              value={form.welcomeSubtitle}
+              onChange={(event) => setForm({ ...form, welcomeSubtitle: event.currentTarget.value })}
+              disabled={submitState === 'submitting'}
+            />
+          </label>
+        </div>
+        <FormStatus state={submitState} error="Settings could not be saved. Check the plain text fields and try again." />
+        <div className="button-row">
+          <button className="primary-button" type="submit" disabled={submitState === 'submitting' || !canSaveSettings}>
+            Save settings
+          </button>
+        </div>
+      </form>
+
+      <section className="dashboard-card" aria-labelledby="allowed-domains-title">
+        <div>
+          <p className="eyebrow">Allowed domains</p>
+          <h2 id="allowed-domains-title">Allowed domains</h2>
+          <p>Add each hostname where this widget may bootstrap. Ports are ignored for schemeful origins.</p>
+        </div>
+
+        {state.domains.length === 0 ? (
+          <EmptyState
+            title="No allowed domains yet"
+            body="Add an allowed domain before installing this widget on a website."
+            actionLabel="Focus domain field"
+            onAction={() => document.getElementById('widget-domain-input')?.focus()}
+          />
+        ) : (
+          <div className="list-card list-card--nested" aria-label="Allowed widget domains">
+            {state.domains.map((domain) => (
+              <div className="list-row list-row--static" key={domain.id}>
+                <span>
+                  <strong>{domain.domain}</strong>
+                  <small>Created {formatDate(domain.createdAt)}</small>
+                </span>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void handleDeleteDomain(domain.id)}
+                  disabled={domainSubmitState === 'submitting'}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <form className="inline-form" onSubmit={handleDomainSubmit} aria-busy={domainSubmitState === 'submitting'}>
+          <label className="field" htmlFor="widget-domain-input">
+            <span>Domain or origin</span>
+            <input
+              id="widget-domain-input"
+              placeholder="example.com or https://example.com"
+              value={domainDraft}
+              onChange={(event) => setDomainDraft(event.currentTarget.value)}
+              disabled={domainSubmitState === 'submitting'}
+            />
+          </label>
+          <button className="primary-button" type="submit" disabled={domainSubmitState === 'submitting' || !domainDraft.trim()}>
+            Add domain
+          </button>
+        </form>
+        <FormStatus state={domainSubmitState} error="Domain could not be updated. Check the hostname and try again." />
+      </section>
+
+      <section className="dashboard-card" aria-labelledby="install-snippet-title">
+        <div>
+          <p className="eyebrow">Install snippet</p>
+          <h2 id="install-snippet-title">Copy loader snippet</h2>
+          <p>The snippet appears after at least one allowed domain exists.</p>
+        </div>
+        {hasSnippet ? (
+          <>
+            <textarea className="snippet-box" readOnly value={snippet} aria-label="Install snippet" />
+            <div className="button-row">
+              <button className="secondary-button" type="button" onClick={() => handleCopySnippet(snippet)}>
+                {copyState === 'copied' ? 'Copied' : 'Copy snippet'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <InlineState title="Snippet locked" body="Add an allowed domain to generate the install snippet." />
+        )}
+      </section>
+    </section>
+  );
+}
+
+function formFromSettings(settings: ConsoleWidgetSettings): WidgetSettingsForm {
+  return {
+    name: settings.widget.name,
+    assistantDisplayName: settings.config.assistant.displayName,
+    launcherLabel: settings.config.launcher.label,
+    welcomeTitle: settings.config.welcome.title,
+    welcomeSubtitle: settings.config.welcome.subtitle,
+    colorMode: settings.config.theme.colorMode,
+  };
+}
+
 function PageHeader({
   action,
   body,
@@ -836,6 +1229,10 @@ function parseConsoleRoute(pathname: string): ConsoleRoute {
 
   if (segments.length === 5 && segments[2] && segments[3] === 'widgets' && segments[4] === 'new') {
     return { page: 'createWidget', siteId: segments[2] };
+  }
+
+  if (segments.length === 5 && segments[2] && segments[3] === 'widgets' && segments[4]) {
+    return { page: 'widgetDetail', siteId: segments[2], widgetId: segments[4] };
   }
 
   return { page: 'notFound' };

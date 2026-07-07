@@ -6,7 +6,7 @@ import { buildApp } from './app.ts';
 import type { DatabaseClient } from './db.ts';
 import type { AllowedDomainRecord } from './origin-domain.ts';
 import { DEMO_SEED_DATA } from './seed-data.ts';
-import { DEFAULT_WIDGET_BOOTSTRAP_CONFIG } from './widget-bootstrap.ts';
+import { DEFAULT_WIDGET_BOOTSTRAP_CONFIG, type WidgetBootstrapConfigRow } from './widget-bootstrap.ts';
 
 type WidgetLookupRow = {
   widgetId: string;
@@ -18,6 +18,7 @@ type WidgetLookupRow = {
 
 type FakeDatabaseOptions = {
   widget?: WidgetLookupRow;
+  widgetConfig?: WidgetBootstrapConfigRow;
   allowedDomains?: AllowedDomainRecord[];
 };
 
@@ -26,22 +27,40 @@ type FakeDatabase = {
   publicKeyLookups: string[];
   allowedDomainWidgetLookups: string[];
   enabledDomainFilters: boolean[];
+  configWidgetLookups: string[];
 };
 
 function createFakeDatabase(options: FakeDatabaseOptions): FakeDatabase {
   const publicKeyLookups: string[] = [];
   const allowedDomainWidgetLookups: string[] = [];
   const enabledDomainFilters: boolean[] = [];
+  const configWidgetLookups: string[] = [];
 
-  const widgetQuery = {
-    innerJoin: () => widgetQuery,
-    select: () => widgetQuery,
-    where: (_column: string, _operator: string, value: string) => {
-      publicKeyLookups.push(value);
-      return widgetQuery;
-    },
-    executeTakeFirst: async () => options.widget,
-  };
+  function createWidgetQuery() {
+    let joined = false;
+
+    const query = {
+      innerJoin: () => {
+        joined = true;
+        return query;
+      },
+      select: () => query,
+      where: (column: string, _operator: string, value: string) => {
+        if (column === 'widgets.public_key') {
+          publicKeyLookups.push(value);
+        }
+
+        if (column === 'id') {
+          configWidgetLookups.push(value);
+        }
+
+        return query;
+      },
+      executeTakeFirst: async () => joined ? options.widget : (options.widgetConfig ?? DEFAULT_WIDGET_CONFIG_ROW),
+    };
+
+    return query;
+  }
 
   const allowedDomainsQuery = {
     select: () => allowedDomainsQuery,
@@ -65,7 +84,7 @@ function createFakeDatabase(options: FakeDatabaseOptions): FakeDatabase {
   const database = {
     selectFrom: (table: string) => {
       if (table === 'widgets') {
-        return widgetQuery;
+        return createWidgetQuery();
       }
 
       if (table === 'allowed_domains') {
@@ -76,8 +95,20 @@ function createFakeDatabase(options: FakeDatabaseOptions): FakeDatabase {
     },
   } as unknown as DatabaseClient;
 
-  return { database, publicKeyLookups, allowedDomainWidgetLookups, enabledDomainFilters };
+  return { database, publicKeyLookups, allowedDomainWidgetLookups, enabledDomainFilters, configWidgetLookups };
 }
+
+
+const DEFAULT_WIDGET_CONFIG_ROW = {
+  assistant_display_name: 'Support',
+  launcher_label: 'Chat',
+  launcher_icon: 'message',
+  welcome_title: 'Hi there',
+  welcome_subtitle: 'Send us a message and we will reply as soon as we can.',
+  theme_color_mode: 'system',
+  theme_accent: 'blue',
+  theme_radius: 'md',
+} satisfies WidgetBootstrapConfigRow;
 
 function enabledDemoWidget(): WidgetLookupRow {
   return {
@@ -172,8 +203,46 @@ test('GET /api/widgets/:publicKey/bootstrap returns safe bootstrap JSON for an e
       config: DEFAULT_WIDGET_BOOTSTRAP_CONFIG,
     });
     assert.deepEqual(fake.publicKeyLookups, [DEMO_SEED_DATA.publicWidgetKey]);
+    assert.deepEqual(fake.configWidgetLookups, ['widget-id']);
     assert.deepEqual(fake.allowedDomainWidgetLookups, ['widget-id']);
     assert.deepEqual(fake.enabledDomainFilters, [true]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('GET /api/widgets/:publicKey/bootstrap returns persisted safe config fields', async () => {
+  const fake = createFakeDatabase({
+    widget: enabledDemoWidget(),
+    widgetConfig: {
+      assistant_display_name: 'Helper',
+      launcher_label: 'Ask us',
+      launcher_icon: 'message',
+      welcome_title: 'Welcome in',
+      welcome_subtitle: 'Plain text only.',
+      theme_color_mode: 'dark',
+      theme_accent: 'blue',
+      theme_radius: 'md',
+    },
+    allowedDomains: [{ domain: 'localhost', enabled: true }],
+  });
+  const app = buildApp({ database: fake.database });
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/widgets/${DEMO_SEED_DATA.publicWidgetKey}/bootstrap`,
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().config, {
+      assistant: { displayName: 'Helper' },
+      launcher: { label: 'Ask us', icon: 'message' },
+      welcome: { title: 'Welcome in', subtitle: 'Plain text only.' },
+      theme: { colorMode: 'dark', accent: 'blue', radius: 'md' },
+    });
+    assert.deepEqual(fake.configWidgetLookups, ['widget-id']);
   } finally {
     await app.close();
   }

@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import { type AuthRouteOptions, registerAuthRoutes } from './auth-routes.ts';
 import { registerConsoleStaticRoutes } from './console-static.ts';
 import { registerConsoleSiteRoutes } from './console-sites.ts';
+import { registerConsoleWidgetSettingsRoutes } from './console-widget-settings.ts';
 import { registerConversationRoutes } from './conversation.ts';
 import type { DatabaseClient } from './db.ts';
 import {
@@ -61,6 +62,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerAuthRoutes(app, authOptions);
     registerDashboardRoutes(app, { database });
     registerConsoleSiteRoutes(app, { database });
+    registerConsoleWidgetSettingsRoutes(app, { database });
     registerConsoleStaticRoutes(
       app,
       consoleOptions?.distPath === undefined

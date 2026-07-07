@@ -51,6 +51,14 @@ export type WidgetsTable = {
   site_id: string;
   public_key: string;
   name: string;
+  assistant_display_name: Generated<string>;
+  launcher_label: Generated<string>;
+  launcher_icon: Generated<string>;
+  welcome_title: Generated<string>;
+  welcome_subtitle: Generated<string>;
+  theme_color_mode: Generated<string>;
+  theme_accent: Generated<string>;
+  theme_radius: Generated<string>;
   enabled: Generated<boolean>;
   created_at: Timestamp;
   updated_at: Timestamp;

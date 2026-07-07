@@ -43,6 +43,12 @@ test('console API client uses relative authenticated routes, cookie credentials,
   assert.match(apiSource, /getSite[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}`/);
   assert.match(apiSource, /listWidgets[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
   assert.match(apiSource, /createWidget[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
+  assert.match(apiSource, /getWidgetSettings[\s\S]*\/settings`/);
+  assert.match(apiSource, /updateWidgetSettings[\s\S]*method: 'PATCH'/);
+  assert.match(apiSource, /listWidgetDomains[\s\S]*\/domains`/);
+  assert.match(apiSource, /createWidgetDomain[\s\S]*method: 'POST'/);
+  assert.match(apiSource, /deleteWidgetDomain[\s\S]*method: 'DELETE'/);
+  assert.match(apiSource, /method\?: 'DELETE' \| 'GET' \| 'PATCH' \| 'POST'/);
   assert.match(apiSource, /credentials: 'include'/);
   assert.match(apiSource, /headers\['x-panda-csrf'\] = '1'/);
   assert.doesNotMatch(apiSource, /localStorage|sessionStorage|document\.cookie|Authorization|Bearer/);
@@ -59,13 +65,19 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.match(appSource, /No widgets yet/);
   assert.match(appSource, /Create widget/);
   assert.match(appSource, /Public key/);
+  assert.match(appSource, /Widget settings/);
+  assert.match(appSource, /Allowed domains/);
+  assert.match(appSource, /Add domain/);
+  assert.match(appSource, /Install snippet/);
+  assert.match(appSource, /Copy snippet/);
+  assert.match(appSource, /widgetDetail/);
   assert.match(appSource, /parseConsoleRoute/);
   assert.match(appSource, /popstate/);
   assert.match(appSource, /if \(isAuthPath\(window\.location\.pathname\)\) \{\n\s+replaceConsolePath\('\/console'\);/);
   assert.match(appSource, /window\.history\.pushState/);
   assert.match(appSource, /role="alert"/);
   assert.match(appSource, /autoFocus/);
-  assert.doesNotMatch(`${appSource}\n${apiSource}`, /billing|plans|usage|invite|RBAC|Gateway|SalesPanda|CRM|install snippet/i);
+  assert.doesNotMatch(`${appSource}\n${apiSource}`, /billing|plans|usage|invite|RBAC|Gateway|SalesPanda|CRM|customCss|unsafeHtml|dangerouslySetInnerHTML/i);
 });
 
 test('console shell CSS uses semantic tokens and overflow-safe site/widget layouts', () => {
@@ -77,6 +89,8 @@ test('console shell CSS uses semantic tokens and overflow-safe site/widget layou
   assert.match(stylesSource, /\.content-section \{[\s\S]*min-width: 0;/);
   assert.match(stylesSource, /\.list-card \{[\s\S]*min-width: 0;/);
   assert.match(stylesSource, /\.empty-state \{/);
+  assert.match(stylesSource, /\.settings-grid \{/);
+  assert.match(stylesSource, /\.snippet-box \{/);
   assert.match(stylesSource, /overflow-wrap: anywhere;/);
   assert.match(stylesSource, /@media \(max-width: 760px\)/);
   assert.doesNotMatch(stylesSource, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|cssText|url\(/);
