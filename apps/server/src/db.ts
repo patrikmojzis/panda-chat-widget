@@ -10,7 +10,7 @@ type NullableText = ColumnType<string | null, string | null | undefined, string 
 
 export type ConversationStatus = 'open' | 'closed';
 export type MessageSender = 'visitor' | 'agent' | 'system';
-export type PandaDeliveryIntentStatus = 'queued';
+export type PandaDeliveryIntentStatus = 'queued' | 'claimed';
 
 export type UsersTable = {
   id: Generated<string>;
@@ -111,6 +111,7 @@ export type PandaDeliveryIntentsTable = {
   client_message_id: string;
   route_handle_snapshot: string;
   status: Generated<PandaDeliveryIntentStatus>;
+  claimed_at: NullableTimestamp;
   created_at: Timestamp;
   updated_at: Timestamp;
 };
