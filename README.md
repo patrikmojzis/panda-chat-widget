@@ -50,7 +50,7 @@ Run from the repository root unless noted.
 | `pnpm test` | Workspace tests. |
 | `pnpm --filter @panda-chat-widget/server test` | Server API/DB/SSE/runtime contract tests using fake DB seams. |
 | `pnpm --filter @panda-chat-widget/server local-panda:dispatch-dry-run` | Claims one queued local Panda delivery intent and prints the existing local-only payload JSON; no network dispatch or reply apply. |
-| `pnpm --filter @panda-chat-widget/server local-panda:reply-round-trip` | Claims one queued local Panda delivery intent, builds a deterministic local fake reply ingress payload, and inserts/replays one local agent message; no Panda/Gateway/external CLI/network call. |
+| `pnpm --filter @panda-chat-widget/server local-panda:reply-round-trip` | Reuses one already-claimed unapplied local Panda delivery intent, or claims one queued intent if none exists, then builds a deterministic local fake reply ingress payload and inserts/replays one local agent message; no Panda/Gateway/external CLI/network call. |
 | `pnpm --filter @panda-chat-widget/widget-ui check` | Widget UI typecheck/tests/build. |
 | `pnpm --filter @panda-chat-widget/console check` | Console shell typecheck/tests/build. |
 | `pnpm --filter @panda-chat-widget/loader check` | Loader typecheck/tests/build. |
@@ -120,13 +120,13 @@ Expected result: the message appears in the widget, then the backend stores a de
 Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but your message was received.
 ```
 
-8. After sending a demo message, run the one-shot local reply round trip if you want to claim the fresh queued intent and apply one additional deterministic local fake agent reply:
+8. After sending a demo message, run the one-shot local reply round trip if you want to complete an already dry-run-claimed intent or claim the fresh queued intent and apply one additional deterministic local fake agent reply:
 
    ```sh
    pnpm --filter @panda-chat-widget/server local-panda:reply-round-trip
    ```
 
-   Expected shape is dynamic JSON with `completed: true`, `kind: "local-panda-one-shot-deterministic-fake-reply-round-trip"`, `mode: "local-only-no-network-deterministic-fake-reply"`, `dispatchPayload`, `syntheticFakeReplyIngressPayload`, `applyResult`, and metadata such as `network: "no-network"`, `pandaCall: "not-attempted"`, `gatewayCall: "not-attempted"`, `externalCliCall: "not-attempted"`, and `stateMutation: "claims-one-intent-and-inserts-or-replays-one-local-agent-message"`. This mutates only the local DB: it claims one queued intent and inserts or replays one local agent message. It does not call Panda, Gateway, an external CLI, a child process, or the network, and it does not replace the existing route-created public fake reply.
+   Expected shape is dynamic JSON with `completed: true`, `kind: "local-panda-one-shot-deterministic-fake-reply-round-trip"`, `mode: "local-only-no-network-deterministic-fake-reply"`, `dispatchIntentSource`, `dispatchPayload`, `syntheticFakeReplyIngressPayload`, `applyResult`, and metadata such as `network: "no-network"`, `pandaCall: "not-attempted"`, `gatewayCall: "not-attempted"`, `externalCliCall: "not-attempted"`, and `stateMutation: "reuses-one-claimed-intent-or-claims-one-queued-intent-and-inserts-or-replays-one-local-agent-message"`. This mutates only the local DB: it may reuse one already-claimed unapplied local intent or claim one queued intent, then inserts or replays one local agent message. It does not call Panda, Gateway, an external CLI, a child process, or the network, and it does not replace the existing route-created public fake reply. If two one-shot invocations race on the same already-claimed candidate, reply ingress idempotency replays or reports a controlled conflict instead of adding duplicate local agent rows; this is not an exclusive worker/dispatcher lock.
 
    If you only want to inspect the future-dispatch payload without applying a reply, use the dry run instead:
 
@@ -134,7 +134,7 @@ Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but
    pnpm --filter @panda-chat-widget/server local-panda:dispatch-dry-run
    ```
 
-   Expected dry-run shape is dynamic JSON with `prepared: true`, `payload.kind: "local-panda-future-dispatch"`, `payload.routeHandleSnapshot: "panda:local/demo"`, and local-only metadata such as `locality: "local-only"` and `network: "no-network"`. The dry run also claims the queued local intent; if you run `local-panda:dispatch-dry-run` first, `local-panda:reply-round-trip` has no fresh queued intent to apply, so send another visitor message before running the round trip. Running either command again before sending another message can correctly return a controlled `no_queued_intent` result.
+   Expected dry-run shape is dynamic JSON with `prepared: true`, `payload.kind: "local-panda-future-dispatch"`, `payload.routeHandleSnapshot: "panda:local/demo"`, and local-only metadata such as `locality: "local-only"` and `network: "no-network"`. The dry run still claims the queued local intent; if you run `local-panda:dispatch-dry-run` first, `local-panda:reply-round-trip` may reuse that already-claimed intent as long as no matching local round-trip reply row exists. Running either command again after the local reply has been applied can correctly return a controlled `no_queued_intent` result until another visitor message records a new queued intent.
 
 The demo server is local-only. Defaults are `DEMO_HOST=127.0.0.1`, `DEMO_PORT=4173`, and `DEMO_BACKEND_URL=http://127.0.0.1:3000` (generic `HOST`, `PORT`, and `BACKEND_URL` also work). For proxied `/api/*` requests only, it synthesizes a safe localhost `Origin` when the browser omits one; the production Fastify API still enforces normal origin checks.
 
@@ -166,7 +166,7 @@ docker compose down -v
 
 - Fake reply only: visitor messages receive a deterministic local fake agent reply; no real AI/Gateway/Panda integration.
 - Panda connection settings are placeholder-only: the saved route handle is an opaque label, not a secret/token. The seeded demo uses `panda:local/demo` only to make the local dry-run path reproducible; it does not imply real Panda connectivity.
-- Configured widgets record internal queued local delivery intents for new visitor messages. The dry-run command claims one intent and prints local JSON; the reply-round-trip command claims one intent and inserts/replays one deterministic local fake agent message. No Panda/Gateway/external CLI delivery exists yet.
+- Configured widgets record internal queued local delivery intents for new visitor messages. The dry-run command claims one intent and prints local JSON; the reply-round-trip command first reuses the oldest already-claimed unapplied local intent, or claims one queued intent if none exists, then inserts/replays one deterministic local fake agent message. No Panda/Gateway/external CLI delivery exists yet.
 - If dispatch payload build, synthetic reply build, or reply apply fails after an intent is claimed, the intent may remain claimed. There is intentionally no rollback, retry/dead-letter behavior, or sent/delivered/failed/replied status lifecycle expansion yet.
 - SSE fanout is process-local memory only; delivery intents are durable local records, not a retry worker, dispatcher, dead-letter queue, sent/delivered/failed state, reply-ingestion path, or multi-process fanout.
 - Browser screenshots/live click smoke require browser automation and a running local Postgres stack.
