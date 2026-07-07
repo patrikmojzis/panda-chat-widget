@@ -13,7 +13,8 @@
     "db:seed": "node src/seed.ts",
     "local-panda:dispatch-dry-run": "node src/local-panda-dispatch-dry-run-cli.ts",
     "local-panda:reply-round-trip": "node src/local-panda-reply-round-trip-cli.ts",
-    "local-panda:reply-ingress-apply": "node src/local-panda-reply-ingress-apply-cli.ts"
+    "local-panda:reply-ingress-apply": "node src/local-panda-reply-ingress-apply-cli.ts",
+    "local-panda:reply-ingress-build": "node src/local-panda-reply-ingress-build-cli.ts"
   },
   "description": "Owns the future API, database, and SSE service for the chat widget.",
   "dependencies": {
