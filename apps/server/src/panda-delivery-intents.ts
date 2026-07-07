@@ -33,6 +33,7 @@ export type ClaimedPandaDeliveryIntent = {
   visitorMessageId: string;
   clientMessageId: string;
   routeHandleSnapshot: string;
+  status: 'claimed';
   createdAt: Date;
   claimedAt: Date;
 };
@@ -46,9 +47,11 @@ type ClaimedPandaDeliveryIntentRow = Pick<
   | 'visitor_message_id'
   | 'client_message_id'
   | 'route_handle_snapshot'
+  | 'status'
   | 'created_at'
   | 'claimed_at'
 >;
+
 
 export async function recordPandaDeliveryIntent(
   database: DatabaseExecutor,
@@ -118,6 +121,7 @@ export async function claimNextQueuedPandaDeliveryIntent(
         'visitor_message_id',
         'client_message_id',
         'route_handle_snapshot',
+        'status',
         'created_at',
         'claimed_at',
       ])
@@ -132,6 +136,10 @@ export async function claimNextQueuedPandaDeliveryIntent(
 }
 
 function toClaimedPandaDeliveryIntent(row: ClaimedPandaDeliveryIntentRow): ClaimedPandaDeliveryIntent {
+  if (row.status !== 'claimed') {
+    throw new Error(`Claimed Panda delivery intent ${row.id} has status ${row.status}`);
+  }
+
   if (!row.claimed_at) {
     throw new Error(`Claimed Panda delivery intent ${row.id} is missing claimed_at`);
   }
@@ -144,6 +152,7 @@ function toClaimedPandaDeliveryIntent(row: ClaimedPandaDeliveryIntentRow): Claim
     visitorMessageId: row.visitor_message_id,
     clientMessageId: row.client_message_id,
     routeHandleSnapshot: row.route_handle_snapshot,
+    status: 'claimed',
     createdAt: row.created_at,
     claimedAt: row.claimed_at,
   };
