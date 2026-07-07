@@ -32,36 +32,51 @@ test('console has a Vite HTML entry and React root', () => {
   assert.match(viteConfigSource, /proxy/);
 });
 
-test('console API client uses relative /api routes, cookie credentials, and CSRF header for unsafe calls', () => {
+test('console API client uses relative authenticated routes, cookie credentials, and CSRF header for unsafe calls', () => {
   assert.match(apiSource, /getCurrentContext\(\): Promise<CurrentContext> \{\n  return apiRequest\('\/api\/me'\);/);
   assert.doesNotMatch(apiSource, /apiRequest\('\/me'\)/);
   assert.match(apiSource, /setupFirstOwner[\s\S]*'\/api\/auth\/setup'/);
   assert.match(apiSource, /login[\s\S]*'\/api\/auth\/login'/);
   assert.match(apiSource, /logout[\s\S]*'\/api\/auth\/logout'/);
+  assert.match(apiSource, /listSites[\s\S]*'\/api\/console\/sites'/);
+  assert.match(apiSource, /createSite[\s\S]*'\/api\/console\/sites'/);
+  assert.match(apiSource, /getSite[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}`/);
+  assert.match(apiSource, /listWidgets[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
+  assert.match(apiSource, /createWidget[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
   assert.match(apiSource, /credentials: 'include'/);
   assert.match(apiSource, /headers\['x-panda-csrf'\] = '1'/);
   assert.doesNotMatch(apiSource, /localStorage|sessionStorage|document\.cookie|Authorization|Bearer/);
 });
 
-test('console UI includes setup, login, protected shell, and visible workspace/user context', () => {
+test('console UI includes setup, login, site/widget states, and preserves authenticated deep links', () => {
   assert.match(appSource, /First owner setup/);
   assert.match(appSource, /Create your workspace/);
   assert.match(appSource, /Owner login/);
   assert.match(appSource, /Sign in to your console/);
-  assert.match(appSource, /context\.workspace\.name/);
-  assert.match(appSource, /context\.user\.email/);
-  assert.match(appSource, /Console shell ready/);
+  assert.match(appSource, /No sites yet/);
+  assert.match(appSource, /Create site/);
+  assert.match(appSource, /Site detail/);
+  assert.match(appSource, /No widgets yet/);
+  assert.match(appSource, /Create widget/);
+  assert.match(appSource, /Public key/);
+  assert.match(appSource, /parseConsoleRoute/);
+  assert.match(appSource, /popstate/);
+  assert.match(appSource, /if \(isAuthPath\(window\.location\.pathname\)\) \{\n\s+replaceConsolePath\('\/console'\);/);
+  assert.match(appSource, /window\.history\.pushState/);
   assert.match(appSource, /role="alert"/);
   assert.match(appSource, /autoFocus/);
-  assert.doesNotMatch(`${appSource}\n${apiSource}`, /billing|plans|usage|invite|RBAC|Gateway|SalesPanda|CRM/i);
+  assert.doesNotMatch(`${appSource}\n${apiSource}`, /billing|plans|usage|invite|RBAC|Gateway|SalesPanda|CRM|install snippet/i);
 });
 
-test('console shell CSS uses semantic tokens and overflow-safe layout boundaries', () => {
+test('console shell CSS uses semantic tokens and overflow-safe site/widget layouts', () => {
   assert.match(stylesSource, /--background:/);
   assert.match(stylesSource, /--foreground:/);
   assert.match(stylesSource, /--sidebar:/);
   assert.match(stylesSource, /\.console-shell \{[\s\S]*min-width: 0;[\s\S]*min-height: 100dvh;[\s\S]*grid-template-columns: 280px minmax\(0, 1fr\);/);
   assert.match(stylesSource, /\.console-main \{[\s\S]*min-width: 0;[\s\S]*overflow-x: hidden;/);
+  assert.match(stylesSource, /\.content-section \{[\s\S]*min-width: 0;/);
+  assert.match(stylesSource, /\.list-card \{[\s\S]*min-width: 0;/);
+  assert.match(stylesSource, /\.empty-state \{/);
   assert.match(stylesSource, /overflow-wrap: anywhere;/);
   assert.match(stylesSource, /@media \(max-width: 760px\)/);
   assert.doesNotMatch(stylesSource, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|cssText|url\(/);

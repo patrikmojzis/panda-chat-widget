@@ -1,6 +1,6 @@
 # Panda Chat Widget
 
-TypeScript/pnpm workspace for an embeddable chat widget spine. Current V1 work is still local/dev-only: vanilla loader, React/Vite iframe UI, Fastify API seams, Kysely/Postgres schema, first-owner auth/workspace foundation, protected console shell, local demo seed data, visitor sessions, conversations, messages, SSE contracts, and a deterministic fake reply.
+TypeScript/pnpm workspace for an embeddable chat widget spine. Current V1 work is still local/dev-only: vanilla loader, React/Vite iframe UI, Fastify API seams, Kysely/Postgres schema, first-owner auth/workspace foundation, protected console shell with workspace-scoped site/widget list-create flows, local demo seed data, visitor sessions, conversations, messages, SSE contracts, and a deterministic fake reply.
 
 There is no Panda Gateway/Panda agent integration in this repo yet.
 
@@ -25,7 +25,7 @@ Local validation in the current agent environment has run under Node `v22.23.0`;
 | --- | --- | --- |
 | `apps/server` | `@panda-chat-widget/server` | Fastify health route, public widget API routes, Kysely schema/migrations/seed, process-local SSE contracts. |
 | `apps/widget-ui` | `@panda-chat-widget/widget-ui` | React/Vite iframe widget UI and widget API client. |
-| `apps/console` | `@panda-chat-widget/console` | React/Vite protected owner console shell for first-user setup/login and placeholder dashboard. |
+| `apps/console` | `@panda-chat-widget/console` | React/Vite protected owner console shell for first-user setup/login plus workspace-scoped site/widget list-create flows. |
 | `packages/loader` | `@panda-chat-widget/loader` | Vanilla host-page loader that mounts a launcher and iframe. |
 | `packages/shared` | `@panda-chat-widget/shared` | Shared visitor identity contract. |
 | `examples/basic-html` | `@panda-chat-widget/basic-html` | Local clickable host-page demo that serves the built loader/widget UI and proxies `/api/*` to the backend. |
@@ -151,7 +151,7 @@ docker compose down -v
 - Browser screenshots/live click smoke require browser automation and a running local Postgres stack.
 - DB-backed live validation for GitHub issue #5 remains separate until it has real Docker/Postgres/browser evidence in the target environment.
 - Auth is intentionally minimal: first owner + one workspace, email/password login, HttpOnly cookie sessions, no invites, no teams/RBAC UI, no billing/plans/usage.
-- Console dashboard is a protected placeholder only; no widget CRUD/settings yet.
+- Console site/widget management is intentionally minimal: workspace-scoped list/create only, with no settings editor yet.
 - No deployment, CLI, or Dockerized app runtime yet.
 
 ## Public planning context
