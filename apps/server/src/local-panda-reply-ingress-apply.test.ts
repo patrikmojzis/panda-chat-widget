@@ -4,8 +4,13 @@ import test from 'node:test';
 
 import type { DatabaseClient, MessageSender, PandaDeliveryIntentStatus } from './db.ts';
 import {
+  runLocalPandaReplyIngressApplyCli,
+  type LocalPandaReplyIngressApplyCliDependencies,
+} from './local-panda-reply-ingress-apply-cli.ts';
+import {
   applyLocalPandaReplyIngressPayloadV1,
   type ApplyLocalPandaReplyIngressPayloadV1FailureReason,
+  type ApplyLocalPandaReplyIngressPayloadV1Result,
 } from './local-panda-reply-ingress-apply.ts';
 import type {
   LocalPandaReplyIngressCorrelationIds,
@@ -95,10 +100,14 @@ const VISITOR_MESSAGE_CREATED_AT = new Date('2026-01-01T00:05:00.000Z');
 const REPLY_CREATED_AT = new Date('2026-01-01T00:15:00.000Z');
 const REPLY_BODY = 'Hello from the local Panda agent.';
 const REPLY_IDEMPOTENCY_KEY = 'local-panda-reply-v1:intent-1';
+const APPLY_CLI_KIND = 'local-panda-reply-ingress-apply';
+const APPLY_CLI_MODE = 'local-only-stdin-reply-ingress-apply';
 const applySource = await readFile(new URL('./local-panda-reply-ingress-apply.ts', import.meta.url), 'utf8');
+const applyCliSource = await readFile(new URL('./local-panda-reply-ingress-apply-cli.ts', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('./app.ts', import.meta.url), 'utf8');
 const visitorMessageSource = await readFile(new URL('./visitor-message.ts', import.meta.url), 'utf8');
 const serverPackageSource = await readFile(new URL('../package.json', import.meta.url), 'utf8');
+const readmeSource = await readFile(new URL('../../../README.md', import.meta.url), 'utf8');
 const consoleSource = await readSourceTree(new URL('../../console/src/', import.meta.url));
 const widgetUiSource = await readSourceTree(new URL('../../widget-ui/src/', import.meta.url));
 
@@ -578,6 +587,196 @@ test('applyLocalPandaReplyIngressPayloadV1 returns precise DB-truth validation f
   }
 });
 
+
+test('runLocalPandaReplyIngressApplyCli applies a valid stdin payload and replays the same payload', async () => {
+  const fake = createFakeDatabase();
+  const firstRun = await runReplyIngressApplyCliWithDatabase({
+    database: fake.database,
+    input: JSON.stringify(replyPayload()),
+  });
+  const firstEnvelope = parseCliJsonObject(firstRun.stdout[0]);
+
+  assertApplyCliBaseEnvelope(firstEnvelope);
+  assert.equal(firstEnvelope.completed, true);
+  assert.equal(firstEnvelope.parsed, true);
+  assert.deepEqual(firstRun.stderr, []);
+  assert.deepEqual(firstRun.exitCodes, []);
+  assert.equal(firstRun.loadDatabaseConfigCount, 1);
+  assert.equal(firstRun.createDatabaseCount, 1);
+  assert.deepEqual(firstRun.closedDatabases, [fake.database]);
+
+  const firstApplyResult = firstEnvelope.applyResult as Record<string, unknown>;
+  assert.equal(firstApplyResult.applied, true);
+  assert.equal(firstApplyResult.inserted, true);
+  assert.equal(fake.messages.filter((message) => message.sender === 'agent').length, 1);
+  assert.equal(fake.messages.find((message) => message.sender === 'agent')?.client_message_id, REPLY_IDEMPOTENCY_KEY);
+
+  const secondRun = await runReplyIngressApplyCliWithDatabase({
+    database: fake.database,
+    input: JSON.stringify(replyPayload()),
+  });
+  const secondEnvelope = parseCliJsonObject(secondRun.stdout[0]);
+
+  assertApplyCliBaseEnvelope(secondEnvelope);
+  assert.equal(secondEnvelope.completed, true);
+  assert.equal(secondEnvelope.parsed, true);
+  assert.deepEqual(secondRun.stderr, []);
+  assert.deepEqual(secondRun.exitCodes, []);
+  assert.deepEqual(secondRun.closedDatabases, [fake.database]);
+
+  const secondApplyResult = secondEnvelope.applyResult as Record<string, unknown>;
+  assert.equal(secondApplyResult.applied, true);
+  assert.equal(secondApplyResult.inserted, false);
+  assert.equal(fake.messages.filter((message) => message.sender === 'agent').length, 1);
+});
+
+test('runLocalPandaReplyIngressApplyCli reports controlled idempotency conflicts with exit 0', async () => {
+  const fake = createFakeDatabase({
+    messages: [
+      visitorMessageRow(),
+      messageRow({
+        id: 'conflicting-agent-message',
+        seq: 2,
+        sender: 'agent',
+        client_message_id: REPLY_IDEMPOTENCY_KEY,
+        body: 'Different reply body',
+      }),
+    ],
+  });
+
+  const run = await runReplyIngressApplyCliWithDatabase({
+    database: fake.database,
+    input: JSON.stringify(replyPayload()),
+  });
+  const envelope = parseCliJsonObject(run.stdout[0]);
+
+  assertApplyCliBaseEnvelope(envelope);
+  assert.equal(envelope.completed, false);
+  assert.equal(envelope.parsed, true);
+  assert.equal(envelope.failedStep, 'apply_reply_ingress');
+  assert.equal(envelope.reason, 'idempotency_conflict');
+  assert.deepEqual(envelope.applyResult, { applied: false, reason: 'idempotency_conflict' });
+  assert.deepEqual(run.stderr, []);
+  assert.deepEqual(run.exitCodes, []);
+  assert.deepEqual(run.closedDatabases, [fake.database]);
+});
+
+test('runLocalPandaReplyIngressApplyCli delegates parseable wrong v1 objects to the helper', async () => {
+  const fake = createFakeDatabase();
+
+  const run = await runReplyIngressApplyCliWithDatabase({
+    database: fake.database,
+    input: JSON.stringify({
+      version: 1,
+      kind: 'local-panda-reply-ingress',
+      idempotencyKey: 'wrong-key',
+    }),
+  });
+  const envelope = parseCliJsonObject(run.stdout[0]);
+
+  assertApplyCliBaseEnvelope(envelope);
+  assert.equal(envelope.completed, false);
+  assert.equal(envelope.parsed, true);
+  assert.equal(envelope.failedStep, 'apply_reply_ingress');
+  assert.equal(envelope.reason, 'invalid_payload');
+  assert.deepEqual(envelope.applyResult, { applied: false, reason: 'invalid_payload' });
+  assert.equal(fake.transactions, 0);
+  assert.deepEqual(run.stderr, []);
+  assert.deepEqual(run.exitCodes, []);
+  assert.equal(run.loadDatabaseConfigCount, 1);
+  assert.equal(run.createDatabaseCount, 1);
+  assert.deepEqual(run.closedDatabases, [fake.database]);
+});
+
+test('runLocalPandaReplyIngressApplyCli rejects stdin parse failures before opening the database', async () => {
+  const cases: Array<{ name: string; input: string; reason: string }> = [
+    { name: 'empty stdin', input: '', reason: 'empty_stdin' },
+    { name: 'whitespace stdin', input: '   \n\t', reason: 'empty_stdin' },
+    { name: 'malformed JSON', input: '{', reason: 'malformed_json' },
+    { name: 'null JSON', input: 'null', reason: 'json_value_not_object' },
+    { name: 'array JSON', input: '[]', reason: 'json_value_not_object' },
+    { name: 'scalar string JSON', input: '"reply"', reason: 'json_value_not_object' },
+    { name: 'scalar boolean JSON', input: 'true', reason: 'json_value_not_object' },
+  ];
+
+  for (const testCase of cases) {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const exitCodes: number[] = [];
+    let loadDatabaseConfigCount = 0;
+    let createDatabaseCount = 0;
+    let applyCount = 0;
+
+    await runLocalPandaReplyIngressApplyCli({
+      readStdin: async () => testCase.input,
+      loadDatabaseConfig: () => {
+        loadDatabaseConfigCount += 1;
+        throw new Error('database config must not be loaded for parse failures');
+      },
+      createDatabase: () => {
+        createDatabaseCount += 1;
+        throw new Error('database must not be opened for parse failures');
+      },
+      applyLocalPandaReplyIngressPayloadV1: async () => {
+        applyCount += 1;
+        throw new Error('helper must not be called for parse failures');
+      },
+      closeDatabase: async () => {
+        throw new Error('database must not be closed when it was never opened');
+      },
+      stdout: { write: (chunk) => stdout.push(chunk) },
+      stderr: { write: (chunk) => stderr.push(chunk) },
+      setExitCode: (exitCode) => exitCodes.push(exitCode),
+    });
+
+    const envelope = parseCliJsonObject(stdout[0]);
+    assertApplyCliBaseEnvelope(envelope);
+    assert.equal(envelope.completed, false, testCase.name);
+    assert.equal(envelope.parsed, false, testCase.name);
+    assert.equal(envelope.failedStep, 'stdin_parse', testCase.name);
+    assert.equal(envelope.reason, testCase.reason, testCase.name);
+    assert.deepEqual(stderr, [], testCase.name);
+    assert.deepEqual(exitCodes, [1], testCase.name);
+    assert.equal(loadDatabaseConfigCount, 0, testCase.name);
+    assert.equal(createDatabaseCount, 0, testCase.name);
+    assert.equal(applyCount, 0, testCase.name);
+  }
+});
+
+test('runLocalPandaReplyIngressApplyCli writes safe stderr, exits 1, and closes DB on unexpected errors', async () => {
+  const database = {} as DatabaseClient;
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const exitCodes: number[] = [];
+  let closedDatabase: DatabaseClient | undefined;
+
+  await runLocalPandaReplyIngressApplyCli({
+    readStdin: async () => JSON.stringify(replyPayload()),
+    loadDatabaseConfig: () => ({ url: 'postgresql://user:super-secret@127.0.0.1:5432/widget' }),
+    createDatabase: () => database,
+    applyLocalPandaReplyIngressPayloadV1: async () => {
+      throw new Error('database refused postgresql://user:super-secret@127.0.0.1:5432/widget');
+    },
+    closeDatabase: async (client) => {
+      closedDatabase = client;
+    },
+    stdout: { write: (chunk) => stdout.push(chunk) },
+    stderr: { write: (chunk) => stderr.push(chunk) },
+    setExitCode: (exitCode) => exitCodes.push(exitCode),
+  });
+
+  assert.equal(closedDatabase, database);
+  assert.deepEqual(stdout, []);
+  assert.deepEqual(exitCodes, [1]);
+  assert.equal(stderr[0], 'failed to apply local Panda reply ingress payload from stdin\n');
+  assert.deepEqual(JSON.parse(stderr[1] ?? '{}'), {
+    name: 'Error',
+    message: 'database refused postgresql://user:[redacted]@127.0.0.1:5432/widget',
+  });
+  assert.equal(stderr.join('').includes('super-secret'), false);
+  assert.equal(stderr.join('').includes('\n    at '), false);
+});
+
 test('local reply ingress apply helper has no route, CLI, network, worker, fake reply, SSE, or status expansion wiring', () => {
   assert.match(applySource, /transaction\(\)\.execute\(async \(transaction\) =>/);
   assert.match(applySource, /selectFrom\('conversations'\)[\s\S]*forUpdate\(\)/);
@@ -591,15 +790,144 @@ test('local reply ingress apply helper has no route, CLI, network, worker, fake 
   );
 });
 
-test('local reply ingress apply helper is not wired into app, visitor route, package scripts, or frontend sources', () => {
+test('local reply ingress apply CLI stays server-only without public route, frontend, network, worker, or status expansion', () => {
   const serverPackage = JSON.parse(serverPackageSource) as { scripts?: Record<string, string> };
+  const combinedApplySource = `${applySource}\n${applyCliSource}`;
   const combinedFrontendSource = `${consoleSource}\n${widgetUiSource}`;
 
-  assert.equal(Object.values(serverPackage.scripts ?? {}).some((script) => script.includes('local-panda-reply-ingress-apply')), false);
-  assert.doesNotMatch(appSource, /local-panda-reply-ingress-apply|applyLocalPandaReplyIngressPayloadV1/);
-  assert.doesNotMatch(visitorMessageSource, /local-panda-reply-ingress-apply|applyLocalPandaReplyIngressPayloadV1/);
-  assert.doesNotMatch(combinedFrontendSource, /local-panda-reply-ingress-apply|applyLocalPandaReplyIngressPayloadV1/);
+  assert.equal(
+    serverPackage.scripts?.['local-panda:reply-ingress-apply'],
+    'node src/local-panda-reply-ingress-apply-cli.ts',
+  );
+  assert.match(
+    readmeSource,
+    /cat reply-ingress\.json \| pnpm --silent --filter @panda-chat-widget\/server local-panda:reply-ingress-apply/,
+  );
+  assert.doesNotMatch(
+    readmeSource,
+    /cat reply-ingress\.json \| pnpm --filter @panda-chat-widget\/server local-panda:reply-ingress-apply/,
+  );
+  assert.doesNotMatch(
+    appSource,
+    /local-panda-reply-ingress-apply|runLocalPandaReplyIngressApplyCli|applyLocalPandaReplyIngressPayloadV1/,
+  );
+  assert.doesNotMatch(
+    visitorMessageSource,
+    /local-panda-reply-ingress-apply|runLocalPandaReplyIngressApplyCli|applyLocalPandaReplyIngressPayloadV1/,
+  );
+  assert.doesNotMatch(
+    combinedFrontendSource,
+    /local-panda-reply-ingress-apply|runLocalPandaReplyIngressApplyCli|applyLocalPandaReplyIngressPayloadV1|LocalPandaReplyIngressApplyCliResult/,
+  );
+  assert.doesNotMatch(
+    combinedApplySource,
+    /fetch\s*\(|WebSocket|EventSource|node:http|node:https|node:child_process|child_process|spawn\s*\(|exec\s*\(|setTimeout\s*\(|setInterval\s*\(|Worker\s*\(|dispatcher|daemon|retry|dead-letter|\.schema|createTable|alterTable|addColumn|dropTable|dropColumn|status:\s*'sent'|status:\s*'delivered'|status:\s*'failed'|status:\s*'replied'|sent_at|delivered_at|failed_at|replied_at/i,
+  );
+  assert.doesNotMatch(
+    combinedApplySource,
+    /panda\s+(?:a2a|send|gateway)|gateway\s+(?:url|token|request|response|dispatch)/i,
+  );
 });
+
+
+type ApplyCliDatabaseRunOptions = {
+  database: DatabaseClient;
+  input: string;
+  applyLocalPandaReplyIngressPayloadV1?: (
+    database: DatabaseClient,
+    payload: LocalPandaReplyIngressPayloadV1,
+  ) => Promise<ApplyLocalPandaReplyIngressPayloadV1Result>;
+};
+
+type ApplyCliDatabaseRun = {
+  stdout: string[];
+  stderr: string[];
+  exitCodes: number[];
+  closedDatabases: DatabaseClient[];
+  loadDatabaseConfigCount: number;
+  createDatabaseCount: number;
+};
+
+async function runReplyIngressApplyCliWithDatabase(
+  options: ApplyCliDatabaseRunOptions,
+): Promise<ApplyCliDatabaseRun> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const exitCodes: number[] = [];
+  const closedDatabases: DatabaseClient[] = [];
+  let loadDatabaseConfigCount = 0;
+  let createDatabaseCount = 0;
+  const dependencies: LocalPandaReplyIngressApplyCliDependencies = {
+    readStdin: async () => options.input,
+    loadDatabaseConfig: () => {
+      loadDatabaseConfigCount += 1;
+      return { url: 'postgresql://user:pass@127.0.0.1:5432/widget' };
+    },
+    createDatabase: (config) => {
+      createDatabaseCount += 1;
+      assert.equal(config.url, 'postgresql://user:pass@127.0.0.1:5432/widget');
+
+      return options.database;
+    },
+    closeDatabase: async (database) => {
+      closedDatabases.push(database);
+    },
+    stdout: { write: (chunk) => stdout.push(chunk) },
+    stderr: { write: (chunk) => stderr.push(chunk) },
+    setExitCode: (exitCode) => exitCodes.push(exitCode),
+  };
+
+  if (options.applyLocalPandaReplyIngressPayloadV1) {
+    dependencies.applyLocalPandaReplyIngressPayloadV1 = options.applyLocalPandaReplyIngressPayloadV1;
+  }
+
+  await runLocalPandaReplyIngressApplyCli(dependencies);
+
+  return {
+    stdout,
+    stderr,
+    exitCodes,
+    closedDatabases,
+    loadDatabaseConfigCount,
+    createDatabaseCount,
+  };
+}
+
+function parseCliJsonObject(chunk: string | undefined): Record<string, unknown> {
+  if (typeof chunk !== 'string') {
+    assert.fail('expected one JSON stdout chunk');
+  }
+
+  const parsed = JSON.parse(chunk) as unknown;
+
+  assert.equal(typeof parsed, 'object');
+  assert.notEqual(parsed, null);
+  assert.equal(Array.isArray(parsed), false);
+
+  return parsed as Record<string, unknown>;
+}
+
+function assertApplyCliBaseEnvelope(envelope: Record<string, unknown>): void {
+  assert.equal(envelope.kind, APPLY_CLI_KIND);
+  assert.equal(envelope.mode, APPLY_CLI_MODE);
+  assert.deepEqual(envelope.metadata, expectedApplyCliMetadata());
+}
+
+function expectedApplyCliMetadata(): Record<string, string> {
+  return {
+    locality: 'local-only',
+    input: 'stdin-json-object',
+    network: 'no-network',
+    pandaCall: 'not-attempted',
+    gatewayCall: 'not-attempted',
+    externalCliCall: 'not-attempted',
+    childProcess: 'not-used',
+    publicRoute: 'not-created',
+    worker: 'not-created',
+    statusLifecycleExpansion: 'not-attempted',
+    stateMutation: 'local-db-apply-or-replay-via-existing-helper',
+  };
+}
 
 function replyPayload(
   overrides: Partial<Omit<LocalPandaReplyIngressPayloadV1, 'version' | 'kind' | 'metadata'>> = {},
