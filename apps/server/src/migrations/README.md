@@ -9,3 +9,4 @@ Current migrations:
 - `0003_widget_safe_bootstrap_settings.ts` adds server-owned safe bootstrap copy and token settings to widgets.
 - `0004_widget_panda_connection_placeholder.ts` adds a nullable widget-owned Panda route handle placeholder.
 - `0005_panda_delivery_intents.ts` adds an internal local-only durable intent table for future Panda delivery; it records queued rows only and does not call Panda, Gateway, CLI, or any dispatcher.
+- `0006_panda_delivery_intent_claims.ts` adds a local-only queued-to-claimed intent transition timestamp; it still does not call Panda, Gateway, CLI, or any dispatcher.

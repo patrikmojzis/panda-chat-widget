@@ -58,11 +58,14 @@ type StoredPandaDeliveryIntent = {
   client_message_id: string;
   route_handle_snapshot: string;
   status: PandaDeliveryIntentStatus;
+  claimed_at: Date | null;
   created_at: Date;
   updated_at: Date;
 };
 
-type PandaDeliveryIntentInsertValues = Omit<StoredPandaDeliveryIntent, 'id'>;
+type PandaDeliveryIntentInsertValues = Omit<StoredPandaDeliveryIntent, 'id' | 'claimed_at'> & {
+  claimed_at?: Date | null;
+};
 
 type FakeDatabaseOptions = {
   widget?: WidgetLookupRow;
@@ -111,7 +114,7 @@ function assertNoPandaConnectionFields(value: unknown): void {
 
   assert.doesNotMatch(
     serialized,
-    /connection|routeHandle|panda_route_handle|deliveryIntent|deliveryStatus|panda_delivery_intent|pandaDeliveryIntent|intentId|localDelivery|queuedIntentCount|lastQueuedAt/i,
+    /connection|routeHandle|panda_route_handle|claim|claimed|claimedAt|claimed_at|deliveryIntent|deliveryStatus|panda_delivery_intent|pandaDeliveryIntent|intentId|localDelivery|queuedIntentCount|lastQueuedAt/i,
   );
 }
 
@@ -520,6 +523,7 @@ function createFakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
         const newIntent = {
           id: `intent-${deliveryIntents.length + 1}`,
           ...pendingValues,
+          claimed_at: pendingValues.claimed_at ?? null,
         };
         deliveryIntents.push(newIntent);
 
@@ -1902,7 +1906,7 @@ test('visitor message route has SSE catch-up, fake reply, and local intent seams
   assert.match(visitorMessageSource, /clientMessageId/);
   assert.doesNotMatch(
     visitorMessageEventRouteSource,
-    /sender: 'system'|EventSource|WebSocket|Gateway|\bCLI\b|fetch|child_process|Worker|localStorage|postMessage|setTimeout|setInterval/i,
+    /sender: 'system'|EventSource|WebSocket|Gateway|\bCLI\b|fetch|child_process|dispatcher|Worker|localStorage|postMessage|setTimeout|setInterval|retry|dead-letter|delivered|failed|reply-ingestion/i,
   );
 });
 

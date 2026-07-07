@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { Insertable, Updateable } from 'kysely';
-import type { DatabaseSchema } from './db.ts';
+import type { DatabaseSchema, PandaDeliveryIntentStatus } from './db.ts';
 
 test('DatabaseSchema exposes auth, workspace, and widget tables', () => {
   const tableNames = [
@@ -57,6 +57,13 @@ test('message inserts support ordering and visitor idempotency', () => {
 
 
 test('panda delivery intent inserts capture queued internal visitor delivery correlation', () => {
+  type ExpectedPandaDeliveryIntentStatus = 'queued' | 'claimed';
+  const statusIsExact: PandaDeliveryIntentStatus extends ExpectedPandaDeliveryIntentStatus
+    ? ExpectedPandaDeliveryIntentStatus extends PandaDeliveryIntentStatus
+      ? true
+      : never
+    : never = true;
+  const statuses = ['queued', 'claimed'] satisfies PandaDeliveryIntentStatus[];
   const intentInsert = {
     widget_id: 'widget-id',
     conversation_id: 'conversation-id',
@@ -68,8 +75,18 @@ test('panda delivery intent inserts capture queued internal visitor delivery cor
     created_at: new Date('2026-01-01T00:00:00.000Z'),
     updated_at: new Date('2026-01-01T00:00:00.000Z'),
   } satisfies Insertable<DatabaseSchema['panda_delivery_intents']>;
+  const intentClaimUpdate = {
+    status: 'claimed',
+    claimed_at: new Date('2026-01-01T00:01:00.000Z'),
+    updated_at: new Date('2026-01-01T00:01:00.000Z'),
+  } satisfies Updateable<DatabaseSchema['panda_delivery_intents']>;
 
+  assert.equal(statusIsExact, true);
+  assert.deepEqual(statuses, ['queued', 'claimed']);
   assert.equal(intentInsert.status, 'queued');
+  assert.equal('claimed_at' in intentInsert, false);
+  assert.equal(intentClaimUpdate.status, 'claimed');
+  assert.equal(intentClaimUpdate.claimed_at instanceof Date, true);
   assert.equal(intentInsert.widget_id, 'widget-id');
   assert.equal(intentInsert.conversation_id, 'conversation-id');
   assert.equal(intentInsert.visitor_session_id, 'visitor-session-id');

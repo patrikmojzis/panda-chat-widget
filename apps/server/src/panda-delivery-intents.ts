@@ -1,6 +1,6 @@
-import type { Insertable } from 'kysely';
+import type { Insertable, Selectable } from 'kysely';
 
-import type { DatabaseExecutor, DatabaseSchema } from './db.ts';
+import type { DatabaseClient, DatabaseExecutor, DatabaseSchema } from './db.ts';
 
 export type RecordPandaDeliveryIntentInput = {
   widgetId: string;
@@ -20,6 +20,35 @@ export type RecordPandaDeliveryIntentResult =
       recorded: false;
       reason: 'missing_route_handle' | 'already_recorded';
     };
+
+export type ClaimPandaDeliveryIntentOptions = {
+  now?: Date;
+};
+
+export type ClaimedPandaDeliveryIntent = {
+  id: string;
+  widgetId: string;
+  conversationId: string;
+  visitorSessionId: string;
+  visitorMessageId: string;
+  clientMessageId: string;
+  routeHandleSnapshot: string;
+  createdAt: Date;
+  claimedAt: Date;
+};
+
+type ClaimedPandaDeliveryIntentRow = Pick<
+  Selectable<DatabaseSchema['panda_delivery_intents']>,
+  | 'id'
+  | 'widget_id'
+  | 'conversation_id'
+  | 'visitor_session_id'
+  | 'visitor_message_id'
+  | 'client_message_id'
+  | 'route_handle_snapshot'
+  | 'created_at'
+  | 'claimed_at'
+>;
 
 export async function recordPandaDeliveryIntent(
   database: DatabaseExecutor,
@@ -52,6 +81,72 @@ export async function recordPandaDeliveryIntent(
     .executeTakeFirst();
 
   return row ? { recorded: true } : { recorded: false, reason: 'already_recorded' };
+}
+
+export async function claimNextQueuedPandaDeliveryIntent(
+  database: DatabaseClient,
+  options: ClaimPandaDeliveryIntentOptions = {},
+): Promise<ClaimedPandaDeliveryIntent | null> {
+  const now = options.now ?? new Date();
+
+  return database.transaction().execute(async (transaction) => {
+    const selected = await transaction
+      .selectFrom('panda_delivery_intents')
+      .select('id')
+      .where('status', '=', 'queued')
+      .orderBy('created_at', 'asc')
+      .orderBy('id', 'asc')
+      .forUpdate()
+      .skipLocked()
+      .limit(1)
+      .executeTakeFirst();
+
+    if (!selected) {
+      return null;
+    }
+
+    const claimed = await transaction
+      .updateTable('panda_delivery_intents')
+      .set({ status: 'claimed', claimed_at: now, updated_at: now })
+      .where('id', '=', selected.id)
+      .where('status', '=', 'queued')
+      .returning([
+        'id',
+        'widget_id',
+        'conversation_id',
+        'visitor_session_id',
+        'visitor_message_id',
+        'client_message_id',
+        'route_handle_snapshot',
+        'created_at',
+        'claimed_at',
+      ])
+      .executeTakeFirst();
+
+    if (!claimed) {
+      throw new Error(`Unable to claim selected Panda delivery intent ${selected.id}`);
+    }
+
+    return toClaimedPandaDeliveryIntent(claimed);
+  });
+}
+
+function toClaimedPandaDeliveryIntent(row: ClaimedPandaDeliveryIntentRow): ClaimedPandaDeliveryIntent {
+  if (!row.claimed_at) {
+    throw new Error(`Claimed Panda delivery intent ${row.id} is missing claimed_at`);
+  }
+
+  return {
+    id: row.id,
+    widgetId: row.widget_id,
+    conversationId: row.conversation_id,
+    visitorSessionId: row.visitor_session_id,
+    visitorMessageId: row.visitor_message_id,
+    clientMessageId: row.client_message_id,
+    routeHandleSnapshot: row.route_handle_snapshot,
+    createdAt: row.created_at,
+    claimedAt: row.claimed_at,
+  };
 }
 
 function normalizeRouteHandle(routeHandle: string | null | undefined): string | null {

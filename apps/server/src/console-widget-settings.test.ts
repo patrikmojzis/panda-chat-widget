@@ -89,6 +89,7 @@ type StoredPandaDeliveryIntent = {
   id: string;
   widget_id: string;
   status: string;
+  claimed_at: Date | string | null;
   created_at: Date | string;
 };
 
@@ -276,11 +277,13 @@ function deliveryIntentRow(
   widgetId: string,
   status: string,
   createdAt: Date | string,
+  claimedAt: Date | string | null = null,
 ): StoredPandaDeliveryIntent {
   return {
     id,
     widget_id: widgetId,
     status,
+    claimed_at: claimedAt,
     created_at: createdAt,
   };
 }
@@ -984,7 +987,13 @@ test('console widget settings GET exposes queued local delivery status for the o
   fake.deliveryIntents = [
     deliveryIntentRow('intent-a-1', WIDGET_A, 'queued', '2026-01-01T00:01:00.000Z'),
     deliveryIntentRow('intent-a-2', WIDGET_A, 'queued', new Date('2026-01-01T00:03:00.000Z')),
-    deliveryIntentRow('intent-a-ignored', WIDGET_A, 'sent', '2026-01-01T00:04:00.000Z'),
+    deliveryIntentRow(
+      'intent-a-claimed-newer',
+      WIDGET_A,
+      'claimed',
+      '2026-01-01T00:04:00.000Z',
+      '2026-01-01T00:04:30.000Z',
+    ),
     deliveryIntentRow('intent-a2', WIDGET_A2, 'queued', '2026-01-01T00:05:00.000Z'),
     deliveryIntentRow('intent-b', WIDGET_B, 'queued', '2026-01-01T00:06:00.000Z'),
   ];
