@@ -4,8 +4,11 @@ import test from 'node:test';
 import type { Insertable } from 'kysely';
 import type { DatabaseSchema } from './db.ts';
 
-test('DatabaseSchema exposes the initial widget tables', () => {
+test('DatabaseSchema exposes auth, workspace, and widget tables', () => {
   const tableNames = [
+    'users',
+    'workspaces',
+    'auth_sessions',
     'sites',
     'widgets',
     'allowed_domains',
@@ -15,6 +18,9 @@ test('DatabaseSchema exposes the initial widget tables', () => {
   ] satisfies Array<keyof DatabaseSchema>;
 
   assert.deepEqual(tableNames, [
+    'users',
+    'workspaces',
+    'auth_sessions',
     'sites',
     'widgets',
     'allowed_domains',

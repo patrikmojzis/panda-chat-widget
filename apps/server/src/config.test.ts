@@ -14,6 +14,7 @@ test('loadConfig uses local server defaults', () => {
       port: 3000,
     },
     logger: true,
+    auth: { secureCookies: false },
   });
 });
 
@@ -24,6 +25,7 @@ test('loadConfig parses server environment overrides', () => {
       port: 8080,
     },
     logger: false,
+    auth: { secureCookies: false },
   });
 });
 
@@ -34,6 +36,7 @@ test('loadConfig trims HOST and PORT values', () => {
       port: 4000,
     },
     logger: true,
+    auth: { secureCookies: false },
   });
 });
 
@@ -50,6 +53,20 @@ test('loadConfig rejects blank HOST', () => {
   assert.throws(
     () => loadConfig(env({ HOST: ' ' })),
     /Invalid HOST: expected a non-empty host/,
+  );
+});
+
+
+test('loadConfig enables secure auth cookies from env or production NODE_ENV', () => {
+  assert.deepEqual(loadConfig(env({ AUTH_COOKIE_SECURE: 'true' })).auth, { secureCookies: true });
+  assert.deepEqual(loadConfig(env({ AUTH_COOKIE_SECURE: '0', NODE_ENV: 'production' })).auth, { secureCookies: false });
+  assert.deepEqual(loadConfig(env({ NODE_ENV: 'production' })).auth, { secureCookies: true });
+});
+
+test('loadConfig rejects invalid AUTH_COOKIE_SECURE values', () => {
+  assert.throws(
+    () => loadConfig(env({ AUTH_COOKIE_SECURE: 'sometimes' })),
+    /Invalid AUTH_COOKIE_SECURE: expected true, false, 1, or 0/,
   );
 });
 

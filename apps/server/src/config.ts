@@ -4,9 +4,14 @@ export type DatabaseConfig = {
   url: string;
 };
 
+export type AuthConfig = {
+  secureCookies: boolean;
+};
+
 export type ServerConfig = {
   listen: ListenOptions;
   logger: boolean;
+  auth: AuthConfig;
 };
 
 const DEFAULT_HOST = '127.0.0.1';
@@ -21,6 +26,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       port: parsePort(env.PORT),
     },
     logger: parseServerLogger(env.SERVER_LOGGER),
+    auth: {
+      secureCookies: parseAuthCookieSecure(env.AUTH_COOKIE_SECURE, env.NODE_ENV),
+    },
   };
 }
 
@@ -103,4 +111,21 @@ function parseDatabaseUrl(value: string | undefined): string {
   }
 
   return databaseUrl;
+}
+
+function parseAuthCookieSecure(value: string | undefined, nodeEnv: string | undefined): boolean {
+  if (value === undefined) {
+    return nodeEnv?.trim().toLowerCase() === 'production';
+  }
+
+  switch (value.trim().toLowerCase()) {
+    case 'true':
+    case '1':
+      return true;
+    case 'false':
+    case '0':
+      return false;
+    default:
+      throw new Error('Invalid AUTH_COOKIE_SECURE: expected true, false, 1, or 0');
+  }
 }

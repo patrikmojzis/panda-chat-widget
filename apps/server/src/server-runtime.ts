@@ -35,7 +35,7 @@ export async function startServerRuntime(dependencies: ServerRuntimeDependencies
   const resolved = resolveDependencies(dependencies);
   const config = resolved.loadConfig();
   const database = resolved.createDatabase(resolved.loadDatabaseConfig());
-  const app = resolved.buildApp({ logger: config.logger, database });
+  const app = resolved.buildApp({ logger: config.logger, database, auth: config.auth });
 
   app.addHook('onClose', async () => {
     await resolved.closeDatabase(database);

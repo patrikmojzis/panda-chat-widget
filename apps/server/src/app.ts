@@ -1,11 +1,14 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
+import { type AuthRouteOptions, registerAuthRoutes } from './auth-routes.ts';
+import { registerConsoleStaticRoutes } from './console-static.ts';
 import { registerConversationRoutes } from './conversation.ts';
 import type { DatabaseClient } from './db.ts';
 import {
   createConversationMessageEventEmitter,
   type ConversationMessageEventEmitter,
 } from './message-events.ts';
+import { registerDashboardRoutes } from './dashboard.ts';
 import { registerHealthRoutes } from './health.ts';
 import {
   allowAllPublicWriteRateLimit,
@@ -17,13 +20,22 @@ import { registerVisitorSessionRoutes } from './visitor-session.ts';
 import { registerWidgetBootstrapRoutes } from './widget-bootstrap.ts';
 
 export type BuildAppOptions = FastifyServerOptions & {
+  auth?: Partial<Omit<AuthRouteOptions, 'database'>> & { secureCookies?: boolean };
+  console?: { distPath?: string };
   database?: DatabaseClient;
   messageEvents?: ConversationMessageEventEmitter;
   publicWriteRateLimit?: PublicWriteRateLimitHook;
 };
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
-  const { database, messageEvents, publicWriteRateLimit = allowAllPublicWriteRateLimit, ...fastifyOptions } = options;
+  const {
+    auth,
+    console: consoleOptions,
+    database,
+    messageEvents,
+    publicWriteRateLimit = allowAllPublicWriteRateLimit,
+    ...fastifyOptions
+  } = options;
 
   if (fastifyOptions.logger === true) {
     fastifyOptions.logger = createSafeLoggerOptions(true);
@@ -39,6 +51,20 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerHealthRoutes(app);
 
   if (database) {
+    const authOptions = {
+      ...auth,
+      database,
+      secureCookies: auth?.secureCookies ?? false,
+    };
+
+    registerAuthRoutes(app, authOptions);
+    registerDashboardRoutes(app, { database });
+    registerConsoleStaticRoutes(
+      app,
+      consoleOptions?.distPath === undefined
+        ? { database }
+        : { database, distPath: consoleOptions.distPath },
+    );
     registerWidgetBootstrapRoutes(app, { database });
     registerVisitorSessionRoutes(app, { database, publicWriteRateLimit });
     registerConversationRoutes(app, { database, publicWriteRateLimit });
