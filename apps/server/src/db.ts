@@ -50,6 +50,7 @@ export type WidgetsTable = {
   id: Generated<string>;
   site_id: string;
   public_key: string;
+  panda_route_handle: NullableText;
   name: string;
   assistant_display_name: Generated<string>;
   launcher_label: Generated<string>;

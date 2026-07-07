@@ -45,6 +45,8 @@ test('console API client uses relative authenticated routes, cookie credentials,
   assert.match(apiSource, /createWidget[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
   assert.match(apiSource, /getWidgetSettings[\s\S]*\/settings`/);
   assert.match(apiSource, /updateWidgetSettings[\s\S]*method: 'PATCH'/);
+  assert.match(apiSource, /ConsoleWidgetConnection[\s\S]*routeHandle: string \| null/);
+  assert.match(apiSource, /connection\?: \{[\s\S]*routeHandle\?: string \| null/);
   assert.match(apiSource, /listWidgetDomains[\s\S]*\/domains`/);
   assert.match(apiSource, /createWidgetDomain[\s\S]*method: 'POST'/);
   assert.match(apiSource, /deleteWidgetDomain[\s\S]*method: 'DELETE'/);
@@ -70,6 +72,11 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.match(appSource, /Add domain/);
   assert.match(appSource, /Install snippet/);
   assert.match(appSource, /Copy snippet/);
+  assert.match(appSource, /Panda connection/);
+  assert.match(appSource, /Connection placeholder/);
+  assert.match(appSource, /local fake reply loop/);
+  assert.match(appSource, /Save placeholder/);
+  assert.match(appSource, /Clear connection/);
   assert.match(appSource, /widgetDetail/);
   assert.match(appSource, /parseConsoleRoute/);
   assert.match(appSource, /popstate/);
@@ -91,6 +98,7 @@ test('console shell CSS uses semantic tokens and overflow-safe site/widget layou
   assert.match(stylesSource, /\.empty-state \{/);
   assert.match(stylesSource, /\.settings-grid \{/);
   assert.match(stylesSource, /\.snippet-box \{/);
+  assert.match(stylesSource, /\.connection-status \{/);
   assert.match(stylesSource, /overflow-wrap: anywhere;/);
   assert.match(stylesSource, /@media \(max-width: 760px\)/);
   assert.doesNotMatch(stylesSource, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|cssText|url\(/);

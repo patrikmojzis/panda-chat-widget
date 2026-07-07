@@ -1,6 +1,6 @@
 # Panda Chat Widget
 
-TypeScript/pnpm workspace for an embeddable chat widget spine. Current V1 work is still local/dev-only: vanilla loader, React/Vite iframe UI, Fastify API seams, Kysely/Postgres schema, first-owner auth/workspace foundation, protected console shell with workspace-scoped site/widget list-create plus widget settings/domain/snippet flows, local demo seed data, visitor sessions, conversations, messages, SSE contracts, and a deterministic fake reply.
+TypeScript/pnpm workspace for an embeddable chat widget spine. Current V1 work is still local/dev-only: vanilla loader, React/Vite iframe UI, Fastify API seams, Kysely/Postgres schema, first-owner auth/workspace foundation, protected console shell with workspace-scoped site/widget list-create plus widget settings/domain/snippet/Panda connection placeholder flows, local demo seed data, visitor sessions, conversations, messages, SSE contracts, and a deterministic fake reply.
 
 There is no Panda Gateway/Panda agent integration in this repo yet.
 
@@ -147,11 +147,12 @@ docker compose down -v
 ## Current limitations
 
 - Fake reply only: visitor messages receive a deterministic local fake agent reply; no real AI/Gateway/Panda integration.
+- Panda connection settings are placeholder-only: the saved route handle is an opaque label, not a secret/token, and it is not used for runtime delivery yet.
 - SSE is process-local memory only; no durable queue or multi-process fanout.
 - Browser screenshots/live click smoke require browser automation and a running local Postgres stack.
 - DB-backed live validation for GitHub issue #5 remains separate until it has real Docker/Postgres/browser evidence in the target environment.
 - Auth is intentionally minimal: first owner + one workspace, email/password login, HttpOnly cookie sessions, no invites, no teams/RBAC UI, no billing/plans/usage.
-- Console site/widget management is intentionally minimal: workspace-scoped list/create, safe widget settings, allowed domains, and a generated install snippet only.
+- Console site/widget management is intentionally minimal: workspace-scoped list/create, safe widget settings, allowed domains, a generated install snippet, and a configuration-only Panda route handle placeholder.
 - No deployment, CLI, or Dockerized app runtime yet.
 
 ## Public planning context

@@ -15,6 +15,7 @@ type WidgetLookupRow = {
   widgetId: string;
   siteId: string;
   publicKey: string;
+  panda_route_handle?: string | null;
   widgetEnabled: boolean;
   siteEnabled: boolean;
 };
@@ -74,11 +75,19 @@ const visitorMessageSource = await readFile(new URL('./visitor-message.ts', impo
 const visitorMessageEventsSource = await readFile(new URL('./visitor-message-events.ts', import.meta.url), 'utf8');
 const visitorMessageEventRouteSource = `${visitorMessageSource}\n${visitorMessageEventsSource}`;
 
+
+function assertNoPandaConnectionFields(value: unknown): void {
+  const serialized = JSON.stringify(value);
+
+  assert.doesNotMatch(serialized, /connection|routeHandle|panda_route_handle/);
+}
+
 function enabledDemoWidget(): WidgetLookupRow {
   return {
     widgetId: 'widget-id',
     siteId: 'site-id',
     publicKey: DEMO_SEED_DATA.publicWidgetKey,
+    panda_route_handle: 'panda:workspace/alpha',
     widgetEnabled: true,
     siteEnabled: true,
   };
@@ -454,6 +463,7 @@ test('POST /api/widgets/:publicKey/messages stores a visitor message then a fake
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(Object.keys(body), ['message']);
+    assertNoPandaConnectionFields(body);
     assert.equal(typeof body.message.createdAt, 'string');
     assert.deepEqual({ ...body.message, createdAt: '<iso-date>' }, {
       id: 'message-2',
@@ -784,6 +794,9 @@ test('GET /api/widgets/:publicKey/messages returns inserted visitor message then
     assert.equal(listResponse.statusCode, 200);
     assert.equal(afterVisitorResponse.statusCode, 200);
     assert.equal(afterReplyResponse.statusCode, 200);
+    assertNoPandaConnectionFields(listResponse.json());
+    assertNoPandaConnectionFields(afterVisitorResponse.json());
+    assertNoPandaConnectionFields(afterReplyResponse.json());
     assert.deepEqual(
       listResponse.json().messages.map((message: { seq: number; sender: string; clientMessageId: string | null; body: string }) => ({
         seq: message.seq,
