@@ -51,6 +51,7 @@ Run from the repository root unless noted.
 | `pnpm --filter @panda-chat-widget/server test` | Server API/DB/SSE/runtime contract tests using fake DB seams. |
 | `pnpm --filter @panda-chat-widget/server local-panda:dispatch-dry-run` | Claims one queued local Panda delivery intent and prints the existing local-only payload JSON; no network dispatch or reply apply. |
 | `pnpm --filter @panda-chat-widget/server local-panda:reply-round-trip` | Reuses one already-claimed unapplied local Panda delivery intent, or claims one queued intent if none exists, then builds a deterministic local fake reply ingress payload and inserts/replays one local agent message; no Panda/Gateway/external CLI/network call. |
+| `cat reply-ingress.json \| pnpm --silent --filter @panda-chat-widget/server local-panda:reply-ingress-apply` | Reads one local reply-ingress JSON object from stdin and applies it through the existing local DB helper; no Panda/Gateway/external CLI/network call. |
 | `pnpm --filter @panda-chat-widget/widget-ui check` | Widget UI typecheck/tests/build. |
 | `pnpm --filter @panda-chat-widget/console check` | Console shell typecheck/tests/build. |
 | `pnpm --filter @panda-chat-widget/loader check` | Loader typecheck/tests/build. |
@@ -136,6 +137,14 @@ Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but
 
    Expected dry-run shape is dynamic JSON with `prepared: true`, `payload.kind: "local-panda-future-dispatch"`, `payload.routeHandleSnapshot: "panda:local/demo"`, and local-only metadata such as `locality: "local-only"` and `network: "no-network"`. The dry run still claims the queued local intent; if you run `local-panda:dispatch-dry-run` first, `local-panda:reply-round-trip` may reuse that already-claimed intent as long as no matching local round-trip reply row exists. Running either command again after the local reply has been applied can correctly return a controlled `no_queued_intent` result until another visitor message records a new queued intent.
 
+   To apply a reply produced outside this repo's fake round-trip, pass exactly one JSON object on stdin to the local-only apply CLI:
+
+   ```sh
+   cat reply-ingress.json | pnpm --silent --filter @panda-chat-widget/server local-panda:reply-ingress-apply
+   ```
+
+   The stdin value must parse to a non-null, non-array JSON object. It is then delegated to the existing `applyLocalPandaReplyIngressPayloadV1` helper; malformed v1-shaped objects are reported as helper-controlled apply failures such as `invalid_payload` rather than rejected by a separate CLI schema layer. On success, stdout is a JSON envelope with `kind: "local-panda-reply-ingress-apply"`, `mode: "local-only-stdin-reply-ingress-apply"`, `completed: true`, `parsed: true`, `applyResult`, and a `metadata` object including `locality: "local-only"`, `input: "stdin-json-object"`, `network: "no-network"`, `pandaCall/gatewayCall/externalCliCall: "not-attempted"`, `childProcess: "not-used"`, `publicRoute/worker: "not-created"`, `statusLifecycleExpansion: "not-attempted"`, and `stateMutation: "local-db-apply-or-replay-via-existing-helper"`. Controlled helper failures keep the same envelope with `completed: false`, `parsed: true`, `failedStep: "apply_reply_ingress"`, `reason`, and `applyResult`, and exit 0. Empty stdin, malformed JSON, or JSON values that are `null`, arrays, or scalars print the same base envelope with `completed: false`, `parsed: false`, `failedStep: "stdin_parse"`, reason `empty_stdin`, `malformed_json`, or `json_value_not_object`, and exit 1 without opening the DB or printing stderr when run directly or through the documented `pnpm --silent` command; non-silent pnpm may add lifecycle noise around any script that exits 1. Once parsed, this mutates only the local DB by inserting or replaying one local agent message through the existing helper; it still creates no public route, worker, retry/dead-letter flow, status lifecycle expansion, fake-reply replacement, frontend exposure, Panda/Gateway call, child process, or network dispatch.
+
 The demo server is local-only. Defaults are `DEMO_HOST=127.0.0.1`, `DEMO_PORT=4173`, and `DEMO_BACKEND_URL=http://127.0.0.1:3000` (generic `HOST`, `PORT`, and `BACKEND_URL` also work). For proxied `/api/*` requests only, it synthesizes a safe localhost `Origin` when the browser omits one; the production Fastify API still enforces normal origin checks.
 
 ## Server environment knobs
@@ -166,14 +175,14 @@ docker compose down -v
 
 - Fake reply only: visitor messages receive a deterministic local fake agent reply; no real AI/Gateway/Panda integration.
 - Panda connection settings are placeholder-only: the saved route handle is an opaque label, not a secret/token. The seeded demo uses `panda:local/demo` only to make the local dry-run path reproducible; it does not imply real Panda connectivity.
-- Configured widgets record internal queued local delivery intents for new visitor messages. The dry-run command claims one intent and prints local JSON; the reply-round-trip command first reuses the oldest already-claimed unapplied local intent, or claims one queued intent if none exists, then inserts/replays one deterministic local fake agent message. No Panda/Gateway/external CLI delivery exists yet.
+- Configured widgets record internal queued local delivery intents for new visitor messages. The dry-run command claims one intent and prints local JSON; the reply-round-trip command first reuses the oldest already-claimed unapplied local intent, or claims one queued intent if none exists, then inserts/replays one deterministic local fake agent message. The reply-ingress apply CLI only reads a stdin JSON object and applies it to the local DB through the existing helper. No Panda/Gateway/external CLI delivery exists yet.
 - If dispatch payload build, synthetic reply build, or reply apply fails after an intent is claimed, the intent may remain claimed. There is intentionally no rollback, retry/dead-letter behavior, or sent/delivered/failed/replied status lifecycle expansion yet.
-- SSE fanout is process-local memory only; delivery intents are durable local records, not a retry worker, dispatcher, dead-letter queue, sent/delivered/failed state, reply-ingestion path, or multi-process fanout.
+- SSE fanout is process-local memory only; delivery intents are durable local records, not a retry worker, dispatcher, dead-letter queue, sent/delivered/failed state, public/worker reply-ingestion path, or multi-process fanout.
 - Browser screenshots/live click smoke require browser automation and a running local Postgres stack.
 - DB-backed live validation for GitHub issue #5 remains separate until it has real Docker/Postgres/browser evidence in the target environment.
 - Auth is intentionally minimal: first owner + one workspace, email/password login, HttpOnly cookie sessions, no invites, no teams/RBAC UI, no billing/plans/usage.
 - Console site/widget management is intentionally minimal: workspace-scoped list/create, safe widget settings, allowed domains, a generated install snippet, and a configuration-only Panda route handle placeholder.
-- No deployment, CLI, or Dockerized app runtime yet.
+- No deployment or Dockerized app runtime yet; CLI coverage is limited to local-only server scripts and is not a public ingestion surface.
 
 ## Public planning context
 
