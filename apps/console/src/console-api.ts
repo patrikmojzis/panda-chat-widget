@@ -28,6 +28,33 @@ export type LoginInput = {
   password: string;
 };
 
+export type ConsoleSite = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ConsoleWidget = {
+  id: string;
+  siteId: string;
+  publicKey: string;
+  name: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateSiteInput = {
+  name: string;
+};
+
+export type CreateWidgetInput = {
+  name: string;
+};
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -41,6 +68,22 @@ export class ApiError extends Error {
 type ApiRequestOptions = {
   body?: unknown;
   method?: 'GET' | 'POST';
+};
+
+type SiteListResponse = {
+  sites: ConsoleSite[];
+};
+
+type SiteResponse = {
+  site: ConsoleSite;
+};
+
+type WidgetListResponse = {
+  widgets: ConsoleWidget[];
+};
+
+type WidgetResponse = {
+  widget: ConsoleWidget;
 };
 
 export function getSetupStatus(): Promise<SetupStatus> {
@@ -61,6 +104,39 @@ export function login(input: LoginInput): Promise<CurrentContext> {
 
 export function logout(): Promise<void> {
   return apiRequest('/api/auth/logout', { method: 'POST' });
+}
+
+export async function listSites(): Promise<ConsoleSite[]> {
+  const response = await apiRequest<SiteListResponse>('/api/console/sites');
+
+  return response.sites;
+}
+
+export async function getSite(siteId: string): Promise<ConsoleSite> {
+  const response = await apiRequest<SiteResponse>(`/api/console/sites/${encodeURIComponent(siteId)}`);
+
+  return response.site;
+}
+
+export async function createSite(input: CreateSiteInput): Promise<ConsoleSite> {
+  const response = await apiRequest<SiteResponse>('/api/console/sites', { method: 'POST', body: input });
+
+  return response.site;
+}
+
+export async function listWidgets(siteId: string): Promise<ConsoleWidget[]> {
+  const response = await apiRequest<WidgetListResponse>(`/api/console/sites/${encodeURIComponent(siteId)}/widgets`);
+
+  return response.widgets;
+}
+
+export async function createWidget(siteId: string, input: CreateWidgetInput): Promise<ConsoleWidget> {
+  const response = await apiRequest<WidgetResponse>(`/api/console/sites/${encodeURIComponent(siteId)}/widgets`, {
+    method: 'POST',
+    body: input,
+  });
+
+  return response.widget;
 }
 
 async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
