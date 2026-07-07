@@ -11,8 +11,35 @@ type NullableText = ColumnType<string | null, string | null | undefined, string 
 export type ConversationStatus = 'open' | 'closed';
 export type MessageSender = 'visitor' | 'agent' | 'system';
 
+export type UsersTable = {
+  id: Generated<string>;
+  email: string;
+  password_hash: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+};
+
+export type WorkspacesTable = {
+  id: Generated<string>;
+  owner_user_id: string;
+  name: string;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+};
+
+export type AuthSessionsTable = {
+  id: Generated<string>;
+  user_id: string;
+  token_hash: string;
+  created_at: Timestamp;
+  last_seen_at: Timestamp;
+  expires_at: Timestamp;
+  revoked_at: NullableTimestamp;
+};
+
 export type SitesTable = {
   id: Generated<string>;
+  workspace_id: NullableText;
   name: string;
   enabled: Generated<boolean>;
   created_at: Timestamp;
@@ -66,6 +93,9 @@ export type MessagesTable = {
 };
 
 export type DatabaseSchema = {
+  users: UsersTable;
+  workspaces: WorkspacesTable;
+  auth_sessions: AuthSessionsTable;
   sites: SitesTable;
   widgets: WidgetsTable;
   allowed_domains: AllowedDomainsTable;

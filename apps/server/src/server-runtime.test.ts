@@ -46,7 +46,7 @@ test('server runtime creates one DB client, injects it into buildApp, and closes
   let closedDatabase: DatabaseClient | undefined;
 
   const runtime = await startServerRuntime({
-    loadConfig: () => ({ listen: { host: '127.0.0.1', port: 0 }, logger: false }),
+    loadConfig: () => ({ listen: { host: '127.0.0.1', port: 0 }, logger: false, auth: { secureCookies: true } }),
     loadDatabaseConfig: () => ({ url: 'postgresql://user:pass@127.0.0.1:5432/widget' }),
     createDatabase: () => database,
     buildApp: (options) => {
@@ -66,6 +66,7 @@ test('server runtime creates one DB client, injects it into buildApp, and closes
   assert.equal(runtime?.database, database);
   assert.equal(buildOptions?.database, database);
   assert.equal(buildOptions?.logger, false);
+  assert.deepEqual(buildOptions?.auth, { secureCookies: true });
   assert.deepEqual(listenOptions, { host: '127.0.0.1', port: 0 });
   assert.equal(closedDatabase, undefined);
 
@@ -81,7 +82,7 @@ test('server runtime closes the DB-backed app and sets exit code when listen fai
   const exitCodes: number[] = [];
 
   const runtime = await startServerRuntime({
-    loadConfig: () => ({ listen: { host: '127.0.0.1', port: 3000 }, logger: true }),
+    loadConfig: () => ({ listen: { host: '127.0.0.1', port: 3000 }, logger: true, auth: { secureCookies: false } }),
     loadDatabaseConfig: () => ({ url: 'postgresql://user:pass@127.0.0.1:5432/widget' }),
     createDatabase: () => database,
     buildApp: () => app,

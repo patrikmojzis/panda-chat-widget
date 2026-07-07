@@ -15,6 +15,7 @@ test('demo seed data uses stable local widget values', () => {
 
 test('demo seed data matches the typed widget schema inserts', () => {
   const site = {
+    workspace_id: null,
     name: DEMO_SEED_DATA.siteName,
     enabled: true,
   } satisfies Insertable<DatabaseSchema['sites']>;
@@ -32,6 +33,7 @@ test('demo seed data matches the typed widget schema inserts', () => {
     enabled: true,
   } satisfies Insertable<DatabaseSchema['allowed_domains']>));
 
+  assert.equal(site.workspace_id, null);
   assert.equal(site.name, 'Demo Local Site');
   assert.equal(widget.public_key, 'demo-local-widget');
   assert.equal(domains.length, 2);

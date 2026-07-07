@@ -60,6 +60,7 @@ async function ensureDemoSite(database: DatabaseClient, siteName: string): Promi
   }
 
   const values = {
+    workspace_id: null,
     name: siteName,
     enabled: true,
   } satisfies Insertable<DatabaseSchema['sites']>;
