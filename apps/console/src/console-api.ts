@@ -74,6 +74,8 @@ export type ConsoleWidgetInstall = {
 export type ConsoleWidgetLocalDelivery = {
   queuedIntentCount: number;
   lastQueuedAt: string | null;
+  claimedIntentCount: number;
+  lastClaimedAt: string | null;
 };
 
 export type ConsoleWidgetConnection = {

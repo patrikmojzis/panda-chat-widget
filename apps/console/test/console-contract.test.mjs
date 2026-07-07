@@ -45,7 +45,7 @@ test('console API client uses relative authenticated routes, cookie credentials,
   assert.match(apiSource, /createWidget[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
   assert.match(apiSource, /getWidgetSettings[\s\S]*\/settings`/);
   assert.match(apiSource, /updateWidgetSettings[\s\S]*method: 'PATCH'/);
-  assert.match(apiSource, /ConsoleWidgetLocalDelivery[\s\S]*queuedIntentCount: number;[\s\S]*lastQueuedAt: string \| null/);
+  assert.match(apiSource, /ConsoleWidgetLocalDelivery[\s\S]*queuedIntentCount: number;[\s\S]*lastQueuedAt: string \| null;[\s\S]*claimedIntentCount: number;[\s\S]*lastClaimedAt: string \| null/);
   assert.match(apiSource, /ConsoleWidgetConnection[\s\S]*routeHandle: string \| null;[\s\S]*localDelivery: ConsoleWidgetLocalDelivery/);
   assert.match(apiSource, /connection\?: \{[\s\S]*routeHandle\?: string \| null/);
   assert.match(apiSource, /listWidgetDomains[\s\S]*\/domains`/);
@@ -78,6 +78,9 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.match(appSource, /Local future-dispatch status only/);
   assert.match(appSource, /Gateway\/CLI dispatch is not connected yet/);
   assert.match(appSource, /Local future-dispatch queue/);
+  assert.match(appSource, /Claimed locally/);
+  assert.match(appSource, /claimed locally/);
+  assert.match(appSource, /last claimed timestamp unavailable/);
   assert.match(appSource, /local fake reply loop/);
   assert.match(appSource, /Save placeholder/);
   assert.match(appSource, /Clear connection/);
@@ -94,7 +97,10 @@ test('console UI includes setup, login, site/widget states, and preserves authen
     sourceWithAllowedFutureDispatchCopyRemoved,
     /billing|plans|usage|invite|RBAC|Gateway|\bCLI\b|SalesPanda|CRM|customCss|unsafeHtml|dangerouslySetInnerHTML/i,
   );
-  assert.doesNotMatch(sourceWithAllowedFutureDispatchCopyRemoved, /EventSource|WebSocket|child_process|Worker|setTimeout|setInterval/i);
+  assert.doesNotMatch(
+    sourceWithAllowedFutureDispatchCopyRemoved,
+    /EventSource|WebSocket|child_process|Worker|setTimeout|setInterval|dispatcher|outbound|dead-?letter|\bretry\b|\bdelivered\b|delivery failed|failed delivery|reply-?ingestion|claimNextQueuedPandaDeliveryIntent|recordPandaDeliveryIntent|panda-delivery-intents/i,
+  );
 });
 
 test('console shell CSS uses semantic tokens and overflow-safe site/widget layouts', () => {
