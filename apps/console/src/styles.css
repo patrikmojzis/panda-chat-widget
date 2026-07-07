@@ -553,3 +553,58 @@ input {
     padding: 18px;
   }
 }
+
+.field select,
+.snippet-box {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--foreground);
+  background: var(--card);
+  font: inherit;
+}
+
+.field select:focus-visible,
+.snippet-box:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-card--wide {
+  max-width: 760px;
+}
+
+.settings-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settings-grid__wide {
+  grid-column: 1 / -1;
+}
+
+.inline-form {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.snippet-box {
+  min-height: 96px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 760px) {
+  .settings-grid,
+  .inline-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

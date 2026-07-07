@@ -109,6 +109,8 @@ export function registerWidgetBootstrapRoutes(app: FastifyInstance, options: Wid
       return reply.status(403).send({ error: 'origin_not_allowed', reason: originMatch.reason });
     }
 
+    const config = await loadWidgetBootstrapConfig(options.database, widgetLookup.widget.id);
+
     return reply.send({
       widget: {
         publicKey: widgetLookup.widget.publicKey,
@@ -117,7 +119,7 @@ export function registerWidgetBootstrapRoutes(app: FastifyInstance, options: Wid
         hostname: originMatch.hostname,
         domain: originMatch.domain,
       },
-      config: DEFAULT_WIDGET_BOOTSTRAP_CONFIG,
+      config,
     });
   });
 }
@@ -132,4 +134,69 @@ export async function loadEnabledAllowedDomains(
     .where('widget_id', '=', widgetId)
     .where('enabled', '=', true)
     .execute();
+}
+
+
+export type WidgetBootstrapConfigRow = {
+  assistant_display_name?: string | null;
+  launcher_label?: string | null;
+  launcher_icon?: string | null;
+  welcome_title?: string | null;
+  welcome_subtitle?: string | null;
+  theme_color_mode?: string | null;
+  theme_accent?: string | null;
+  theme_radius?: string | null;
+};
+
+export async function loadWidgetBootstrapConfig(
+  database: DatabaseClient,
+  widgetId: string,
+): Promise<WidgetBootstrapConfig> {
+  const row = await database
+    .selectFrom('widgets')
+    .select([
+      'assistant_display_name',
+      'launcher_label',
+      'launcher_icon',
+      'welcome_title',
+      'welcome_subtitle',
+      'theme_color_mode',
+      'theme_accent',
+      'theme_radius',
+    ])
+    .where('id', '=', widgetId)
+    .executeTakeFirst() as WidgetBootstrapConfigRow | undefined;
+
+  return toWidgetBootstrapConfig(row);
+}
+
+export function toWidgetBootstrapConfig(row: WidgetBootstrapConfigRow | undefined): WidgetBootstrapConfig {
+  return {
+    assistant: {
+      displayName: readPlainText(row?.assistant_display_name, DEFAULT_WIDGET_BOOTSTRAP_CONFIG.assistant.displayName),
+    },
+    launcher: {
+      label: readPlainText(row?.launcher_label, DEFAULT_WIDGET_BOOTSTRAP_CONFIG.launcher.label),
+      icon: row?.launcher_icon === 'message' ? row.launcher_icon : DEFAULT_WIDGET_BOOTSTRAP_CONFIG.launcher.icon,
+    },
+    welcome: {
+      title: readPlainText(row?.welcome_title, DEFAULT_WIDGET_BOOTSTRAP_CONFIG.welcome.title),
+      subtitle: readPlainText(row?.welcome_subtitle, DEFAULT_WIDGET_BOOTSTRAP_CONFIG.welcome.subtitle),
+    },
+    theme: {
+      colorMode: isWidgetThemeMode(row?.theme_color_mode)
+        ? row.theme_color_mode
+        : DEFAULT_WIDGET_BOOTSTRAP_CONFIG.theme.colorMode,
+      accent: row?.theme_accent === 'blue' ? row.theme_accent : DEFAULT_WIDGET_BOOTSTRAP_CONFIG.theme.accent,
+      radius: row?.theme_radius === 'md' ? row.theme_radius : DEFAULT_WIDGET_BOOTSTRAP_CONFIG.theme.radius,
+    },
+  };
+}
+
+function readPlainText(value: string | null | undefined, fallback: string): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+}
+
+function isWidgetThemeMode(value: string | null | undefined): value is WidgetThemeMode {
+  return value === 'light' || value === 'dark' || value === 'system';
 }

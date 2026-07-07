@@ -47,12 +47,76 @@ export type ConsoleWidget = {
   updatedAt: string;
 };
 
+export type WidgetBootstrapConfig = {
+  assistant: {
+    displayName: string;
+  };
+  launcher: {
+    label: string;
+    icon: 'message';
+  };
+  welcome: {
+    title: string;
+    subtitle: string;
+  };
+  theme: {
+    colorMode: 'light' | 'dark' | 'system';
+    accent: 'blue';
+    radius: 'md';
+  };
+};
+
+export type ConsoleWidgetInstall = {
+  snippetAvailable: boolean;
+  snippet: string | null;
+};
+
+export type ConsoleWidgetSettings = {
+  widget: ConsoleWidget;
+  config: WidgetBootstrapConfig;
+  install: ConsoleWidgetInstall;
+};
+
+export type ConsoleAllowedDomain = {
+  id: string;
+  widgetId: string;
+  domain: string;
+  enabled: boolean;
+  createdAt: string;
+};
+
 export type CreateSiteInput = {
   name: string;
 };
 
 export type CreateWidgetInput = {
   name: string;
+};
+
+export type UpdateWidgetSettingsInput = {
+  name?: string;
+  config?: {
+    assistant?: {
+      displayName?: string;
+    };
+    launcher?: {
+      label?: string;
+      icon?: 'message';
+    };
+    welcome?: {
+      title?: string;
+      subtitle?: string;
+    };
+    theme?: {
+      colorMode?: 'light' | 'dark' | 'system';
+      accent?: 'blue';
+      radius?: 'md';
+    };
+  };
+};
+
+export type CreateDomainInput = {
+  domain: string;
 };
 
 export class ApiError extends Error {
@@ -67,7 +131,7 @@ export class ApiError extends Error {
 
 type ApiRequestOptions = {
   body?: unknown;
-  method?: 'GET' | 'POST';
+  method?: 'DELETE' | 'GET' | 'PATCH' | 'POST';
 };
 
 type SiteListResponse = {
@@ -84,6 +148,16 @@ type WidgetListResponse = {
 
 type WidgetResponse = {
   widget: ConsoleWidget;
+};
+
+type WidgetSettingsResponse = ConsoleWidgetSettings;
+
+type DomainListResponse = {
+  domains: ConsoleAllowedDomain[];
+};
+
+type DomainResponse = {
+  domain: ConsoleAllowedDomain;
 };
 
 export function getSetupStatus(): Promise<SetupStatus> {
@@ -137,6 +211,51 @@ export async function createWidget(siteId: string, input: CreateWidgetInput): Pr
   });
 
   return response.widget;
+}
+
+export function getWidgetSettings(siteId: string, widgetId: string): Promise<ConsoleWidgetSettings> {
+  return apiRequest<WidgetSettingsResponse>(
+    `/api/console/sites/${encodeURIComponent(siteId)}/widgets/${encodeURIComponent(widgetId)}/settings`,
+  );
+}
+
+export function updateWidgetSettings(
+  siteId: string,
+  widgetId: string,
+  input: UpdateWidgetSettingsInput,
+): Promise<ConsoleWidgetSettings> {
+  return apiRequest<WidgetSettingsResponse>(
+    `/api/console/sites/${encodeURIComponent(siteId)}/widgets/${encodeURIComponent(widgetId)}/settings`,
+    { method: 'PATCH', body: input },
+  );
+}
+
+export async function listWidgetDomains(siteId: string, widgetId: string): Promise<ConsoleAllowedDomain[]> {
+  const response = await apiRequest<DomainListResponse>(
+    `/api/console/sites/${encodeURIComponent(siteId)}/widgets/${encodeURIComponent(widgetId)}/domains`,
+  );
+
+  return response.domains;
+}
+
+export async function createWidgetDomain(
+  siteId: string,
+  widgetId: string,
+  input: CreateDomainInput,
+): Promise<ConsoleAllowedDomain> {
+  const response = await apiRequest<DomainResponse>(
+    `/api/console/sites/${encodeURIComponent(siteId)}/widgets/${encodeURIComponent(widgetId)}/domains`,
+    { method: 'POST', body: input },
+  );
+
+  return response.domain;
+}
+
+export function deleteWidgetDomain(siteId: string, widgetId: string, domainId: string): Promise<void> {
+  return apiRequest(
+    `/api/console/sites/${encodeURIComponent(siteId)}/widgets/${encodeURIComponent(widgetId)}/domains/${encodeURIComponent(domainId)}`,
+    { method: 'DELETE' },
+  );
 }
 
 async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
