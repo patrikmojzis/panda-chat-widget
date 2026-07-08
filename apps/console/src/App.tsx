@@ -19,6 +19,7 @@ import {
   type ConsoleAllowedDomain,
   type ConsoleSite,
   type ConsoleWidget,
+  type ConsoleWidgetNextLocalReplyCandidate,
   type ConsoleWidgetSettings,
   type CurrentContext,
   type LoginInput,
@@ -1133,6 +1134,7 @@ function WidgetSettingsPage({
                 {targetCopyState === 'copied' ? 'Copied' : 'Copy target ID'}
               </button>
             </div>
+            <NextLocalReplyCandidateDetails candidate={nextLocalReplyCandidate} />
           </div>
         ) : (
           <div className="empty-state" aria-label="No next local manual reply target">
@@ -1241,6 +1243,37 @@ function WidgetSettingsPage({
         )}
       </section>
     </section>
+  );
+}
+
+function NextLocalReplyCandidateDetails({ candidate }: { candidate: ConsoleWidgetNextLocalReplyCandidate }) {
+  return (
+    <dl className="local-reply-candidate-details" aria-label="Next local reply candidate details">
+      <div className="local-reply-candidate-detail">
+        <dt>status</dt>
+        <dd><code className="public-key">{candidate.status}</code></dd>
+      </div>
+      <div className="local-reply-candidate-detail">
+        <dt>conversationId</dt>
+        <dd><code className="public-key">{candidate.conversationId}</code></dd>
+      </div>
+      <div className="local-reply-candidate-detail">
+        <dt>visitorMessageId</dt>
+        <dd><code className="public-key">{candidate.visitorMessageId}</code></dd>
+      </div>
+      <div className="local-reply-candidate-detail">
+        <dt>clientMessageId</dt>
+        <dd><code className="public-key">{candidate.clientMessageId}</code></dd>
+      </div>
+      <div className="local-reply-candidate-detail">
+        <dt>createdAt</dt>
+        <dd><code className="public-key">{candidate.createdAt}</code></dd>
+      </div>
+      <div className="local-reply-candidate-detail">
+        <dt>claimedAt</dt>
+        <dd><code className="public-key">{candidate.claimedAt ?? 'not claimed yet'}</code></dd>
+      </div>
+    </dl>
   );
 }
 
