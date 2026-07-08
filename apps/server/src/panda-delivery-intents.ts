@@ -52,7 +52,6 @@ type ClaimedPandaDeliveryIntentRow = Pick<
   | 'claimed_at'
 >;
 
-
 export async function recordPandaDeliveryIntent(
   database: DatabaseExecutor,
   input: RecordPandaDeliveryIntentInput,
@@ -132,6 +131,37 @@ export async function claimNextQueuedPandaDeliveryIntent(
     }
 
     return toClaimedPandaDeliveryIntent(claimed);
+  });
+}
+
+export async function claimQueuedPandaDeliveryIntentById(
+  database: DatabaseClient,
+  targetIntentId: string,
+  options: ClaimPandaDeliveryIntentOptions = {},
+): Promise<ClaimedPandaDeliveryIntent | null> {
+  const now = options.now ?? new Date();
+
+  return database.transaction().execute(async (transaction) => {
+    const claimed = await transaction
+      .updateTable('panda_delivery_intents')
+      .set({ status: 'claimed', claimed_at: now, updated_at: now })
+      .where('id', '=', targetIntentId)
+      .where('status', '=', 'queued')
+      .returning([
+        'id',
+        'widget_id',
+        'conversation_id',
+        'visitor_session_id',
+        'visitor_message_id',
+        'client_message_id',
+        'route_handle_snapshot',
+        'status',
+        'created_at',
+        'claimed_at',
+      ])
+      .executeTakeFirst();
+
+    return claimed ? toClaimedPandaDeliveryIntent(claimed) : null;
   });
 }
 

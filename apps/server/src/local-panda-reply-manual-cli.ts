@@ -17,7 +17,10 @@ type WritableStreamLike = {
 };
 
 type LocalPandaReplyManualParseFailureReason = 'empty_stdin' | 'malformed_json' | 'json_value_not_object';
-type LocalPandaReplyManualValidationFailureReason = 'missing_reply_text' | 'invalid_reply_text';
+type LocalPandaReplyManualValidationFailureReason =
+  | 'missing_reply_text'
+  | 'invalid_reply_text'
+  | 'invalid_target_intent_id';
 
 export type LocalPandaReplyManualCliResult =
   | LocalPandaReplyManualResult
@@ -65,11 +68,23 @@ type ManualReplyTextValidationResult =
     }
   | {
       valid: false;
-      reason: LocalPandaReplyManualValidationFailureReason;
+      reason: Extract<LocalPandaReplyManualValidationFailureReason, 'missing_reply_text' | 'invalid_reply_text'>;
+    };
+
+type TargetIntentIdValidationResult =
+  | {
+      valid: true;
+      targetIntentId?: string;
+    }
+  | {
+      valid: false;
+      reason: Extract<LocalPandaReplyManualValidationFailureReason, 'invalid_target_intent_id'>;
     };
 
 const MANUAL_REPLY_KIND = 'local-panda-one-shot-manual-reply-round-trip';
 const MANUAL_REPLY_MODE = 'local-only-stdin-manual-reply';
+const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const MANUAL_REPLY_METADATA: LocalPandaReplyManualMetadata = {
   locality: 'local-only',
   input: 'stdin-json-object',
@@ -110,6 +125,20 @@ export async function runLocalPandaReplyManualCli(
       return;
     }
 
+    const targetIntentId = validateTargetIntentId(parseResult.value);
+
+    if (!targetIntentId.valid) {
+      writeJsonLine(resolved.stdout, {
+        ...manualReplyBase(),
+        completed: false,
+        parsed: true,
+        failedStep: 'manual_reply_validation',
+        reason: targetIntentId.reason,
+      } satisfies LocalPandaReplyManualCliResult);
+      resolved.setExitCode(1);
+      return;
+    }
+
     const manualReplyText = validateManualReplyText(parseResult.value);
 
     if (!manualReplyText.valid) {
@@ -129,6 +158,7 @@ export async function runLocalPandaReplyManualCli(
     try {
       const result = await resolved.runNextLocalPandaReplyManual(database, {
         normalizedReplyText: manualReplyText.text,
+        ...(targetIntentId.targetIntentId === undefined ? {} : { targetIntentId: targetIntentId.targetIntentId }),
       });
       writeJsonLine(resolved.stdout, result);
     } finally {
@@ -209,6 +239,26 @@ function validateManualReplyText(value: Record<string, unknown>): ManualReplyTex
   }
 
   return { valid: true, text };
+}
+
+function validateTargetIntentId(value: Record<string, unknown>): TargetIntentIdValidationResult {
+  if (!Object.hasOwn(value, 'targetIntentId')) {
+    return { valid: true };
+  }
+
+  const targetIntentId = value.targetIntentId;
+
+  if (typeof targetIntentId !== 'string') {
+    return { valid: false, reason: 'invalid_target_intent_id' };
+  }
+
+  const normalizedTargetIntentId = targetIntentId.trim().toLowerCase();
+
+  if (!CANONICAL_UUID_PATTERN.test(normalizedTargetIntentId)) {
+    return { valid: false, reason: 'invalid_target_intent_id' };
+  }
+
+  return { valid: true, targetIntentId: normalizedTargetIntentId };
 }
 
 function manualReplyBase(): LocalPandaReplyManualBase {

@@ -18,17 +18,29 @@ import {
   type BuildLocalPandaReplyIngressPayloadV1Result,
   type LocalPandaReplyIngressPayloadV1,
 } from './local-panda-reply-ingress-payload.ts';
-import type { ClaimedPandaDeliveryIntent } from './panda-delivery-intents.ts';
+import {
+  claimQueuedPandaDeliveryIntentById,
+  type ClaimedPandaDeliveryIntent,
+} from './panda-delivery-intents.ts';
 
-type LocalPandaReplyRoundTripDispatchFailureReason = Extract<
+type LocalPandaReplyRoundTripUntargetedDispatchFailureReason = Extract<
   LocalPandaDispatchDryRunResult,
   { prepared: false }
 >['reason'];
 
 type LocalPandaReplyRoundTripDispatchBuildFailureReason = Exclude<
-  LocalPandaReplyRoundTripDispatchFailureReason,
+  LocalPandaReplyRoundTripUntargetedDispatchFailureReason,
   'no_queued_intent'
 >;
+
+export type LocalPandaReplyRoundTripTargetFailureReason =
+  | 'target_intent_not_found'
+  | 'target_intent_already_applied'
+  | 'target_intent_not_replyable';
+
+type LocalPandaReplyRoundTripDispatchNoSourceFailureReason =
+  | 'no_queued_intent'
+  | LocalPandaReplyRoundTripTargetFailureReason;
 
 type LocalPandaReplyRoundTripBuildFailureReason = Extract<
   BuildLocalPandaReplyIngressPayloadV1Result,
@@ -47,7 +59,9 @@ type LocalPandaReplyRoundTripApplySuccess = Extract<
 
 export type LocalPandaReplyRoundTripDispatchIntentSource =
   | 'already-claimed-unapplied-local-intent'
-  | 'newly-claimed-queued-local-intent';
+  | 'newly-claimed-queued-local-intent'
+  | 'targeted-already-claimed-unapplied-local-intent'
+  | 'targeted-newly-claimed-queued-local-intent';
 
 export type LocalPandaReplyRoundTripMetadata = {
   locality: 'local-only';
@@ -68,6 +82,7 @@ export type LocalPandaReplyRoundTripBase = {
   kind: 'local-panda-one-shot-deterministic-fake-reply-round-trip';
   mode: 'local-only-no-network-deterministic-fake-reply';
   metadata: LocalPandaReplyRoundTripMetadata;
+  targetIntentId?: string;
 };
 
 export type LocalPandaReplyRoundTripResult =
@@ -81,7 +96,7 @@ export type LocalPandaReplyRoundTripResult =
   | (LocalPandaReplyRoundTripBase & {
       completed: false;
       failedStep: 'dispatch_prepare';
-      reason: 'no_queued_intent';
+      reason: LocalPandaReplyRoundTripDispatchNoSourceFailureReason;
     })
   | (LocalPandaReplyRoundTripBase & {
       completed: false;
@@ -108,6 +123,7 @@ export type LocalPandaReplyRoundTripResult =
 
 export type LocalPandaReplyRoundTripOptions = {
   now?: Date;
+  targetIntentId?: string;
 };
 
 export type LocalPandaReplyRoundTripDispatchPreparationResult =
@@ -115,18 +131,21 @@ export type LocalPandaReplyRoundTripDispatchPreparationResult =
       prepared: true;
       dispatchIntentSource: LocalPandaReplyRoundTripDispatchIntentSource;
       payload: LocalPandaDispatchPayloadV1;
+      targetIntentId?: string;
     }
   | {
       prepared: false;
-      reason: 'no_queued_intent';
+      reason: LocalPandaReplyRoundTripDispatchNoSourceFailureReason;
+      targetIntentId?: string;
     }
   | {
       prepared: false;
       reason: LocalPandaReplyRoundTripDispatchBuildFailureReason;
       dispatchIntentSource: LocalPandaReplyRoundTripDispatchIntentSource;
+      targetIntentId?: string;
     };
 
-type ClaimedUnappliedLocalPandaIntentRow = Pick<
+type LocalPandaReplyRoundTripIntentRow = Pick<
   Selectable<DatabaseSchema['panda_delivery_intents']>,
   | 'id'
   | 'widget_id'
@@ -144,6 +163,8 @@ const ROUND_TRIP_KIND = 'local-panda-one-shot-deterministic-fake-reply-round-tri
 const ROUND_TRIP_MODE = 'local-only-no-network-deterministic-fake-reply';
 const ALREADY_CLAIMED_UNAPPLIED_SOURCE = 'already-claimed-unapplied-local-intent';
 const NEWLY_CLAIMED_QUEUED_SOURCE = 'newly-claimed-queued-local-intent';
+const TARGETED_ALREADY_CLAIMED_UNAPPLIED_SOURCE = 'targeted-already-claimed-unapplied-local-intent';
+const TARGETED_NEWLY_CLAIMED_QUEUED_SOURCE = 'targeted-newly-claimed-queued-local-intent';
 const ROUND_TRIP_METADATA: LocalPandaReplyRoundTripMetadata = {
   locality: 'local-only',
   network: 'no-network',
@@ -163,13 +184,14 @@ export async function runNextLocalPandaReplyRoundTrip(
   database: DatabaseClient,
   options: LocalPandaReplyRoundTripOptions = {},
 ): Promise<LocalPandaReplyRoundTripResult> {
-  const helperOptions = options.now === undefined ? {} : { now: options.now };
+  const helperOptions = normalizeRoundTripOptions(options);
   const dispatchResult = await prepareLocalPandaReplyRoundTripDispatch(database, helperOptions);
 
   if (!dispatchResult.prepared) {
     if ('dispatchIntentSource' in dispatchResult) {
       return {
         ...roundTripBase(),
+        ...targetIntentOutput(dispatchResult.targetIntentId),
         completed: false,
         failedStep: 'dispatch_prepare',
         reason: dispatchResult.reason,
@@ -179,6 +201,7 @@ export async function runNextLocalPandaReplyRoundTrip(
 
     return {
       ...roundTripBase(),
+      ...targetIntentOutput(dispatchResult.targetIntentId),
       completed: false,
       failedStep: 'dispatch_prepare',
       reason: dispatchResult.reason,
@@ -190,31 +213,26 @@ export async function runNextLocalPandaReplyRoundTrip(
     dispatchResult.payload,
     dispatchResult.dispatchIntentSource,
     helperOptions,
+    dispatchResult.targetIntentId,
   );
 }
 
 export async function prepareLocalPandaReplyRoundTripDispatch(
   database: DatabaseClient,
-  options: LocalPandaReplyRoundTripOptions,
+  options: LocalPandaReplyRoundTripOptions = {},
 ): Promise<LocalPandaReplyRoundTripDispatchPreparationResult> {
+  if (options.targetIntentId !== undefined) {
+    return prepareTargetedLocalPandaReplyRoundTripDispatch(database, options.targetIntentId, options);
+  }
+
   const claimedUnappliedIntent = await findOldestClaimedUnappliedLocalPandaIntent(database);
 
   if (claimedUnappliedIntent) {
-    const buildResult = await buildLocalPandaDispatchPayloadV1(database, claimedUnappliedIntent);
-
-    if (!buildResult.built) {
-      return {
-        prepared: false,
-        reason: buildResult.reason,
-        dispatchIntentSource: ALREADY_CLAIMED_UNAPPLIED_SOURCE,
-      };
-    }
-
-    return {
-      prepared: true,
-      dispatchIntentSource: ALREADY_CLAIMED_UNAPPLIED_SOURCE,
-      payload: buildResult.payload,
-    };
+    return buildDispatchPreparationFromClaimedIntent(
+      database,
+      claimedUnappliedIntent,
+      ALREADY_CLAIMED_UNAPPLIED_SOURCE,
+    );
   }
 
   const dispatchResult = await prepareNextLocalPandaDispatchDryRun(database, options);
@@ -238,11 +256,79 @@ export async function prepareLocalPandaReplyRoundTripDispatch(
   };
 }
 
+async function prepareTargetedLocalPandaReplyRoundTripDispatch(
+  database: DatabaseClient,
+  targetIntentId: string,
+  options: LocalPandaReplyRoundTripOptions,
+): Promise<LocalPandaReplyRoundTripDispatchPreparationResult> {
+  const targetIntent = await findLocalPandaIntentById(database, targetIntentId);
+
+  if (!targetIntent) {
+    return { prepared: false, reason: 'target_intent_not_found', targetIntentId };
+  }
+
+  if (await hasAppliedLocalPandaReply(database, targetIntent)) {
+    return { prepared: false, reason: 'target_intent_already_applied', targetIntentId };
+  }
+
+  if (targetIntent.status === 'queued') {
+    const claimedIntent = await claimQueuedPandaDeliveryIntentById(database, targetIntentId, options);
+
+    if (!claimedIntent) {
+      return { prepared: false, reason: 'target_intent_not_replyable', targetIntentId };
+    }
+
+    return buildDispatchPreparationFromClaimedIntent(
+      database,
+      claimedIntent,
+      TARGETED_NEWLY_CLAIMED_QUEUED_SOURCE,
+      targetIntentId,
+    );
+  }
+
+  if (targetIntent.status === 'claimed' && targetIntent.claimed_at) {
+    return buildDispatchPreparationFromClaimedIntent(
+      database,
+      toClaimedPandaDeliveryIntent(targetIntent),
+      TARGETED_ALREADY_CLAIMED_UNAPPLIED_SOURCE,
+      targetIntentId,
+    );
+  }
+
+  return { prepared: false, reason: 'target_intent_not_replyable', targetIntentId };
+}
+
+async function buildDispatchPreparationFromClaimedIntent(
+  database: DatabaseClient,
+  claimedIntent: ClaimedPandaDeliveryIntent,
+  dispatchIntentSource: LocalPandaReplyRoundTripDispatchIntentSource,
+  targetIntentId?: string,
+): Promise<LocalPandaReplyRoundTripDispatchPreparationResult> {
+  const buildResult = await buildLocalPandaDispatchPayloadV1(database, claimedIntent);
+
+  if (!buildResult.built) {
+    return {
+      prepared: false,
+      reason: buildResult.reason,
+      dispatchIntentSource,
+      ...targetIntentOutput(targetIntentId),
+    };
+  }
+
+  return {
+    prepared: true,
+    dispatchIntentSource,
+    payload: buildResult.payload,
+    ...targetIntentOutput(targetIntentId),
+  };
+}
+
 async function completeLocalPandaReplyRoundTripDispatch(
   database: DatabaseClient,
   dispatchPayload: LocalPandaDispatchPayloadV1,
   dispatchIntentSource: LocalPandaReplyRoundTripDispatchIntentSource,
   options: LocalPandaReplyRoundTripOptions,
+  targetIntentId?: string,
 ): Promise<LocalPandaReplyRoundTripResult> {
   const syntheticReplyText = buildDeterministicLocalFakeReplyText(dispatchPayload.correlationIds.intentId);
   const replyIngressResult = buildLocalPandaReplyIngressPayloadV1({
@@ -256,6 +342,7 @@ async function completeLocalPandaReplyRoundTripDispatch(
   if (!replyIngressResult.built) {
     return {
       ...roundTripBase(),
+      ...targetIntentOutput(targetIntentId),
       completed: false,
       failedStep: 'synthetic_fake_reply_ingress_build',
       reason: replyIngressResult.reason,
@@ -274,6 +361,7 @@ async function completeLocalPandaReplyRoundTripDispatch(
   if (!applyResult.applied) {
     return {
       ...roundTripBase(),
+      ...targetIntentOutput(targetIntentId),
       completed: false,
       failedStep: 'apply_reply_ingress',
       reason: applyResult.reason,
@@ -286,12 +374,52 @@ async function completeLocalPandaReplyRoundTripDispatch(
 
   return {
     ...roundTripBase(),
+    ...targetIntentOutput(targetIntentId),
     completed: true,
     dispatchIntentSource,
     dispatchPayload,
     syntheticFakeReplyIngressPayload,
     applyResult,
   };
+}
+
+async function findLocalPandaIntentById(
+  database: DatabaseClient,
+  targetIntentId: string,
+): Promise<LocalPandaReplyRoundTripIntentRow | null> {
+  const row = (await database
+    .selectFrom('panda_delivery_intents')
+    .select([
+      'id',
+      'widget_id',
+      'conversation_id',
+      'visitor_session_id',
+      'visitor_message_id',
+      'client_message_id',
+      'route_handle_snapshot',
+      'status',
+      'created_at',
+      'claimed_at',
+    ])
+    .where('id', '=', targetIntentId)
+    .executeTakeFirst()) as LocalPandaReplyRoundTripIntentRow | undefined;
+
+  return row ?? null;
+}
+
+async function hasAppliedLocalPandaReply(
+  database: DatabaseClient,
+  intent: Pick<LocalPandaReplyRoundTripIntentRow, 'id' | 'conversation_id'>,
+): Promise<boolean> {
+  const row = await database
+    .selectFrom('messages')
+    .select('id')
+    .where('conversation_id', '=', intent.conversation_id)
+    .where('sender', '=', 'agent')
+    .where('client_message_id', '=', localPandaReplyClientMessageId(intent.id))
+    .executeTakeFirst();
+
+  return row !== undefined;
 }
 
 async function findOldestClaimedUnappliedLocalPandaIntent(
@@ -329,12 +457,12 @@ async function findOldestClaimedUnappliedLocalPandaIntent(
     .orderBy('created_at', 'asc')
     .orderBy('id', 'asc')
     .limit(1)
-    .executeTakeFirst()) as ClaimedUnappliedLocalPandaIntentRow | undefined;
+    .executeTakeFirst()) as LocalPandaReplyRoundTripIntentRow | undefined;
 
   return row ? toClaimedPandaDeliveryIntent(row) : null;
 }
 
-function toClaimedPandaDeliveryIntent(row: ClaimedUnappliedLocalPandaIntentRow): ClaimedPandaDeliveryIntent {
+function toClaimedPandaDeliveryIntent(row: LocalPandaReplyRoundTripIntentRow): ClaimedPandaDeliveryIntent {
   if (row.status !== 'claimed') {
     throw new Error(`Claimed Panda delivery intent ${row.id} has status ${row.status}`);
   }
@@ -355,6 +483,21 @@ function toClaimedPandaDeliveryIntent(row: ClaimedUnappliedLocalPandaIntentRow):
     createdAt: row.created_at,
     claimedAt: row.claimed_at,
   };
+}
+
+function normalizeRoundTripOptions(options: LocalPandaReplyRoundTripOptions): LocalPandaReplyRoundTripOptions {
+  return {
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.targetIntentId === undefined ? {} : { targetIntentId: options.targetIntentId }),
+  };
+}
+
+function targetIntentOutput(targetIntentId: string | undefined): { targetIntentId?: string } {
+  return targetIntentId === undefined ? {} : { targetIntentId };
+}
+
+function localPandaReplyClientMessageId(intentId: string): string {
+  return `local-panda-reply-v1:${intentId}`;
 }
 
 function buildDeterministicLocalFakeReplyText(intentId: string): string {

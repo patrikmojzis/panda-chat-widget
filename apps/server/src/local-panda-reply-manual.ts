@@ -15,16 +15,24 @@ import {
   prepareLocalPandaReplyRoundTripDispatch,
   type LocalPandaReplyRoundTripDispatchIntentSource,
   type LocalPandaReplyRoundTripDispatchPreparationResult,
+  type LocalPandaReplyRoundTripOptions,
 } from './local-panda-reply-round-trip.ts';
 
-type LocalPandaReplyManualDispatchFailureReason = Extract<
+type LocalPandaReplyManualDispatchFailure = Extract<
   LocalPandaReplyRoundTripDispatchPreparationResult,
   { prepared: false }
+>;
+
+type LocalPandaReplyManualDispatchFailureReason = LocalPandaReplyManualDispatchFailure['reason'];
+
+type LocalPandaReplyManualDispatchBuildFailureReason = Extract<
+  LocalPandaReplyManualDispatchFailure,
+  { dispatchIntentSource: LocalPandaReplyRoundTripDispatchIntentSource }
 >['reason'];
 
-type LocalPandaReplyManualDispatchBuildFailureReason = Exclude<
+type LocalPandaReplyManualDispatchNoSourceFailureReason = Exclude<
   LocalPandaReplyManualDispatchFailureReason,
-  'no_queued_intent'
+  LocalPandaReplyManualDispatchBuildFailureReason
 >;
 
 type LocalPandaReplyManualBuildFailure = Extract<BuildLocalPandaReplyIngressPayloadV1Result, { built: false }>;
@@ -55,6 +63,7 @@ export type LocalPandaReplyManualBase = {
   kind: 'local-panda-one-shot-manual-reply-round-trip';
   mode: 'local-only-stdin-manual-reply';
   metadata: LocalPandaReplyManualMetadata;
+  targetIntentId?: string;
 };
 
 export type LocalPandaReplyManualResult =
@@ -70,7 +79,7 @@ export type LocalPandaReplyManualResult =
       completed: false;
       parsed: true;
       failedStep: 'dispatch_prepare';
-      reason: 'no_queued_intent';
+      reason: LocalPandaReplyManualDispatchNoSourceFailureReason;
     })
   | (LocalPandaReplyManualBase & {
       completed: false;
@@ -101,6 +110,7 @@ export type LocalPandaReplyManualResult =
 
 export type LocalPandaReplyManualInput = {
   normalizedReplyText: string;
+  targetIntentId?: string;
 };
 
 export type LocalPandaReplyManualOptions = ApplyLocalPandaReplyIngressPayloadV1Options;
@@ -116,7 +126,7 @@ export type LocalPandaReplyManualDependencies = {
   ) => BuildLocalPandaReplyIngressPayloadV1Result;
   prepareLocalPandaReplyRoundTripDispatch?: (
     database: DatabaseClient,
-    options: LocalPandaReplyManualOptions,
+    options: LocalPandaReplyRoundTripOptions,
   ) => Promise<LocalPandaReplyRoundTripDispatchPreparationResult>;
 };
 
@@ -149,13 +159,17 @@ export async function runNextLocalPandaReplyManual(
   dependencies: LocalPandaReplyManualDependencies = {},
 ): Promise<LocalPandaReplyManualResult> {
   const resolved = resolveDependencies(dependencies);
-  const helperOptions = options.now === undefined ? {} : { now: options.now };
-  const dispatchResult = await resolved.prepareLocalPandaReplyRoundTripDispatch(database, helperOptions);
+  const dispatchOptions = buildDispatchOptions(input, options);
+  const applyOptions = buildApplyOptions(options);
+  const dispatchResult = await resolved.prepareLocalPandaReplyRoundTripDispatch(database, dispatchOptions);
 
   if (!dispatchResult.prepared) {
+    const targetIntentId = dispatchResult.targetIntentId ?? input.targetIntentId;
+
     if ('dispatchIntentSource' in dispatchResult) {
       return {
         ...manualReplyBase(),
+        ...targetIntentOutput(targetIntentId),
         completed: false,
         parsed: true,
         failedStep: 'dispatch_prepare',
@@ -166,6 +180,7 @@ export async function runNextLocalPandaReplyManual(
 
     return {
       ...manualReplyBase(),
+      ...targetIntentOutput(targetIntentId),
       completed: false,
       parsed: true,
       failedStep: 'dispatch_prepare',
@@ -173,6 +188,7 @@ export async function runNextLocalPandaReplyManual(
     };
   }
 
+  const targetIntentId = dispatchResult.targetIntentId ?? input.targetIntentId;
   const dispatchPayload = dispatchResult.payload;
   const buildResult = resolved.buildLocalPandaReplyIngressPayloadV1({
     dispatchPayload,
@@ -185,6 +201,7 @@ export async function runNextLocalPandaReplyManual(
   if (!buildResult.built) {
     return {
       ...manualReplyBase(),
+      ...targetIntentOutput(targetIntentId),
       completed: false,
       parsed: true,
       failedStep: 'manual_reply_ingress_build',
@@ -199,12 +216,13 @@ export async function runNextLocalPandaReplyManual(
   const applyResult = await resolved.applyLocalPandaReplyIngressPayloadV1(
     database,
     manualReplyIngressPayload,
-    helperOptions,
+    applyOptions,
   );
 
   if (!applyResult.applied) {
     return {
       ...manualReplyBase(),
+      ...targetIntentOutput(targetIntentId),
       completed: false,
       parsed: true,
       failedStep: 'apply_reply_ingress',
@@ -218,6 +236,7 @@ export async function runNextLocalPandaReplyManual(
 
   return {
     ...manualReplyBase(),
+    ...targetIntentOutput(targetIntentId),
     completed: true,
     parsed: true,
     dispatchIntentSource: dispatchResult.dispatchIntentSource,
@@ -236,6 +255,24 @@ function resolveDependencies(dependencies: LocalPandaReplyManualDependencies): R
     prepareLocalPandaReplyRoundTripDispatch:
       dependencies.prepareLocalPandaReplyRoundTripDispatch ?? prepareLocalPandaReplyRoundTripDispatch,
   };
+}
+
+function buildDispatchOptions(
+  input: LocalPandaReplyManualInput,
+  options: LocalPandaReplyManualOptions,
+): LocalPandaReplyRoundTripOptions {
+  return {
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(input.targetIntentId === undefined ? {} : { targetIntentId: input.targetIntentId }),
+  };
+}
+
+function buildApplyOptions(options: LocalPandaReplyManualOptions): ApplyLocalPandaReplyIngressPayloadV1Options {
+  return options.now === undefined ? {} : { now: options.now };
+}
+
+function targetIntentOutput(targetIntentId: string | undefined): { targetIntentId?: string } {
+  return targetIntentId === undefined ? {} : { targetIntentId };
 }
 
 function manualReplyBase(): LocalPandaReplyManualBase {

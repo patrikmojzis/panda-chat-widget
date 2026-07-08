@@ -118,6 +118,10 @@ const OTHER_MANUAL_REPLY_TEXT = 'Different manual reply text';
 const MANUAL_REPLY_KIND = 'local-panda-one-shot-manual-reply-round-trip';
 const MANUAL_REPLY_MODE = 'local-only-stdin-manual-reply';
 const REPLY_IDEMPOTENCY_KEY = 'local-panda-reply-v1:intent-1';
+const TARGET_INTENT_ID = '11111111-1111-4111-8111-111111111111';
+const OLDER_QUEUED_INTENT_ID = '00000000-0000-4000-8000-000000000000';
+const CLAIMED_INTENT_ID = '22222222-2222-4222-8222-222222222222';
+const NEWER_QUEUED_INTENT_ID = '33333333-3333-4333-8333-333333333333';
 const APPLIED_LOCAL_REPLY_NOT_EXISTS_SENTINEL = '__applied_local_reply_not_exists__';
 const manualSource = await readFile(new URL('./local-panda-reply-manual.ts', import.meta.url), 'utf8');
 const manualCliSource = await readFile(new URL('./local-panda-reply-manual-cli.ts', import.meta.url), 'utf8');
@@ -437,6 +441,232 @@ test('runNextLocalPandaReplyManual reuses an already-claimed unapplied intent be
   assert.equal(fake.messageInserts[0]?.body, MANUAL_REPLY_TEXT);
 });
 
+test('runNextLocalPandaReplyManual targets and claims the exact queued intent without falling back to older candidates', async () => {
+  const olderQueuedIntent = intentRow({
+    id: OLDER_QUEUED_INTENT_ID,
+    visitor_message_id: 'older-queued-visitor-message',
+    client_message_id: 'older-queued-client-message',
+    created_at: new Date('2025-12-31T23:50:00.000Z'),
+  });
+  const olderClaimedIntent = intentRow({
+    id: CLAIMED_INTENT_ID,
+    status: 'claimed',
+    claimed_at: new Date('2026-01-01T00:01:00.000Z'),
+    visitor_message_id: 'claimed-visitor-message',
+    client_message_id: 'claimed-client-message',
+    created_at: new Date('2025-12-31T23:55:00.000Z'),
+  });
+  const targetQueuedIntent = intentRow({
+    id: TARGET_INTENT_ID,
+    visitor_message_id: 'target-visitor-message',
+    client_message_id: 'target-client-message',
+    created_at: new Date('2026-01-01T00:02:00.000Z'),
+  });
+  const fake = createFakeDatabase({
+    intents: [olderQueuedIntent, olderClaimedIntent, targetQueuedIntent],
+    messages: [
+      visitorMessageRowForIntent(olderQueuedIntent, { seq: 1 }),
+      visitorMessageRowForIntent(olderClaimedIntent, { seq: 2 }),
+      visitorMessageRowForIntent(targetQueuedIntent, { seq: 3 }),
+    ],
+  });
+
+  const result = await runNextLocalPandaReplyManual(
+    fake.database,
+    { normalizedReplyText: MANUAL_REPLY_TEXT, targetIntentId: TARGET_INTENT_ID },
+    { now: CLAIMED_AND_REPLY_AT },
+  );
+
+  assert.equal(result.completed, true);
+
+  if (!result.completed) {
+    assert.fail('expected completed targeted manual reply');
+  }
+
+  assert.equal(result.targetIntentId, TARGET_INTENT_ID);
+  assert.equal(result.dispatchIntentSource, 'targeted-newly-claimed-queued-local-intent');
+  assert.equal(result.dispatchPayload.correlationIds.intentId, TARGET_INTENT_ID);
+  assert.equal(result.manualReplyIngressPayload.idempotencyKey, replyIdempotencyKeyForIntent(TARGET_INTENT_ID));
+  assert.equal(result.manualReplyIngressPayload.reply.text, MANUAL_REPLY_TEXT);
+  assert.equal(olderQueuedIntent.status, 'queued');
+  assert.equal(olderQueuedIntent.claimed_at, null);
+  assert.equal(olderClaimedIntent.status, 'claimed');
+  assert.equal(olderClaimedIntent.claimed_at?.toISOString(), '2026-01-01T00:01:00.000Z');
+  assert.equal(targetQueuedIntent.status, 'claimed');
+  assert.equal(targetQueuedIntent.claimed_at, CLAIMED_AND_REPLY_AT);
+  assert.deepEqual(fake.updates.map((update) => update.wheres), [
+    [
+      { column: 'id', operator: '=', value: TARGET_INTENT_ID },
+      { column: 'status', operator: '=', value: 'queued' },
+    ],
+  ]);
+  assert.equal(fake.messageInserts.length, 1);
+  assert.equal(fake.messageInserts[0]?.client_message_id, replyIdempotencyKeyForIntent(TARGET_INTENT_ID));
+});
+
+test('runNextLocalPandaReplyManual targets an already-claimed unapplied intent without claiming queued work', async () => {
+  const targetClaimedIntent = intentRow({
+    id: CLAIMED_INTENT_ID,
+    status: 'claimed',
+    claimed_at: new Date('2026-01-01T00:01:00.000Z'),
+    visitor_message_id: 'target-claimed-visitor-message',
+    client_message_id: 'target-claimed-client-message',
+  });
+  const queuedIntent = intentRow({
+    id: NEWER_QUEUED_INTENT_ID,
+    visitor_message_id: 'queued-visitor-message',
+    client_message_id: 'queued-client-message',
+    created_at: new Date('2025-12-31T23:59:00.000Z'),
+  });
+  const fake = createFakeDatabase({
+    intents: [queuedIntent, targetClaimedIntent],
+    messages: [
+      visitorMessageRowForIntent(queuedIntent, { seq: 1 }),
+      visitorMessageRowForIntent(targetClaimedIntent, { seq: 2 }),
+    ],
+  });
+
+  const result = await runNextLocalPandaReplyManual(
+    fake.database,
+    { normalizedReplyText: MANUAL_REPLY_TEXT, targetIntentId: CLAIMED_INTENT_ID },
+    { now: CLAIMED_AND_REPLY_AT },
+  );
+
+  assert.equal(result.completed, true);
+
+  if (!result.completed) {
+    assert.fail('expected completed targeted manual reply');
+  }
+
+  assert.equal(result.targetIntentId, CLAIMED_INTENT_ID);
+  assert.equal(result.dispatchIntentSource, 'targeted-already-claimed-unapplied-local-intent');
+  assert.equal(result.dispatchPayload.correlationIds.intentId, CLAIMED_INTENT_ID);
+  assert.equal(result.manualReplyIngressPayload.idempotencyKey, replyIdempotencyKeyForIntent(CLAIMED_INTENT_ID));
+  assert.equal(queuedIntent.status, 'queued');
+  assert.equal(queuedIntent.claimed_at, null);
+  assert.deepEqual(fake.updates, []);
+  assert.equal(fake.messageInserts.length, 1);
+  assert.equal(fake.messageInserts[0]?.client_message_id, replyIdempotencyKeyForIntent(CLAIMED_INTENT_ID));
+});
+
+test('runNextLocalPandaReplyManual returns targeted no-op dispatch JSON without falling back', async () => {
+  const fallbackQueuedIntent = intentRow({
+    id: OLDER_QUEUED_INTENT_ID,
+    visitor_message_id: 'fallback-visitor-message',
+    client_message_id: 'fallback-client-message',
+  });
+  const appliedTargetIntent = intentRow({
+    id: TARGET_INTENT_ID,
+    visitor_message_id: 'applied-target-visitor-message',
+    client_message_id: 'applied-target-client-message',
+  });
+  const notReplyableTargetIntent = intentRow({
+    id: CLAIMED_INTENT_ID,
+    status: 'claimed',
+    claimed_at: null,
+    visitor_message_id: 'not-replyable-target-visitor-message',
+    client_message_id: 'not-replyable-target-client-message',
+  });
+  const cases: Array<{
+    name: string;
+    targetIntentId: string;
+    intents: StoredPandaDeliveryIntent[];
+    messages: StoredMessage[];
+    reason: 'target_intent_not_found' | 'target_intent_already_applied' | 'target_intent_not_replyable';
+  }> = [
+    {
+      name: 'missing target',
+      targetIntentId: TARGET_INTENT_ID,
+      intents: [fallbackQueuedIntent],
+      messages: [visitorMessageRowForIntent(fallbackQueuedIntent)],
+      reason: 'target_intent_not_found',
+    },
+    {
+      name: 'already applied target',
+      targetIntentId: TARGET_INTENT_ID,
+      intents: [fallbackQueuedIntent, appliedTargetIntent],
+      messages: [
+        visitorMessageRowForIntent(fallbackQueuedIntent, { seq: 1 }),
+        visitorMessageRowForIntent(appliedTargetIntent, { seq: 2 }),
+        localReplyMessageForIntent(appliedTargetIntent, { seq: 3 }),
+      ],
+      reason: 'target_intent_already_applied',
+    },
+    {
+      name: 'not replyable target',
+      targetIntentId: CLAIMED_INTENT_ID,
+      intents: [fallbackQueuedIntent, notReplyableTargetIntent],
+      messages: [
+        visitorMessageRowForIntent(fallbackQueuedIntent, { seq: 1 }),
+        visitorMessageRowForIntent(notReplyableTargetIntent, { seq: 2 }),
+      ],
+      reason: 'target_intent_not_replyable',
+    },
+  ];
+
+  for (const testCase of cases) {
+    const fake = createFakeDatabase({
+      intents: testCase.intents.map((intent) => ({ ...intent })),
+      messages: testCase.messages.map((message) => ({ ...message })),
+    });
+
+    const result = await runNextLocalPandaReplyManual(
+      fake.database,
+      { normalizedReplyText: MANUAL_REPLY_TEXT, targetIntentId: testCase.targetIntentId },
+      { now: CLAIMED_AND_REPLY_AT },
+    );
+
+    assert.deepEqual(result, {
+      ...manualReplyBase(),
+      targetIntentId: testCase.targetIntentId,
+      completed: false,
+      parsed: true,
+      failedStep: 'dispatch_prepare',
+      reason: testCase.reason,
+    }, testCase.name);
+    assert.equal('dispatchIntentSource' in result, false, testCase.name);
+    assert.deepEqual(fake.updates, [], testCase.name);
+    assert.deepEqual(fake.messageInserts, [], testCase.name);
+    assert.equal(
+      fake.intents.find((intent) => intent.id === OLDER_QUEUED_INTENT_ID)?.status,
+      'queued',
+      testCase.name,
+    );
+  }
+});
+
+test('runNextLocalPandaReplyManual includes target id and source on targeted dispatch build failures', async () => {
+  const invalidTargetIntent = intentRow({
+    id: TARGET_INTENT_ID,
+    route_handle_snapshot: '',
+    visitor_message_id: 'target-visitor-message',
+    client_message_id: 'target-client-message',
+  });
+  const fake = createFakeDatabase({
+    intents: [invalidTargetIntent],
+    messages: [visitorMessageRowForIntent(invalidTargetIntent)],
+  });
+
+  const result = await runNextLocalPandaReplyManual(
+    fake.database,
+    { normalizedReplyText: MANUAL_REPLY_TEXT, targetIntentId: TARGET_INTENT_ID },
+    { now: CLAIMED_AND_REPLY_AT },
+  );
+
+  assert.deepEqual(result, {
+    ...manualReplyBase(),
+    targetIntentId: TARGET_INTENT_ID,
+    completed: false,
+    parsed: true,
+    failedStep: 'dispatch_prepare',
+    reason: 'missing_route_handle',
+    dispatchIntentSource: 'targeted-newly-claimed-queued-local-intent',
+  });
+  assert.equal(invalidTargetIntent.status, 'claimed');
+  assert.equal(invalidTargetIntent.claimed_at, CLAIMED_AND_REPLY_AT);
+  assert.deepEqual(fake.messageInserts, []);
+});
+
 test('runNextLocalPandaReplyManual replays and conflicts through the apply helper without duplicate local reply rows', async () => {
   const replayExisting = localReplyMessageForIntent(intentRow(), {
     id: 'existing-manual-reply',
@@ -548,6 +778,27 @@ test('runLocalPandaReplyManualCli rejects parse and manual text validation failu
       failedStep: 'manual_reply_validation',
       reason: 'invalid_reply_text',
     },
+    {
+      name: 'non-string target intent id',
+      input: JSON.stringify({ targetIntentId: 123, reply: { text: MANUAL_REPLY_TEXT } }),
+      parsed: true,
+      failedStep: 'manual_reply_validation',
+      reason: 'invalid_target_intent_id',
+    },
+    {
+      name: 'blank target intent id',
+      input: JSON.stringify({ targetIntentId: '  \n\t  ', reply: { text: MANUAL_REPLY_TEXT } }),
+      parsed: true,
+      failedStep: 'manual_reply_validation',
+      reason: 'invalid_target_intent_id',
+    },
+    {
+      name: 'malformed target intent id',
+      input: JSON.stringify({ targetIntentId: 'intent-1', reply: { text: MANUAL_REPLY_TEXT } }),
+      parsed: true,
+      failedStep: 'manual_reply_validation',
+      reason: 'invalid_target_intent_id',
+    },
   ];
 
   for (const testCase of cases) {
@@ -620,6 +871,43 @@ test('runLocalPandaReplyManualCli normalizes valid reply text before opening DB 
 
   assert.equal(closedDatabase, database);
   assert.deepEqual(normalizedInput, { normalizedReplyText: MANUAL_REPLY_TEXT });
+  assert.deepEqual(run.stdout, [`${JSON.stringify(controlledResult, null, 2)}\n`]);
+  assert.deepEqual(run.stderr, []);
+  assert.deepEqual(run.exitCodes, []);
+});
+
+test('runLocalPandaReplyManualCli trims and passes a valid target intent id to core', async () => {
+  const database = {} as DatabaseClient;
+  const controlledResult: LocalPandaReplyManualResult = {
+    ...manualReplyBase(),
+    targetIntentId: TARGET_INTENT_ID,
+    completed: false,
+    parsed: true,
+    failedStep: 'dispatch_prepare',
+    reason: 'target_intent_not_found',
+  };
+  let normalizedInput: LocalPandaReplyManualInput | undefined;
+
+  const run = await runManualCli({
+    input: JSON.stringify({
+      targetIntentId: `  ${TARGET_INTENT_ID.toUpperCase()}  `,
+      reply: { text: `  ${MANUAL_REPLY_TEXT}  ` },
+    }),
+    loadDatabaseConfig: () => ({ url: 'postgresql://user:pass@127.0.0.1:5432/widget' }),
+    createDatabase: () => database,
+    runNextLocalPandaReplyManual: async (client, input) => {
+      assert.equal(client, database);
+      normalizedInput = input;
+
+      return controlledResult;
+    },
+    closeDatabase: async () => {},
+  });
+
+  assert.deepEqual(normalizedInput, {
+    normalizedReplyText: MANUAL_REPLY_TEXT,
+    targetIntentId: TARGET_INTENT_ID,
+  });
   assert.deepEqual(run.stdout, [`${JSON.stringify(controlledResult, null, 2)}\n`]);
   assert.deepEqual(run.stderr, []);
   assert.deepEqual(run.exitCodes, []);
@@ -805,7 +1093,13 @@ test('manual reply CLI wiring stays local-only and documents the server-only std
   );
   assert.match(readmeSource, /kind: `"local-panda-one-shot-manual-reply-round-trip"`/);
   assert.match(readmeSource, /manualReplyIngressPayload/);
-  assert.match(readmeSource, /validates and normalizes `reply\.text` before opening the DB/);
+  assert.match(readmeSource, /nextLocalReplyCandidate\.id/);
+  assert.match(readmeSource, /oldestQueuedIntent\.id/);
+  assert.match(readmeSource, /targetIntentId/);
+  assert.match(readmeSource, /targeted-newly-claimed-queued-local-intent/);
+  assert.match(readmeSource, /targeted-already-claimed-unapplied-local-intent/);
+  assert.match(readmeSource, /no fallback to the oldest candidate/);
+  assert.match(readmeSource, /validates and normalizes `reply\.text` and any provided `targetIntentId` before opening the DB/);
   assert.match(readmeSource, /does not call Panda, Gateway, an external CLI, a child process, or the network/);
   assert.doesNotMatch(
     appSource,
