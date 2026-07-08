@@ -7,7 +7,11 @@ import { prepareNextLocalPandaDispatchDryRun } from './local-panda-dispatch-dry-
 import { runLocalPandaDispatchDryRunCli } from './local-panda-dispatch-dry-run-cli.ts';
 import { buildLocalPandaDispatchPayloadV1 } from './local-panda-dispatch-payload.ts';
 import type { ClaimedPandaDeliveryIntent } from './panda-delivery-intents.ts';
-import { claimNextQueuedPandaDeliveryIntent, recordPandaDeliveryIntent } from './panda-delivery-intents.ts';
+import {
+  claimNextQueuedPandaDeliveryIntent,
+  claimQueuedPandaDeliveryIntentById,
+  recordPandaDeliveryIntent,
+} from './panda-delivery-intents.ts';
 
 type StoredPandaDeliveryIntent = {
   id: string;
@@ -621,6 +625,72 @@ test('claimNextQueuedPandaDeliveryIntent throws when the selected queued row can
   assert.equal(fake.intents[0]?.claimed_at, null);
 });
 
+test('claimQueuedPandaDeliveryIntentById claims only the requested queued row', async () => {
+  const olderIntent = intentRow('intent-older', { created_at: new Date('2026-01-01T00:00:00.000Z') });
+  const targetIntent = intentRow('intent-target', { created_at: new Date('2026-01-01T00:05:00.000Z') });
+  const fake = createFakeDatabase([olderIntent, targetIntent]);
+
+  const claimed = await claimQueuedPandaDeliveryIntentById(fake.database, 'intent-target', { now: CLAIMED_AT });
+
+  assert.equal(claimed?.id, 'intent-target');
+  assert.equal(olderIntent.status, 'queued');
+  assert.equal(olderIntent.claimed_at, null);
+  assert.equal(targetIntent.status, 'claimed');
+  assert.equal(targetIntent.claimed_at, CLAIMED_AT);
+  assert.deepEqual(fake.updates, [
+    {
+      table: 'panda_delivery_intents',
+      updates: { status: 'claimed', claimed_at: CLAIMED_AT, updated_at: CLAIMED_AT },
+      wheres: [
+        { column: 'id', operator: '=', value: 'intent-target' },
+        { column: 'status', operator: '=', value: 'queued' },
+      ],
+      returningColumns: [
+        'id',
+        'widget_id',
+        'conversation_id',
+        'visitor_session_id',
+        'visitor_message_id',
+        'client_message_id',
+        'route_handle_snapshot',
+        'status',
+        'created_at',
+        'claimed_at',
+      ],
+    },
+  ]);
+  assert.deepEqual(fake.selects, []);
+  assert.equal(fake.transactions, 1);
+});
+
+test('claimQueuedPandaDeliveryIntentById returns null for missing or non-queued targets without claiming another queued row', async () => {
+  const queuedIntent = intentRow('intent-queued');
+  const claimedIntent = intentRow('intent-claimed', {
+    status: 'claimed',
+    claimed_at: new Date('2026-01-01T00:03:00.000Z'),
+  });
+  const fake = createFakeDatabase([queuedIntent, claimedIntent]);
+
+  assert.equal(await claimQueuedPandaDeliveryIntentById(fake.database, 'intent-missing', { now: CLAIMED_AT }), null);
+  assert.equal(await claimQueuedPandaDeliveryIntentById(fake.database, 'intent-claimed', { now: CLAIMED_AT }), null);
+
+  assert.equal(queuedIntent.status, 'queued');
+  assert.equal(queuedIntent.claimed_at, null);
+  assert.equal(claimedIntent.status, 'claimed');
+  assert.equal(claimedIntent.claimed_at?.toISOString(), '2026-01-01T00:03:00.000Z');
+  assert.equal(fake.transactions, 2);
+  assert.deepEqual(fake.updates.map((update) => update.wheres), [
+    [
+      { column: 'id', operator: '=', value: 'intent-missing' },
+      { column: 'status', operator: '=', value: 'queued' },
+    ],
+    [
+      { column: 'id', operator: '=', value: 'intent-claimed' },
+      { column: 'status', operator: '=', value: 'queued' },
+    ],
+  ]);
+});
+
 test('buildLocalPandaDispatchPayloadV1 builds a local-only v1 envelope from a claimed intent and visitor message', async () => {
   const fake = createFakeDatabase([], { messages: [messageRow()] });
 
@@ -1015,6 +1085,10 @@ test('panda delivery intent helper is local-only storage and claim plumbing with
   assert.match(
     helperSource,
     /updateTable\('panda_delivery_intents'\)[\s\S]*set\(\{ status: 'claimed', claimed_at: now, updated_at: now \}\)[\s\S]*where\('id', '=', selected\.id\)[\s\S]*where\('status', '=', 'queued'\)/,
+  );
+  assert.match(
+    helperSource,
+    /export async function claimQueuedPandaDeliveryIntentById[\s\S]*updateTable\('panda_delivery_intents'\)[\s\S]*where\('id', '=', targetIntentId\)[\s\S]*where\('status', '=', 'queued'\)[\s\S]*return claimed \? toClaimedPandaDeliveryIntent\(claimed\) : null/,
   );
   for (const column of [
     'id',
