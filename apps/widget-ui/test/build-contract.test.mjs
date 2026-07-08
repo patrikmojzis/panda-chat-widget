@@ -505,11 +505,18 @@ test('widget refresh flow reuses visitor identity, conversation, and message his
   ]);
 });
 
-test('widget EventSource client subscribes to the live message endpoint and handles message events', () => {
+test('widget EventSource client keeps SSE live while catch-up polling advances from latest seq', async () => {
   const { subscribeToWidgetMessages } = loadModule(compiledChatModule);
   const receivedMessages = [];
   const readyEvents = [];
+  const calls = [];
+  const intervals = [];
+  const clearedIntervals = [];
   const instances = [];
+  const responses = [
+    [],
+    [sampleMessage({ id: 'message-4', seq: 4, sender: 'agent', body: 'Catch-up poll' })],
+  ];
 
   class FakeEventSource {
     constructor(url) {
@@ -535,6 +542,21 @@ test('widget EventSource client subscribes to the live message endpoint and hand
   }, {
     baseHref: 'https://customer.example/widget.html?publicKey=demo-local-widget',
     EventSourceImpl: FakeEventSource,
+    fetchImpl: async (input, init) => {
+      calls.push({ input: String(input), init });
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ messages: responses.shift() ?? [] }),
+      };
+    },
+    pollIntervalMs: 25,
+    setIntervalImpl: (listener, milliseconds) => {
+      intervals.push({ listener, milliseconds });
+      return intervals.length;
+    },
+    clearIntervalImpl: (intervalId) => clearedIntervals.push(intervalId),
     onMessage: (message) => receivedMessages.push(message),
     onReady: () => readyEvents.push('ready'),
   });
@@ -544,16 +566,35 @@ test('widget EventSource client subscribes to the live message endpoint and hand
     instances[0].url,
     'https://customer.example/api/widgets/demo-local-widget/messages/events?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=2',
   );
+  assert.deepEqual(intervals.map((interval) => interval.milliseconds), [25]);
+  assert.equal(instances[0].closed, false);
+  await flushAsyncWork();
+  assert.equal(
+    calls[0].input,
+    'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=2',
+  );
+  assert.equal(instances[0].closed, false);
 
   instances[0].listeners.message({ data: JSON.stringify({ message: sampleMessage({ id: 'message-3', seq: 3 }) }) });
   instances[0].listeners.ready({});
-  subscription.close();
+  intervals[0].listener();
+  await flushAsyncWork();
 
+  assert.equal(
+    calls[1].input,
+    'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=3',
+  );
   assert.deepEqual(receivedMessages.map((message) => ({ id: message.id, seq: message.seq })), [
     { id: 'message-3', seq: 3 },
+    { id: 'message-4', seq: 4 },
   ]);
   assert.deepEqual(readyEvents, ['ready']);
+  assert.equal(instances[0].closed, false);
+
+  subscription.close();
+
   assert.equal(instances[0].closed, true);
+  assert.deepEqual(clearedIntervals, [1]);
 });
 
 test('widget subscription polls with latest seq when EventSource is unavailable and cleans up timers', async () => {
@@ -632,7 +673,7 @@ test('widget subscription polls with latest seq when EventSource is unavailable 
   assert.equal(calls.length, 2);
 });
 
-test('widget subscription falls back to polling on EventSource errors', async () => {
+test('widget subscription closes EventSource on error without adding duplicate catch-up timers', async () => {
   const { subscribeToWidgetMessages } = loadModule(compiledChatModule);
   const calls = [];
   const errorEvents = [];
@@ -684,7 +725,13 @@ test('widget subscription falls back to polling on EventSource errors', async ()
   });
 
   assert.equal(instances.length, 1);
-  assert.equal(calls.length, 0);
+  assert.equal(instances[0].closed, false);
+  assert.deepEqual(intervals.map((interval) => interval.milliseconds), [50]);
+  await flushAsyncWork();
+  assert.equal(
+    calls[0].input,
+    'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=5',
+  );
 
   instances[0].listeners.error({});
   await flushAsyncWork();
@@ -692,8 +739,14 @@ test('widget subscription falls back to polling on EventSource errors', async ()
   assert.deepEqual(errorEvents, ['error']);
   assert.equal(instances[0].closed, true);
   assert.deepEqual(intervals.map((interval) => interval.milliseconds), [50]);
+  assert.equal(calls.length, 1);
+
+  intervals[0].listener();
+  await flushAsyncWork();
+
+  assert.equal(calls.length, 2);
   assert.equal(
-    calls[0].input,
+    calls[1].input,
     'https://customer.example/api/widgets/demo-local-widget/messages?visitorSessionId=visitor-session-1&conversationId=conversation-1&afterSeq=5',
   );
 

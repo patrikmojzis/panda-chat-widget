@@ -65,7 +65,7 @@ Several package `lint`/`build` scripts still intentionally echo TODO placeholder
 
 ## Local clickable demo runbook
 
-Use separate terminals for the server and the demo server.
+Use separate terminals for the server and the demo server. For repeatable browser/visual smoke, prefer a disposable local DB so the next local reply candidate belongs to the conversation you open during the runbook. If you intentionally keep an existing DB, run the delivery-status preflight before a mutating manual reply and verify `nextLocalReplyCandidate.conversationId` matches the currently open browser conversation; otherwise send a fresh visitor message or reset the DB first.
 
 1. Install dependencies:
 
@@ -74,9 +74,10 @@ Use separate terminals for the server and the demo server.
    pnpm install --frozen-lockfile
    ```
 
-2. Start local Postgres:
+2. Start local Postgres. For a clean disposable smoke run, reset the local Postgres volume before starting it:
 
    ```sh
+   docker compose down -v
    docker compose up -d postgres
    ```
 
@@ -118,7 +119,7 @@ Use separate terminals for the server and the demo server.
 
 7. Open <http://127.0.0.1:4173/>, click the bottom-right `Chat` launcher, type a visitor message, and press `Send`.
 
-Expected result: the message appears in the widget, then the backend stores a deterministic local fake agent reply and delivers it through the same API/SSE/polling flow. Because the seeded widget has the local placeholder route handle `panda:local/demo`, the backend also records one internal queued local delivery intent for the new visitor message. This is not exposed publicly and does not send anything to Panda/Gateway/CLI:
+Expected result: the message appears in the widget, then the backend stores a deterministic local fake agent reply and delivers it through the same API/SSE/polling flow. The widget keeps the EventSource live path open for same-process server pushes and also sends one periodic catch-up `GET /messages?afterSeq=<latestSeq>` so out-of-band local DB replies from the server-only CLI path can appear in an already-open demo widget without a page reload. Because the seeded widget has the local placeholder route handle `panda:local/demo`, the backend also records one internal queued local delivery intent for the new visitor message. This is not exposed publicly and does not send anything to Panda/Gateway/CLI:
 
 ```text
 Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but your message was received.
@@ -146,7 +147,7 @@ Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but
    printf '%s\n' '{"reply":{"text":"Hello from the local manual reply"}}' | pnpm --silent --filter @panda-chat-widget/server local-panda:reply-manual
    ```
 
-   Expected manual shape is dynamic JSON with `completed: true`, `parsed: true`, kind: `"local-panda-one-shot-manual-reply-round-trip"`, mode: `"local-only-stdin-manual-reply"`, `dispatchIntentSource`, `dispatchPayload`, `manualReplyIngressPayload`, `applyResult`, and manual-specific metadata such as `input: "stdin-json-object"`, `manualReplySource: "stdin-manual-reply-text"`, `replyTextValidation: "normalized-before-db-config-or-dispatch"`, and `network: "no-network"`. The command validates and normalizes `reply.text` before opening the DB or claiming/selecting any intent; empty stdin, malformed JSON, non-object JSON, missing/blank text, or non-string text print a JSON envelope on stdout, exit 1, and do not open the DB. Controlled dispatch/build/apply failures print JSON on stdout, exit 0, and close the DB. This mutates only the local DB: it may reuse one already-claimed unapplied local intent or claim one queued intent, then inserts or replays one local agent message through the existing reply-ingress apply helper. It does not call Panda, Gateway, an external CLI, a child process, or the network, and it does not add a public route, worker/retry/dead-letter flow, status lifecycle expansion, fake-reply replacement, frontend exposure, or schema migration.
+   Expected manual shape is dynamic JSON with `completed: true`, `parsed: true`, kind: `"local-panda-one-shot-manual-reply-round-trip"`, mode: `"local-only-stdin-manual-reply"`, `dispatchIntentSource`, `dispatchPayload`, `manualReplyIngressPayload`, `applyResult`, and manual-specific metadata such as `input: "stdin-json-object"`, `manualReplySource: "stdin-manual-reply-text"`, `replyTextValidation: "normalized-before-db-config-or-dispatch"`, and `network: "no-network"`. The command validates and normalizes `reply.text` before opening the DB or claiming/selecting any intent; empty stdin, malformed JSON, non-object JSON, missing/blank text, or non-string text print a JSON envelope on stdout, exit 1, and do not open the DB. Controlled dispatch/build/apply failures print JSON on stdout, exit 0, and close the DB. This mutates only the local DB: it may reuse one already-claimed unapplied local intent or claim one queued intent, then inserts or replays one local agent message through the existing reply-ingress apply helper. In an already-open demo widget, the manual local reply should appear without reload within the catch-up polling interval. It does not call Panda, Gateway, an external CLI, a child process, or the network, and it does not add a public route, worker/retry/dead-letter flow, status lifecycle expansion, fake-reply replacement, frontend exposure, or schema migration.
 
    If you only want to inspect the future-dispatch payload without applying a reply, use the dry run instead:
 

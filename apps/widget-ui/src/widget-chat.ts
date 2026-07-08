@@ -221,8 +221,6 @@ export function subscribeToWidgetMessages(
     }
 
     const setIntervalImpl = options.setIntervalImpl ?? defaultSetInterval();
-    eventSource?.close();
-    eventSource = null;
     clearPollingInterval = options.clearIntervalImpl ?? defaultClearInterval();
     pollMessages();
     pollingIntervalId = setIntervalImpl(pollMessages, pollIntervalMs);
@@ -234,8 +232,9 @@ export function subscribeToWidgetMessages(
     startPolling();
   } else {
     try {
-      eventSource = new EventSourceImpl(buildWidgetMessageEventsUrl(publicKey, input, options.baseHref));
-      eventSource.addEventListener('message', (event) => {
+      const source = new EventSourceImpl(buildWidgetMessageEventsUrl(publicKey, input, options.baseHref));
+      eventSource = source;
+      source.addEventListener('message', (event) => {
         if (!('data' in event) || typeof event.data !== 'string') {
           return;
         }
@@ -246,11 +245,22 @@ export function subscribeToWidgetMessages(
           emitMessage(data.message);
         }
       });
-      eventSource.addEventListener('ready', () => options.onReady?.());
-      eventSource.addEventListener('error', () => {
+      source.addEventListener('ready', () => options.onReady?.());
+      source.addEventListener('error', () => {
+        if (closed) {
+          return;
+        }
+
         options.onError?.();
+        source.close();
+
+        if (eventSource === source) {
+          eventSource = null;
+        }
+
         startPolling();
       });
+      startPolling();
     } catch {
       startPolling();
     }
