@@ -601,6 +601,34 @@ input {
   overflow-wrap: anywhere;
 }
 
+.local-reply-candidate-details {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.local-reply-candidate-detail {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.local-reply-candidate-detail dt {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.local-reply-candidate-detail dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .inline-form {
   min-width: 0;
   display: grid;
@@ -618,7 +646,8 @@ input {
 
 @media (max-width: 760px) {
   .settings-grid,
-  .inline-form {
+  .inline-form,
+  .local-reply-candidate-details {
     grid-template-columns: minmax(0, 1fr);
   }
 }

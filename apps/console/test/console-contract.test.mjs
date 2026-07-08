@@ -113,6 +113,60 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   );
 });
 
+test('console next local manual reply target exposes only allowlisted candidate details', () => {
+  const detailsStart = appSource.indexOf('function NextLocalReplyCandidateDetails');
+  assert.notEqual(detailsStart, -1);
+  const detailsEnd = appSource.indexOf('function formatConnectionStatus', detailsStart);
+  assert.notEqual(detailsEnd, -1);
+  const detailsSource = appSource.slice(detailsStart, detailsEnd);
+  const allowedLabels = ['status', 'conversationId', 'visitorMessageId', 'clientMessageId', 'createdAt', 'claimedAt'];
+
+  for (const label of allowedLabels) {
+    assert.match(detailsSource, new RegExp(`<dt>${label}<\\/dt>`));
+    assert.match(detailsSource, new RegExp(`candidate\\.${label}`));
+  }
+
+  assert.match(detailsSource, /not claimed yet/);
+  assert.doesNotMatch(detailsSource, /Object\.entries|Object\.keys|Object\.values|JSON\.stringify|for\s*\([^)]*\sin\s+candidate/);
+
+  const renderedCandidateFields = [...new Set([...detailsSource.matchAll(/candidate\.([A-Za-z0-9_]+)/g)].map((match) => match[1]))].sort();
+  assert.deepEqual(renderedCandidateFields, [...allowedLabels].sort());
+
+  const candidateUiStart = appSource.indexOf('aria-label="Next local manual reply target"');
+  assert.notEqual(candidateUiStart, -1);
+  const candidateUiEnd = appSource.indexOf('<form className="inline-form"', candidateUiStart);
+  assert.notEqual(candidateUiEnd, -1);
+  const candidateUiSource = appSource.slice(candidateUiStart, candidateUiEnd);
+
+  assert.match(candidateUiSource, /handleCopyNextLocalReplyTarget\(nextLocalReplyCandidate\.id\)/);
+  assert.match(appSource, /navigator\.clipboard\.writeText\(intentId\)/);
+  assert.match(candidateUiSource, /Local-only targetIntentId for local-panda:reply-manual\./);
+  assert.match(candidateUiSource, /Copy target ID/);
+  assert.match(candidateUiSource, /No next manual reply target ID/);
+  assert.match(candidateUiSource, /NextLocalReplyCandidateDetails candidate=\{nextLocalReplyCandidate\}/);
+
+  const localCandidateSources = `${candidateUiSource}\n${detailsSource}`;
+  assert.doesNotMatch(localCandidateSources, /Object\.entries|Object\.keys|Object\.values|JSON\.stringify/);
+  assert.doesNotMatch(
+    localCandidateSources,
+    /visitorSessionId|routeHandleSnapshot|visitorMessageBody|clientMessageBody|messageBody|messageText|bodyText|messageContent|rawContent|localIntent|intentPayload|payload|metadata/,
+  );
+  const apiCandidateTypeStart = apiSource.indexOf('export type ConsoleWidgetNextLocalReplyCandidate = {');
+  assert.notEqual(apiCandidateTypeStart, -1);
+  const apiCandidateTypeEnd = apiSource.indexOf('};', apiCandidateTypeStart);
+  assert.notEqual(apiCandidateTypeEnd, -1);
+  const apiCandidateTypeSource = apiSource.slice(apiCandidateTypeStart, apiCandidateTypeEnd);
+
+  for (const label of allowedLabels) {
+    assert.match(apiCandidateTypeSource, new RegExp(`${label}:`));
+  }
+
+  assert.doesNotMatch(
+    apiCandidateTypeSource,
+    /visitorSessionId|routeHandleSnapshot|visitorMessageBody|clientMessageBody|messageBody|messageText|bodyText|messageContent|rawContent|localIntent|intentPayload|payload|metadata/,
+  );
+});
+
 test('console shell CSS uses semantic tokens and overflow-safe site/widget layouts', () => {
   assert.match(stylesSource, /--background:/);
   assert.match(stylesSource, /--foreground:/);
