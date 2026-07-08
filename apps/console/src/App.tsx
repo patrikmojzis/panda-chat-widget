@@ -801,6 +801,7 @@ function WidgetSettingsPage({
   const [connectionSubmitState, setConnectionSubmitState] = useState<SubmitState>('idle');
   const [domainSubmitState, setDomainSubmitState] = useState<SubmitState>('idle');
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
+  const [targetCopyState, setTargetCopyState] = useState<'idle' | 'copied'>('idle');
 
   useEffect(() => {
     let isCurrent = true;
@@ -817,6 +818,7 @@ function WidgetSettingsPage({
           setForm(formFromSettings(settings));
           setConnectionDraft(settings.connection.routeHandle ?? '');
           setCopyState('idle');
+          setTargetCopyState('idle');
         }
       } catch (error) {
         if (!isCurrent) {
@@ -846,6 +848,7 @@ function WidgetSettingsPage({
     setForm(formFromSettings(settings));
     setConnectionDraft(settings.connection.routeHandle ?? '');
     setCopyState('idle');
+    setTargetCopyState('idle');
   }
 
   async function handleSettingsSubmit(event: FormEvent<HTMLFormElement>) {
@@ -979,6 +982,12 @@ function WidgetSettingsPage({
     }
   }
 
+  function handleCopyNextLocalReplyTarget(intentId: string) {
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(intentId).then(() => setTargetCopyState('copied'));
+    }
+  }
+
   if (state.status === 'loading') {
     return <InlineState title="Loading widget settings…" body="Fetching safe settings, allowed domains, and install status." />;
   }
@@ -1000,6 +1009,7 @@ function WidgetSettingsPage({
     form.welcomeTitle.trim() &&
     form.welcomeSubtitle.trim(),
   );
+  const nextLocalReplyCandidate = state.settings.connection.localDelivery.nextLocalReplyCandidate;
 
   return (
     <section className="content-section" aria-labelledby="widget-settings-title">
@@ -1107,6 +1117,29 @@ function WidgetSettingsPage({
           <small>{state.settings.connection.routeHandle ? 'A placeholder route handle is saved.' : 'No route handle is saved yet.'}</small>
           <small>{formatLocalDeliveryStatus(state.settings.connection.localDelivery)}</small>
         </div>
+        {nextLocalReplyCandidate ? (
+          <div className="list-card list-card--nested" aria-label="Next local manual reply target">
+            <div className="list-row list-row--static">
+              <span>
+                <strong>next manual reply target ID</strong>
+                <code className="public-key">{nextLocalReplyCandidate.id}</code>
+                <small>Local-only targetIntentId for local-panda:reply-manual.</small>
+              </span>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => handleCopyNextLocalReplyTarget(nextLocalReplyCandidate.id)}
+              >
+                {targetCopyState === 'copied' ? 'Copied' : 'Copy target ID'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="empty-state" aria-label="No next local manual reply target">
+            <h3>No next manual reply target ID</h3>
+            <p>Send a visitor message or leave a claimed local intent unapplied to show the next local-only target.</p>
+          </div>
+        )}
         <form className="inline-form" onSubmit={handleConnectionSubmit} aria-busy={connectionSubmitState === 'submitting'}>
           <label className="field" htmlFor="widget-connection-route-handle">
             <span>Route handle</span>

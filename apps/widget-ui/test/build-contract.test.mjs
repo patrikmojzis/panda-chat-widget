@@ -16,7 +16,7 @@ const themeSource = await readFile(new URL('../src/widget-theme.ts', import.meta
 const chatSource = await readFile(new URL('../src/widget-chat.ts', import.meta.url), 'utf8');
 const widgetVisitorIdentitySource = await readFile(new URL('../src/widget-visitor-identity.ts', import.meta.url), 'utf8');
 const sharedVisitorIdentitySource = await readFile(new URL('../../../packages/shared/src/visitor-identity.ts', import.meta.url), 'utf8');
-const ownerOnlyLocalDeliveryPattern = /localDelivery|queuedIntentCount|lastQueuedAt|claimedIntentCount|lastClaimedAt|appliedLocalReplyCount|lastAppliedLocalReplyAt/i;
+const ownerOnlyLocalDeliveryPattern = /localDelivery|nextLocalReplyCandidate|nextLocalReplyTarget|replyTarget|targetIntentId|queuedIntentCount|lastQueuedAt|claimedIntentCount|lastClaimedAt|appliedLocalReplyCount|lastAppliedLocalReplyAt/i;
 
 function compileTypeScript(source) {
   return ts.transpileModule(source, {

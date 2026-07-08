@@ -8,7 +8,7 @@ import {
   type AuthErrorResponse,
   type CsrfErrorResponse,
 } from './auth-guard.ts';
-import type { DatabaseClient, DatabaseSchema } from './db.ts';
+import type { DatabaseClient, DatabaseSchema, PandaDeliveryIntentStatus } from './db.ts';
 import { normalizeAllowedDomainInput, type AllowedDomainInputInvalidReason } from './origin-domain.ts';
 import {
   toWidgetBootstrapConfig,
@@ -47,6 +47,17 @@ export type ConsoleWidgetLocalDelivery = {
   lastClaimedAt: string | null;
   appliedLocalReplyCount: number;
   lastAppliedLocalReplyAt: string | null;
+  nextLocalReplyCandidate: ConsoleWidgetNextLocalReplyCandidate | null;
+};
+
+export type ConsoleWidgetNextLocalReplyCandidate = {
+  id: string;
+  status: PandaDeliveryIntentStatus;
+  conversationId: string;
+  visitorMessageId: string;
+  clientMessageId: string;
+  createdAt: string;
+  claimedAt: string | null;
 };
 
 export type ConsoleWidgetConnection = {
@@ -240,6 +251,16 @@ type LocalDeliveryStatusRow = {
 type AppliedLocalReplyStatusRow = {
   applied_local_reply_count: string | number | bigint;
   last_applied_local_reply_at: Date | string | null;
+};
+
+type LocalReplyCandidateRow = {
+  id: string;
+  status: PandaDeliveryIntentStatus;
+  conversation_id: string;
+  visitor_message_id: string;
+  client_message_id: string;
+  created_at: Date | string;
+  claimed_at: Date | string | null;
 };
 
 type DomainCreateBody = {
@@ -992,7 +1013,10 @@ async function readConsoleWidgetLocalDelivery(
     ])
     .where('widget_id', '=', widgetId)
     .executeTakeFirst()) as LocalDeliveryStatusRow | undefined;
-  const appliedLocalReplies = await readConsoleWidgetAppliedLocalReplies(database, widgetId);
+  const [appliedLocalReplies, nextLocalReplyCandidate] = await Promise.all([
+    readConsoleWidgetAppliedLocalReplies(database, widgetId),
+    readConsoleWidgetNextLocalReplyCandidate(database, widgetId),
+  ]);
 
   return {
     queuedIntentCount: toCountNumber(row?.queued_intent_count),
@@ -1000,6 +1024,7 @@ async function readConsoleWidgetLocalDelivery(
     claimedIntentCount: toCountNumber(row?.claimed_intent_count),
     lastClaimedAt: row?.last_claimed_at ? toIsoString(row.last_claimed_at) : null,
     ...appliedLocalReplies,
+    nextLocalReplyCandidate,
   };
 }
 
@@ -1029,6 +1054,101 @@ async function readConsoleWidgetAppliedLocalReplies(
   return {
     appliedLocalReplyCount: toCountNumber(row?.applied_local_reply_count),
     lastAppliedLocalReplyAt: row?.last_applied_local_reply_at ? toIsoString(row.last_applied_local_reply_at) : null,
+  };
+}
+
+async function readConsoleWidgetNextLocalReplyCandidate(
+  database: DatabaseClient,
+  widgetId: string,
+): Promise<ConsoleWidgetNextLocalReplyCandidate | null> {
+  const claimedUnapplied = await readConsoleWidgetOldestClaimedUnappliedIntent(database, widgetId);
+
+  return claimedUnapplied ?? readConsoleWidgetOldestQueuedIntent(database, widgetId);
+}
+
+async function readConsoleWidgetOldestClaimedUnappliedIntent(
+  database: DatabaseClient,
+  widgetId: string,
+): Promise<ConsoleWidgetNextLocalReplyCandidate | null> {
+  const row = (await database
+    .selectFrom('panda_delivery_intents')
+    .innerJoin('conversations', (join) =>
+      join
+        .onRef('conversations.id', '=', 'panda_delivery_intents.conversation_id')
+        .onRef('conversations.widget_id', '=', 'panda_delivery_intents.widget_id'),
+    )
+    .select([
+      'panda_delivery_intents.id as id',
+      'panda_delivery_intents.status as status',
+      'conversations.id as conversation_id',
+      'panda_delivery_intents.visitor_message_id as visitor_message_id',
+      'panda_delivery_intents.client_message_id as client_message_id',
+      'panda_delivery_intents.created_at as created_at',
+      'panda_delivery_intents.claimed_at as claimed_at',
+    ])
+    .where('panda_delivery_intents.widget_id', '=', widgetId)
+    .where('panda_delivery_intents.status', '=', 'claimed')
+    .where('panda_delivery_intents.claimed_at', 'is not', null)
+    .where((eb) =>
+      eb.not(
+        eb.exists(
+          eb
+            .selectFrom('messages')
+            .select('messages.id')
+            .whereRef('messages.conversation_id', '=', 'panda_delivery_intents.conversation_id')
+            .where('messages.sender', '=', 'agent')
+            .where('messages.client_message_id', '=', sql<string>`'local-panda-reply-v1:' || panda_delivery_intents.id::text`),
+        ),
+      ),
+    )
+    .orderBy('panda_delivery_intents.claimed_at', 'asc')
+    .orderBy('panda_delivery_intents.created_at', 'asc')
+    .orderBy('panda_delivery_intents.id', 'asc')
+    .limit(1)
+    .executeTakeFirst()) as LocalReplyCandidateRow | undefined;
+
+  return row ? toConsoleWidgetNextLocalReplyCandidate(row) : null;
+}
+
+async function readConsoleWidgetOldestQueuedIntent(
+  database: DatabaseClient,
+  widgetId: string,
+): Promise<ConsoleWidgetNextLocalReplyCandidate | null> {
+  const row = (await database
+    .selectFrom('panda_delivery_intents')
+    .innerJoin('conversations', (join) =>
+      join
+        .onRef('conversations.id', '=', 'panda_delivery_intents.conversation_id')
+        .onRef('conversations.widget_id', '=', 'panda_delivery_intents.widget_id'),
+    )
+    .select([
+      'panda_delivery_intents.id as id',
+      'panda_delivery_intents.status as status',
+      'conversations.id as conversation_id',
+      'panda_delivery_intents.visitor_message_id as visitor_message_id',
+      'panda_delivery_intents.client_message_id as client_message_id',
+      'panda_delivery_intents.created_at as created_at',
+      'panda_delivery_intents.claimed_at as claimed_at',
+    ])
+    .where('panda_delivery_intents.widget_id', '=', widgetId)
+    .where('panda_delivery_intents.status', '=', 'queued')
+    .orderBy('panda_delivery_intents.created_at', 'asc')
+    .orderBy('panda_delivery_intents.id', 'asc')
+    .limit(1)
+    .executeTakeFirst()) as LocalReplyCandidateRow | undefined;
+
+  return row ? toConsoleWidgetNextLocalReplyCandidate(row) : null;
+}
+
+function toConsoleWidgetNextLocalReplyCandidate(row: LocalReplyCandidateRow): ConsoleWidgetNextLocalReplyCandidate {
+  return {
+    id: row.id,
+    status: row.status,
+    conversationId: row.conversation_id,
+    visitorMessageId: row.visitor_message_id,
+    clientMessageId: row.client_message_id,
+    createdAt: toIsoString(row.created_at),
+    claimedAt: row.claimed_at ? toIsoString(row.claimed_at) : null,
   };
 }
 

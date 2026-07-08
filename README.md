@@ -131,7 +131,7 @@ Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but
    pnpm --filter @panda-chat-widget/server local-panda:delivery-status
    ```
 
-   Expected status shape is dynamic JSON with `kind: "local-panda-delivery-status"`, `mode: "local-only-read-only-diagnostics"`, queued/claimed/applied counts, oldest queued and claimed-unapplied summaries, and `nextLocalReplyCandidate` choosing the oldest claimed-unapplied intent before the oldest queued intent. This command accepts no stdin or args and performs only local read-only DB diagnostics: no claim, apply, insert, update, delete, transaction, lock, schema migration, worker/retry/dead-letter flow, public route, frontend exposure, status lifecycle expansion, Panda/Gateway/external CLI/child-process/network call, or visitor/agent message body output.
+   Expected status shape is dynamic JSON with `kind: "local-panda-delivery-status"`, `mode: "local-only-read-only-diagnostics"`, queued/claimed/applied counts, oldest queued and claimed-unapplied summaries, and `nextLocalReplyCandidate` choosing the oldest claimed-unapplied intent before the oldest queued intent. The protected owner widget settings API also shows the scoped local-only `connection.localDelivery.nextLocalReplyCandidate` so operators can copy the next manual reply target ID for `local-panda:reply-manual` `targetIntentId`; that settings summary intentionally includes only IDs/status/timestamps and excludes message bodies, `routeHandleSnapshot`, and `visitorSessionId`. This command accepts no stdin or args and performs only local read-only DB diagnostics: no claim, apply, insert, update, delete, transaction, lock, schema migration, worker/retry/dead-letter flow, public route, frontend exposure, status lifecycle expansion, Panda/Gateway/external CLI/child-process/network call, or visitor/agent message body output.
 
    Then run the one-shot local reply round trip if you want to complete an already dry-run-claimed intent or claim the fresh queued intent and apply one additional deterministic local fake agent reply:
 
@@ -221,7 +221,7 @@ docker compose down -v
 - Browser screenshots/live click smoke require browser automation and a running local Postgres stack.
 - DB-backed live validation for GitHub issue #5 remains separate until it has real Docker/Postgres/browser evidence in the target environment.
 - Auth is intentionally minimal: first owner + one workspace, email/password login, HttpOnly cookie sessions, no invites, no teams/RBAC UI, no billing/plans/usage.
-- Console site/widget management is intentionally minimal: workspace-scoped list/create, safe widget settings, allowed domains, a generated install snippet, and a configuration-only Panda route handle placeholder.
+- Console site/widget management is intentionally minimal: workspace-scoped list/create, safe widget settings, allowed domains, a generated install snippet, a configuration-only Panda route handle placeholder, and an owner-only local `nextLocalReplyCandidate` target ID helper for manual local replies.
 - No deployment or Dockerized app runtime yet; CLI coverage is limited to local-only server scripts and is not a public ingestion surface.
 
 ## Public planning context
