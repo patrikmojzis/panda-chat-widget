@@ -45,7 +45,8 @@ test('console API client uses relative authenticated routes, cookie credentials,
   assert.match(apiSource, /createWidget[\s\S]*`\/api\/console\/sites\/\$\{encodeURIComponent\(siteId\)\}\/widgets`/);
   assert.match(apiSource, /getWidgetSettings[\s\S]*\/settings`/);
   assert.match(apiSource, /updateWidgetSettings[\s\S]*method: 'PATCH'/);
-  assert.match(apiSource, /ConsoleWidgetLocalDelivery[\s\S]*queuedIntentCount: number;[\s\S]*lastQueuedAt: string \| null;[\s\S]*claimedIntentCount: number;[\s\S]*lastClaimedAt: string \| null;[\s\S]*appliedLocalReplyCount: number;[\s\S]*lastAppliedLocalReplyAt: string \| null/);
+  assert.match(apiSource, /ConsoleWidgetLocalDelivery[\s\S]*queuedIntentCount: number;[\s\S]*lastQueuedAt: string \| null;[\s\S]*claimedIntentCount: number;[\s\S]*lastClaimedAt: string \| null;[\s\S]*appliedLocalReplyCount: number;[\s\S]*lastAppliedLocalReplyAt: string \| null;[\s\S]*nextLocalReplyCandidate: ConsoleWidgetNextLocalReplyCandidate \| null/);
+  assert.match(apiSource, /ConsoleWidgetNextLocalReplyCandidate[\s\S]*id: string;[\s\S]*status: 'queued' \| 'claimed';[\s\S]*conversationId: string;[\s\S]*visitorMessageId: string;[\s\S]*clientMessageId: string;[\s\S]*createdAt: string;[\s\S]*claimedAt: string \| null/);
   assert.match(apiSource, /ConsoleWidgetConnection[\s\S]*routeHandle: string \| null;[\s\S]*localDelivery: ConsoleWidgetLocalDelivery/);
   assert.match(apiSource, /connection\?: \{[\s\S]*routeHandle\?: string \| null/);
   assert.match(apiSource, /listWidgetDomains[\s\S]*\/domains`/);
@@ -82,6 +83,10 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.match(appSource, /claimed locally/);
   assert.match(appSource, /last claimed timestamp unavailable/);
   assert.match(appSource, /Local deterministic fake reply diagnostic/);
+  assert.match(appSource, /next manual reply target ID/);
+  assert.match(appSource, /Local-only targetIntentId for local-panda:reply-manual/);
+  assert.match(appSource, /Copy target ID/);
+  assert.match(appSource, /No next manual reply target ID/);
   assert.match(appSource, /Applied locally/);
   assert.match(appSource, /fake reply applications/);
   assert.match(appSource, /last applied locally/);

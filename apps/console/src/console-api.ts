@@ -78,6 +78,17 @@ export type ConsoleWidgetLocalDelivery = {
   lastClaimedAt: string | null;
   appliedLocalReplyCount: number;
   lastAppliedLocalReplyAt: string | null;
+  nextLocalReplyCandidate: ConsoleWidgetNextLocalReplyCandidate | null;
+};
+
+export type ConsoleWidgetNextLocalReplyCandidate = {
+  id: string;
+  status: 'queued' | 'claimed';
+  conversationId: string;
+  visitorMessageId: string;
+  clientMessageId: string;
+  createdAt: string;
+  claimedAt: string | null;
 };
 
 export type ConsoleWidgetConnection = {

@@ -7,7 +7,7 @@ import * as ts from 'typescript';
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const buildConfig = JSON.parse(await readFile(new URL('../tsconfig.build.json', import.meta.url), 'utf8'));
 const source = await readFile(new URL('../src/panda-chat-widget-loader.ts', import.meta.url), 'utf8');
-const ownerOnlyLocalDeliveryPattern = /localDelivery|queuedIntentCount|lastQueuedAt|claimedIntentCount|lastClaimedAt|appliedLocalReplyCount|lastAppliedLocalReplyAt/i;
+const ownerOnlyLocalDeliveryPattern = /localDelivery|nextLocalReplyCandidate|nextLocalReplyTarget|replyTarget|targetIntentId|queuedIntentCount|lastQueuedAt|claimedIntentCount|lastClaimedAt|appliedLocalReplyCount|lastAppliedLocalReplyAt/i;
 const compiledLoader = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.None,

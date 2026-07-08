@@ -116,6 +116,9 @@ type StoredPandaDeliveryIntent = {
   id: string;
   widget_id: string;
   conversation_id: string;
+  visitor_message_id: string;
+  client_message_id: string;
+  route_handle_snapshot: string;
   status: string;
   claimed_at: Date | string | null;
   created_at: Date | string;
@@ -379,10 +382,29 @@ function deliveryIntentRow(
     id,
     widget_id: widgetId,
     conversation_id: conversationId,
+    visitor_message_id: `visitor-message-${id}`,
+    client_message_id: `client-message-${id}`,
+    route_handle_snapshot: `panda:local/${widgetId}`,
     status,
     claimed_at: claimedAt,
     created_at: createdAt,
   };
+}
+
+function localReplyCandidateSummary(intent: StoredPandaDeliveryIntent) {
+  return {
+    id: intent.id,
+    status: intent.status,
+    conversationId: intent.conversation_id,
+    visitorMessageId: intent.visitor_message_id,
+    clientMessageId: intent.client_message_id,
+    createdAt: isoString(intent.created_at),
+    claimedAt: intent.claimed_at ? isoString(intent.claimed_at) : null,
+  };
+}
+
+function isoString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 function defaultConversationIdForWidget(widgetId: string): string {
@@ -437,7 +459,21 @@ function createSelectQuery(fake: FakeConsoleWidgetSettingsDatabase, table: strin
 
       return query;
     },
-    where: (column: string, operator: string, value: unknown) => {
+    where: (column: string | ((builder: unknown) => unknown), operator?: string, value?: unknown) => {
+      if (typeof column === 'function') {
+        const expression = column(createWhereExpressionBuilder());
+
+        if (isWhereExpression(expression)) {
+          wheres.push({ column: expression.column, operator: expression.operator, value: expression.value });
+        }
+
+        return query;
+      }
+
+      if (typeof operator !== 'string') {
+        throw new Error(`Unsupported where without operator for ${column}`);
+      }
+
       wheres.push({ column, operator, value });
       return query;
     },
@@ -470,6 +506,50 @@ function createAggregateExpressionBuilder(aggregateSelections: AggregateSelectio
       max: (targetColumn: string) => createAggregateBuilder(aggregateSelections, 'max', targetColumn),
     },
   };
+}
+
+type FakeWhereExpression = {
+  column: string;
+  operator: string;
+  value: unknown;
+};
+
+type FakeExistsExpression = {
+  kind: 'exists_local_panda_reply';
+};
+
+const LOCAL_REPLY_NOT_EXISTS_WHERE = '__local_reply_not_exists__';
+
+function createWhereExpressionBuilder() {
+  return {
+    not: (expression: unknown): FakeWhereExpression | unknown => isExistsExpression(expression)
+      ? { column: LOCAL_REPLY_NOT_EXISTS_WHERE, operator: '=', value: true }
+      : expression,
+    exists: () => ({ kind: 'exists_local_panda_reply' }),
+    selectFrom: () => createSubqueryBuilder(),
+  };
+}
+
+function createSubqueryBuilder() {
+  const query = {
+    select: () => query,
+    where: () => query,
+    whereRef: () => query,
+  };
+
+  return query;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isExistsExpression(value: unknown): value is FakeExistsExpression {
+  return isRecord(value) && value.kind === 'exists_local_panda_reply';
+}
+
+function isWhereExpression(value: unknown): value is FakeWhereExpression {
+  return isRecord(value) && typeof value.column === 'string' && typeof value.operator === 'string';
 }
 
 function createJoinBuilder(joinRefs: JoinRefClause[]) {
@@ -638,10 +718,12 @@ function selectRows(
     rows = selectOwnedWidgets(fake, wheres);
   } else if (table === 'allowed_domains') {
     rows = sortRows(fake.domains.filter((domain) => matchesWhereClauses(domain, wheres)), orders);
-  } else if (table === 'panda_delivery_intents' && joins.includes('messages')) {
+  } else if (table === 'panda_delivery_intents' && aggregateSelections.length > 0 && joins.includes('messages')) {
     rows = [selectAppliedLocalReplyStatusRow(fake, wheres, joinRefs, aggregateSelections)];
-  } else if (table === 'panda_delivery_intents') {
+  } else if (table === 'panda_delivery_intents' && aggregateSelections.length > 0) {
     rows = [selectLocalDeliveryStatusRow(fake, wheres, aggregateSelections)];
+  } else if (table === 'panda_delivery_intents' && joins.includes('conversations')) {
+    rows = selectNextLocalReplyCandidateRows(fake, wheres, joinRefs, orders);
   } else {
     throw new Error(`Unexpected select table: ${table}`);
   }
@@ -770,6 +852,65 @@ function selectAppliedLocalReplyStatusRow(
   }
 
   return row;
+}
+
+function selectNextLocalReplyCandidateRows(
+  fake: FakeConsoleWidgetSettingsDatabase,
+  wheres: WhereClause[],
+  joinRefs: JoinRefClause[],
+  orders: OrderClause[],
+): StoredPandaDeliveryIntent[] {
+  const widgetId = whereValue(wheres, 'panda_delivery_intents.widget_id');
+  const status = whereValue(wheres, 'panda_delivery_intents.status');
+  const requiresClaimedAt = wheres.some((where) =>
+    where.column === 'panda_delivery_intents.claimed_at' && where.operator === 'is not' && where.value === null,
+  );
+  const excludesAppliedReply = wheres.some((where) =>
+    where.column === LOCAL_REPLY_NOT_EXISTS_WHERE && where.operator === '=' && where.value === true,
+  );
+  const requiresConversationIntentJoin = hasJoinRef(joinRefs, 'conversations.id', 'panda_delivery_intents.conversation_id');
+  const requiresConversationWidgetJoin = hasJoinRef(joinRefs, 'conversations.widget_id', 'panda_delivery_intents.widget_id');
+
+  return sortRows(
+    fake.deliveryIntents.filter((intent) => {
+      if (typeof widgetId === 'string' && intent.widget_id !== widgetId) {
+        return false;
+      }
+
+      if (typeof status === 'string' && intent.status !== status) {
+        return false;
+      }
+
+      if (requiresClaimedAt && intent.claimed_at === null) {
+        return false;
+      }
+
+      const conversations = requiresConversationIntentJoin
+        ? fake.conversations.filter((conversation) => conversation.id === intent.conversation_id)
+        : fake.conversations;
+
+      if (
+        conversations.length === 0 ||
+        (requiresConversationWidgetJoin && !conversations.some((conversation) => conversation.widget_id === intent.widget_id))
+      ) {
+        return false;
+      }
+
+      if (
+        excludesAppliedReply &&
+        fake.messages.some((message) =>
+          message.conversation_id === intent.conversation_id &&
+          message.sender === 'agent' &&
+          message.client_message_id === `local-panda-reply-v1:${intent.id}`,
+        )
+      ) {
+        return false;
+      }
+
+      return true;
+    }),
+    orders,
+  );
 }
 
 function selectAuthSessionRow(fake: FakeConsoleWidgetSettingsDatabase, wheres: WhereClause[]): unknown | undefined {
@@ -1018,6 +1159,69 @@ function assertAppliedLocalReplyQuery(fake: FakeConsoleWidgetSettingsDatabase, w
   ]);
 }
 
+function assertClaimedLocalReplyCandidateQuery(fake: FakeConsoleWidgetSettingsDatabase, widgetId: string): void {
+  const log = localReplyCandidateQuery(fake, widgetId, 'claimed');
+
+  assert.ok(log, `expected claimed local reply candidate query for widget ${widgetId}`);
+  assert.equal(hasJoinRef(log, 'conversations.id', 'panda_delivery_intents.conversation_id'), true);
+  assert.equal(hasJoinRef(log, 'conversations.widget_id', 'panda_delivery_intents.widget_id'), true);
+  assert.equal(hasWhere(log, 'panda_delivery_intents.widget_id', widgetId), true);
+  assert.equal(hasWhere(log, 'panda_delivery_intents.status', 'claimed'), true);
+  assert.equal(
+    log.wheres.some((where) =>
+      where.column === 'panda_delivery_intents.claimed_at' && where.operator === 'is not' && where.value === null,
+    ),
+    true,
+  );
+  assert.equal(hasWhere(log, LOCAL_REPLY_NOT_EXISTS_WHERE, true), true);
+  assert.deepEqual(log.orders, [
+    { column: 'panda_delivery_intents.claimed_at', direction: 'asc' },
+    { column: 'panda_delivery_intents.created_at', direction: 'asc' },
+    { column: 'panda_delivery_intents.id', direction: 'asc' },
+  ]);
+}
+
+function assertQueuedLocalReplyCandidateQuery(fake: FakeConsoleWidgetSettingsDatabase, widgetId: string): void {
+  const log = localReplyCandidateQuery(fake, widgetId, 'queued');
+
+  assert.ok(log, `expected queued local reply candidate query for widget ${widgetId}`);
+  assert.equal(hasJoinRef(log, 'conversations.id', 'panda_delivery_intents.conversation_id'), true);
+  assert.equal(hasJoinRef(log, 'conversations.widget_id', 'panda_delivery_intents.widget_id'), true);
+  assert.equal(hasWhere(log, 'panda_delivery_intents.widget_id', widgetId), true);
+  assert.equal(hasWhere(log, 'panda_delivery_intents.status', 'queued'), true);
+  assert.deepEqual(log.orders, [
+    { column: 'panda_delivery_intents.created_at', direction: 'asc' },
+    { column: 'panda_delivery_intents.id', direction: 'asc' },
+  ]);
+}
+
+function localReplyCandidateQuery(
+  fake: FakeConsoleWidgetSettingsDatabase,
+  widgetId: string,
+  status: string,
+): SelectLog | undefined {
+  return fake.selects.find((select) =>
+    select.table === 'panda_delivery_intents' &&
+    select.joins.includes('conversations') &&
+    !select.joins.includes('messages') &&
+    hasWhere(select, 'panda_delivery_intents.widget_id', widgetId) &&
+    hasWhere(select, 'panda_delivery_intents.status', status),
+  );
+}
+
+function assertSettingsCandidateFields(value: unknown): void {
+  assert.ok(isRecord(value));
+  assert.deepEqual(Object.keys(value).sort(), [
+    'claimedAt',
+    'clientMessageId',
+    'conversationId',
+    'createdAt',
+    'id',
+    'status',
+    'visitorMessageId',
+  ]);
+}
+
 function assertOwnedWidgetQuery(fake: FakeConsoleWidgetSettingsDatabase, workspaceId: string, siteId: string, widgetId: string): void {
   assert.equal(
     fake.selects.some((log) =>
@@ -1219,6 +1423,8 @@ test('console widget settings PATCH accepts only safe fields and updates timesta
       { config: { theme: { colorMode: 'sepia' } } },
       { config: { assistant: { displayName: '<b>Bad</b>' } } },
       { connection: { status: 'configured_placeholder' } },
+      { connection: { nextLocalReplyCandidate: { id: 'intent-client-choice' } } },
+      { connection: { nextLocalReplyTarget: 'intent-client-choice' } },
       {
         connection: {
           localDelivery: {
@@ -1316,6 +1522,7 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
         lastClaimedAt: null,
         appliedLocalReplyCount: 0,
         lastAppliedLocalReplyAt: null,
+        nextLocalReplyCandidate: null,
       },
     });
 
@@ -1338,6 +1545,7 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
         lastClaimedAt: null,
         appliedLocalReplyCount: 0,
         lastAppliedLocalReplyAt: null,
+        nextLocalReplyCandidate: null,
       },
     });
 
@@ -1367,6 +1575,7 @@ test('console widget settings GET and PATCH manage the Panda connection placehol
         lastClaimedAt: null,
         appliedLocalReplyCount: 0,
         lastAppliedLocalReplyAt: null,
+        nextLocalReplyCandidate: null,
       },
     });
 
@@ -1395,6 +1604,8 @@ test('console widget settings GET exposes queued and claimed local delivery stat
     deliveryIntentRow('intent-a2-claimed-null', WIDGET_A2, 'claimed', '2026-01-01T00:06:00.000Z'),
     deliveryIntentRow('intent-b', WIDGET_B, 'claimed', '2026-01-01T00:07:00.000Z', '2026-01-01T00:07:30.000Z'),
   ];
+  const claimedCandidate = fake.deliveryIntents.find((intent) => intent.id === 'intent-a-claimed-newer');
+  assert.ok(claimedCandidate);
   const app = createConsoleApp(fake);
 
   try {
@@ -1412,6 +1623,7 @@ test('console widget settings GET exposes queued and claimed local delivery stat
       lastClaimedAt: '2026-01-01T00:04:30.000Z',
       appliedLocalReplyCount: 0,
       lastAppliedLocalReplyAt: null,
+      nextLocalReplyCandidate: localReplyCandidateSummary(claimedCandidate),
     });
     assertLocalDeliveryQuery(fake, WIDGET_A);
 
@@ -1429,8 +1641,132 @@ test('console widget settings GET exposes queued and claimed local delivery stat
       lastClaimedAt: null,
       appliedLocalReplyCount: 0,
       lastAppliedLocalReplyAt: null,
+      nextLocalReplyCandidate: null,
     });
     assertLocalDeliveryQuery(fake, WIDGET_A2);
+  } finally {
+    await app.close();
+  }
+});
+
+test('console widget settings GET exposes only the scoped next local manual reply candidate summary', async () => {
+  const fake = createFakeConsoleWidgetSettingsDatabase();
+  const appliedClaimed = deliveryIntentRow(
+    'intent-claimed-applied',
+    WIDGET_A,
+    'claimed',
+    '2026-01-01T00:00:30.000Z',
+    '2026-01-01T00:00:40.000Z',
+    CONVERSATION_A,
+  );
+  const wrongConversationWidget = deliveryIntentRow(
+    'intent-wrong-conversation-widget',
+    WIDGET_A,
+    'claimed',
+    '2026-01-01T00:00:35.000Z',
+    '2026-01-01T00:00:45.000Z',
+    CONVERSATION_B,
+  );
+  const queuedForOwnedWidget = deliveryIntentRow(
+    'intent-a-queued-oldest',
+    WIDGET_A,
+    'queued',
+    '2026-01-01T00:01:00.000Z',
+  );
+  const oldestClaimedUnapplied = deliveryIntentRow(
+    'intent-claimed-unapplied-oldest',
+    WIDGET_A,
+    'claimed',
+    '2026-01-01T00:02:00.000Z',
+    '2026-01-01T00:02:30.000Z',
+    CONVERSATION_A,
+  );
+  const newerClaimedUnapplied = deliveryIntentRow(
+    'intent-claimed-unapplied-newer',
+    WIDGET_A,
+    'claimed',
+    '2026-01-01T00:02:10.000Z',
+    '2026-01-01T00:03:30.000Z',
+    CONVERSATION_A,
+  );
+  const nullClaimedAt = deliveryIntentRow(
+    'intent-claimed-null-at',
+    WIDGET_A,
+    'claimed',
+    '2026-01-01T00:04:00.000Z',
+    null,
+    CONVERSATION_A,
+  );
+  const queuedFallbackById = deliveryIntentRow(
+    'intent-a2-queued-a',
+    WIDGET_A2,
+    'queued',
+    '2026-01-01T00:05:00.000Z',
+    null,
+    CONVERSATION_A2,
+  );
+  const queuedFallbackLaterById = deliveryIntentRow(
+    'intent-a2-queued-b',
+    WIDGET_A2,
+    'queued',
+    '2026-01-01T00:05:00.000Z',
+    null,
+    CONVERSATION_A2,
+  );
+  fake.deliveryIntents = [
+    queuedForOwnedWidget,
+    appliedClaimed,
+    wrongConversationWidget,
+    newerClaimedUnapplied,
+    oldestClaimedUnapplied,
+    nullClaimedAt,
+    deliveryIntentRow('intent-other-widget-claimed', WIDGET_B, 'claimed', '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:02.000Z'),
+    queuedFallbackLaterById,
+    queuedFallbackById,
+  ];
+  fake.messages = [
+    messageRow(
+      'message-applied-claimed',
+      CONVERSATION_A,
+      1,
+      'agent',
+      `local-panda-reply-v1:${appliedClaimed.id}`,
+      '2026-01-01T00:06:00.000Z',
+    ),
+  ];
+  const app = createConsoleApp(fake);
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/console/sites/${SITE_A}/widgets/${WIDGET_A}/settings`,
+      headers: { cookie: sessionCookie(TOKEN_A) },
+    });
+
+    assert.equal(response.statusCode, 200);
+    const candidate = response.json().connection.localDelivery.nextLocalReplyCandidate;
+
+    assert.deepEqual(candidate, localReplyCandidateSummary(oldestClaimedUnapplied));
+    assertSettingsCandidateFields(candidate);
+    assert.doesNotMatch(JSON.stringify(response.json()), /routeHandleSnapshot|route_handle_snapshot|visitorSessionId|visitor_session_id/);
+    assert.doesNotMatch(JSON.stringify(response.json()), /Local fake reply diagnostic test row/);
+    assertClaimedLocalReplyCandidateQuery(fake, WIDGET_A);
+    assert.equal(localReplyCandidateQuery(fake, WIDGET_A, 'queued'), undefined);
+
+    const queuedFallback = await app.inject({
+      method: 'GET',
+      url: `/api/console/sites/${SITE_A2}/widgets/${WIDGET_A2}/settings`,
+      headers: { cookie: sessionCookie(TOKEN_A) },
+    });
+
+    assert.equal(queuedFallback.statusCode, 200);
+    assert.deepEqual(
+      queuedFallback.json().connection.localDelivery.nextLocalReplyCandidate,
+      localReplyCandidateSummary(queuedFallbackById),
+    );
+    assertSettingsCandidateFields(queuedFallback.json().connection.localDelivery.nextLocalReplyCandidate);
+    assertClaimedLocalReplyCandidateQuery(fake, WIDGET_A2);
+    assertQueuedLocalReplyCandidateQuery(fake, WIDGET_A2);
   } finally {
     await app.close();
   }
@@ -1551,6 +1887,14 @@ test('console widget settings source keeps local fake reply applications owner-o
   assert.match(
     consoleWidgetSettingsSource,
     /onRef\('conversations\.widget_id', '=', 'panda_delivery_intents\.widget_id'\)/,
+  );
+  assert.match(
+    consoleWidgetSettingsSource,
+    /readConsoleWidgetOldestClaimedUnappliedIntent[\s\S]*whereRef\('messages\.conversation_id', '=', 'panda_delivery_intents\.conversation_id'\)[\s\S]*where\('messages\.sender', '=', 'agent'\)[\s\S]*where\('messages\.client_message_id', '=', sql<string>`'local-panda-reply-v1:' \|\| panda_delivery_intents\.id::text`\)/,
+  );
+  assert.match(
+    consoleWidgetSettingsSource,
+    /readConsoleWidgetOldestClaimedUnappliedIntent[\s\S]*orderBy\('panda_delivery_intents\.claimed_at', 'asc'\)[\s\S]*orderBy\('panda_delivery_intents\.created_at', 'asc'\)[\s\S]*orderBy\('panda_delivery_intents\.id', 'asc'\)/,
   );
 });
 
