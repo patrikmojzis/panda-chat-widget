@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react';
 import {
   applyWidgetChatMessage,
   createWidgetChatMessagesState,
@@ -17,6 +17,7 @@ import {
   type WidgetBootstrapLoadState,
   type WidgetBootstrapResponse,
 } from './widget-bootstrap';
+import { resolveWidgetComposerKeyAction } from './widget-composer';
 import type { WidgetPublicKeyState } from './widget-public-key';
 import { resolveWidgetTheme } from './widget-theme';
 import { getOrCreateWidgetVisitorKey } from './widget-visitor-identity';
@@ -217,10 +218,8 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     };
   }, [baseHref, publicKey]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (chatState.status !== 'ready') {
+  async function submitDraftMessage() {
+    if (chatState.status !== 'ready' || chatState.sendStatus === 'sending') {
       return;
     }
 
@@ -248,6 +247,25 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     }
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void submitDraftMessage();
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    const keyAction = resolveWidgetComposerKeyAction(event, draftMessage);
+
+    if (!keyAction.shouldPreventDefault) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (keyAction.shouldSubmit) {
+      void submitDraftMessage();
+    }
+  }
+
   if (chatState.status === 'loading') {
     return <WidgetStateMessage tone="loading" title="Starting chat…" body="Connecting you now." />;
   }
@@ -262,7 +280,7 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     ? 'Sending your message…'
     : chatState.sendStatus === 'error'
       ? 'Couldn’t send. Try again.'
-      : 'Press Enter to send.';
+      : 'Press Enter to send. Shift+Enter for a new line.';
   const composerStatusRole = chatState.sendStatus === 'error' ? 'alert' : 'status';
 
   return (
@@ -289,11 +307,12 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
       >
         <label className="widget-chat__composer-field" htmlFor="widget-chat-message-input">
           <span>Message</span>
-          <input
+          <textarea
             id="widget-chat-message-input"
-            type="text"
+            rows={3}
             value={draftMessage}
             onChange={(event) => setDraftMessage(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
             placeholder="Type your message…"
             autoComplete="off"
             aria-describedby="widget-chat-composer-status"
