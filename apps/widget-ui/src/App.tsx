@@ -1,4 +1,4 @@
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react';
+import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   applyWidgetChatMessage,
   createWidgetChatMessagesState,
@@ -159,6 +159,9 @@ type WidgetChatProps = {
 function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   const [chatState, setChatState] = useState<WidgetChatState>({ status: 'loading' });
   const [draftMessage, setDraftMessage] = useState('');
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const renderedMessageCount = chatState.status === 'ready' ? chatState.messageState.messages.length : 0;
+  const latestRenderedSeq = chatState.status === 'ready' ? chatState.messageState.latestSeq : 0;
 
   useEffect(() => {
     let isCurrent = true;
@@ -217,6 +220,32 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
       subscription?.close();
     };
   }, [baseHref, publicKey]);
+
+  useLayoutEffect(() => {
+    if (renderedMessageCount === 0) {
+      return;
+    }
+
+    const messageScrollElement = messageScrollRef.current;
+
+    if (!messageScrollElement) {
+      return;
+    }
+
+    const scrollElement = messageScrollElement;
+
+    function scrollMessagesToBottom() {
+      scrollElement.scrollTop = scrollElement.scrollHeight;
+    }
+
+    scrollMessagesToBottom();
+
+    const animationFrameId = requestAnimationFrame(scrollMessagesToBottom);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [renderedMessageCount, latestRenderedSeq]);
 
   async function submitDraftMessage() {
     if (chatState.status !== 'ready' || chatState.sendStatus === 'sending') {
@@ -285,7 +314,7 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
 
   return (
     <div className="widget-chat" aria-label={`${assistantName} conversation`}>
-      <div className="widget-chat__messages" aria-live="polite">
+      <div className="widget-chat__messages" aria-live="polite" ref={messageScrollRef}>
         {chatState.messageState.messages.length === 0 ? (
           <WidgetStateMessage tone="empty" title="No messages yet" body="Send a message below to start the conversation." />
         ) : (

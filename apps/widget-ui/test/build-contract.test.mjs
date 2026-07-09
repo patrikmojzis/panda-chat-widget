@@ -226,6 +226,35 @@ test('chat panel message layout keeps messages scrollable and wrapped', () => {
 ${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
 });
 
+
+test('widget chat auto-scrolls only the message pane after latest rendered message layout settles', () => {
+  const loadingReturnIndex = appSource.indexOf("if (chatState.status === 'loading') {");
+  const refMatch = appSource.match(/const messageScrollRef = useRef<HTMLDivElement \| null>\(null\);/);
+  const countMatch = appSource.match(/const renderedMessageCount =\s*chatState\.status === 'ready'\s*\?\s*chatState\.messageState\.messages\.length\s*:\s*0;/);
+  const latestSeqMatch = appSource.match(/const latestRenderedSeq =\s*chatState\.status === 'ready'\s*\?\s*chatState\.messageState\.latestSeq\s*:\s*0;/);
+  const effectMatch = appSource.match(/useLayoutEffect\(\(\) => \{([\s\S]*?)\n  \}, \[([^\]]+)\]\);/);
+
+  assert.ok(loadingReturnIndex > -1);
+  assert.ok(refMatch?.index !== undefined && refMatch.index < loadingReturnIndex);
+  assert.ok(countMatch?.index !== undefined && countMatch.index < loadingReturnIndex);
+  assert.ok(latestSeqMatch?.index !== undefined && latestSeqMatch.index < loadingReturnIndex);
+  assert.ok(effectMatch?.index !== undefined && effectMatch.index < loadingReturnIndex);
+  assert.match(appSource, /<div className="widget-chat__messages" aria-live="polite" ref=\{messageScrollRef\}>/);
+
+  const [, effectBody, effectDeps] = effectMatch;
+  assert.match(effectBody, /if \(renderedMessageCount === 0\) \{\s*return;\s*\}/);
+  assert.match(effectBody, /const messageScrollElement = messageScrollRef\.current;/);
+  assert.match(effectBody, /if \(!messageScrollElement\) \{\s*return;\s*\}/);
+  assert.match(effectBody, /function scrollMessagesToBottom\(\) \{[\s\S]*\b(\w+)\.scrollTop = \1\.scrollHeight;[\s\S]*\}/);
+  assert.match(effectBody, /scrollMessagesToBottom\(\);[\s\S]*const animationFrameId = requestAnimationFrame\(scrollMessagesToBottom\);/);
+  assert.match(effectBody, /return \(\) => \{[\s\S]*cancelAnimationFrame\(animationFrameId\);[\s\S]*\};/);
+  assert.equal(effectBody.match(/\brequestAnimationFrame\(/g)?.length, 1);
+  assert.equal(effectBody.match(/\bcancelAnimationFrame\(/g)?.length, 1);
+  assert.equal(effectDeps.replace(/\s/g, ''), 'renderedMessageCount,latestRenderedSeq');
+  assert.doesNotMatch(effectDeps, /chatState|messages|sendStatus|draft/i);
+  assert.doesNotMatch(effectBody, /setChatState|setDraftMessage|window|document|parent|postMessage|ResizeObserver|setTimeout|setInterval|focus\(|scrollIntoView|scrollTo\(|behavior/i);
+});
+
 test('composer interaction exposes multiline textarea submit affordance and accessible states', () => {
   assert.match(appSource, /const isSending = chatState\.sendStatus === 'sending';/);
   assert.match(appSource, /const canSend = !isSending && draftMessage\.trim\(\)\.length > 0;/);
