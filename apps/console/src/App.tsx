@@ -1,4 +1,4 @@
-import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useState } from 'react';
+import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
   createSite,
@@ -801,8 +801,14 @@ function WidgetSettingsPage({
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
   const [connectionSubmitState, setConnectionSubmitState] = useState<SubmitState>('idle');
   const [domainSubmitState, setDomainSubmitState] = useState<SubmitState>('idle');
+  const [diagnosticsRefreshState, setDiagnosticsRefreshState] = useState<SubmitState>('idle');
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
   const [targetCopyState, setTargetCopyState] = useState<'idle' | 'copied'>('idle');
+  const currentWidgetRef = useRef({ siteId, widgetId });
+  const currentCandidateIdRef = useRef<string | null>(null);
+  currentWidgetRef.current = { siteId, widgetId };
+  currentCandidateIdRef.current =
+    state.status === 'ready' ? (state.settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null) : null;
 
   useEffect(() => {
     let isCurrent = true;
@@ -833,6 +839,7 @@ function WidgetSettingsPage({
     setState({ status: 'loading' });
     setForm(null);
     setConnectionDraft('');
+    setDiagnosticsRefreshState('idle');
     void loadWidgetSettings();
 
     return () => {
@@ -977,6 +984,51 @@ function WidgetSettingsPage({
     }
   }
 
+  async function handleLocalDiagnosticsRefresh() {
+    const diagnosticsSiteId = siteId;
+    const diagnosticsWidgetId = widgetId;
+    setDiagnosticsRefreshState('submitting');
+
+    try {
+      const refreshedSettings = await getWidgetSettings(diagnosticsSiteId, diagnosticsWidgetId);
+
+      if (currentWidgetRef.current.siteId !== diagnosticsSiteId || currentWidgetRef.current.widgetId !== diagnosticsWidgetId) {
+        return;
+      }
+
+      const refreshedLocalDelivery = refreshedSettings.connection.localDelivery;
+      const refreshedCandidateId = refreshedLocalDelivery.nextLocalReplyCandidate?.id ?? null;
+
+      if (currentCandidateIdRef.current !== refreshedCandidateId) {
+        setTargetCopyState('idle');
+      }
+
+      setState((currentState) => {
+        if (currentState.status !== 'ready') {
+          return currentState;
+        }
+
+        return {
+          ...currentState,
+          settings: {
+            ...currentState.settings,
+            connection: {
+              ...currentState.settings.connection,
+              localDelivery: refreshedLocalDelivery,
+            },
+          },
+        };
+      });
+      setDiagnosticsRefreshState('idle');
+    } catch {
+      if (currentWidgetRef.current.siteId !== diagnosticsSiteId || currentWidgetRef.current.widgetId !== diagnosticsWidgetId) {
+        return;
+      }
+
+      setDiagnosticsRefreshState('error');
+    }
+  }
+
   function handleCopySnippet(snippet: string) {
     if (navigator.clipboard) {
       void navigator.clipboard.writeText(snippet).then(() => setCopyState('copied'));
@@ -1107,17 +1159,29 @@ function WidgetSettingsPage({
         </div>
       </form>
 
-      <section className="dashboard-card" aria-labelledby="panda-connection-title">
+      <section className="dashboard-card" aria-labelledby="panda-connection-title" aria-busy={diagnosticsRefreshState === 'submitting'}>
         <div>
           <p className="eyebrow">Panda connection</p>
           <h2 id="panda-connection-title">Connection placeholder</h2>
           <p>Owner-only local deterministic fake reply diagnostic. It shows queued and claimed local future-dispatch intents plus fake reply rows applied locally; Gateway/CLI dispatch is not connected yet, so visitor messages still use the local fake reply loop.</p>
+          <p>Manual local/demo-only diagnostics refreshes re-fetch the owner widget settings endpoint without saving drafts or reloading the page.</p>
         </div>
         <div className="connection-status">
           <span className="row-pill">{formatConnectionStatus(state.settings.connection.status)}</span>
           <small>{state.settings.connection.routeHandle ? 'A placeholder route handle is saved.' : 'No route handle is saved yet.'}</small>
           <small>{formatLocalDeliveryStatus(state.settings.connection.localDelivery)}</small>
         </div>
+        <div className="button-row">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void handleLocalDiagnosticsRefresh()}
+            disabled={diagnosticsRefreshState === 'submitting'}
+          >
+            {diagnosticsRefreshState === 'submitting' ? 'Refreshing local diagnostics…' : 'Refresh local diagnostics'}
+          </button>
+        </div>
+        <FormStatus state={diagnosticsRefreshState} error="Local diagnostics could not be refreshed. Unsaved widget copy and route handle drafts were kept; try again." />
         {nextLocalReplyCandidate ? (
           <div className="list-card list-card--nested" aria-label="Next local manual reply target">
             <div className="list-row list-row--static">

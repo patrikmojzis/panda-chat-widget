@@ -10,6 +10,20 @@ const apiSource = await readFile(new URL('../src/console-api.ts', import.meta.ur
 const stylesSource = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 const viteConfigSource = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
 
+
+function sourceSlice(source, startNeedle, endNeedle) {
+  const start = source.indexOf(startNeedle);
+  assert.notEqual(start, -1);
+  const end = source.indexOf(endNeedle, start + startNeedle.length);
+  assert.notEqual(end, -1);
+
+  return source.slice(start, end);
+}
+
+function countOccurrences(source, needle) {
+  return source.split(needle).length - 1;
+}
+
 test('console package exposes Vite scripts including typecheck and check', () => {
   assert.equal(packageJson.name, '@panda-chat-widget/console');
   assert.equal(packageJson.scripts.dev, 'vite --host 127.0.0.1 --port 5174');
@@ -87,6 +101,10 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.match(appSource, /Local-only targetIntentId for local-panda:reply-manual/);
   assert.match(appSource, /Copy target ID/);
   assert.match(appSource, /No next manual reply target ID/);
+  assert.match(appSource, /Refresh local diagnostics/);
+  assert.match(appSource, /Refreshing local diagnostics…/);
+  assert.match(appSource, /Manual local\/demo-only diagnostics refreshes/);
+  assert.match(appSource, /Local diagnostics could not be refreshed/);
   assert.match(appSource, /Applied locally/);
   assert.match(appSource, /fake reply applications/);
   assert.match(appSource, /last applied locally/);
@@ -110,6 +128,54 @@ test('console UI includes setup, login, site/widget states, and preserves authen
   assert.doesNotMatch(
     sourceWithAllowedFutureDispatchCopyRemoved,
     /EventSource|WebSocket|child_process|Worker|setTimeout|setInterval|dispatcher|outbound|dead-?letter|\bretry\b|\bdelivered\b|delivery failed|failed delivery|reply-?ingestion|claimNextQueuedPandaDeliveryIntent|recordPandaDeliveryIntent|panda-delivery-intents/i,
+  );
+});
+
+
+test('console local diagnostics refresh is GET-only, guarded, and merges only local delivery', () => {
+  const handlerSource = sourceSlice(
+    appSource,
+    'async function handleLocalDiagnosticsRefresh()',
+    '  function handleCopySnippet',
+  );
+
+  assert.match(handlerSource, /const diagnosticsSiteId = siteId;/);
+  assert.match(handlerSource, /const diagnosticsWidgetId = widgetId;/);
+  assert.match(handlerSource, /getWidgetSettings\(diagnosticsSiteId, diagnosticsWidgetId\)/);
+  assert.equal(countOccurrences(handlerSource, 'getWidgetSettings('), 1);
+  assert.equal(countOccurrences(handlerSource, 'currentWidgetRef.current.siteId !== diagnosticsSiteId'), 2);
+  assert.equal(countOccurrences(handlerSource, 'currentWidgetRef.current.widgetId !== diagnosticsWidgetId'), 2);
+  assert.match(handlerSource, /setDiagnosticsRefreshState\('submitting'\)/);
+  assert.match(handlerSource, /setDiagnosticsRefreshState\('idle'\)/);
+  assert.match(handlerSource, /setDiagnosticsRefreshState\('error'\)/);
+
+  const refreshedSettingsReads = [...handlerSource.matchAll(/refreshedSettings\.[A-Za-z0-9_.]+/g)].map((match) => match[0]);
+  assert.deepEqual(refreshedSettingsReads, ['refreshedSettings.connection.localDelivery']);
+  assert.match(handlerSource, /const refreshedLocalDelivery = refreshedSettings\.connection\.localDelivery/);
+  assert.match(handlerSource, /localDelivery: refreshedLocalDelivery/);
+  assert.match(handlerSource, /\.\.\.currentState,/);
+  assert.match(handlerSource, /\.\.\.currentState\.settings,/);
+  assert.match(handlerSource, /\.\.\.currentState\.settings\.connection,/);
+
+  assert.match(handlerSource, /const refreshedCandidateId = refreshedLocalDelivery\.nextLocalReplyCandidate\?\.id \?\? null/);
+  assert.match(handlerSource, /if \(currentCandidateIdRef\.current !== refreshedCandidateId\) \{\n\s+setTargetCopyState\('idle'\);\n\s+\}/);
+  assert.equal(countOccurrences(handlerSource, "setTargetCopyState('idle')"), 1);
+
+  assert.doesNotMatch(
+    handlerSource,
+    /setForm|setConnectionDraft|formFromSettings|refreshReadyState|listWidgetDomains|setCopyState/,
+  );
+  assert.doesNotMatch(
+    handlerSource,
+    /updateWidgetSettings|createWidgetDomain|deleteWidgetDomain|createWidget|createSite|login|logout|setupFirstOwner/,
+  );
+  assert.doesNotMatch(
+    handlerSource,
+    /refreshedSettings\.widget|refreshedSettings\.config|refreshedSettings\.install|refreshedSettings\.connection\.status|refreshedSettings\.connection\.routeHandle|domains:/,
+  );
+  assert.doesNotMatch(
+    handlerSource,
+    /setTimeout|setInterval|requestAnimationFrame|EventSource|WebSocket|\bWorker\b|location\.reload|\.reload\(|window\.location|document\.location/,
   );
 });
 
