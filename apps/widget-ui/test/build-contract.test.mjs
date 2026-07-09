@@ -8,6 +8,7 @@ const packageJson = JSON.parse(await readFile(new URL('../package.json', import.
 const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const mainSource = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const composerSource = await readFile(new URL('../src/widget-composer.ts', import.meta.url), 'utf8');
 const stylesSource = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 const viteEnvSource = await readFile(new URL('../src/vite-env.d.ts', import.meta.url), 'utf8');
 const publicKeySource = await readFile(new URL('../src/widget-public-key.ts', import.meta.url), 'utf8');
@@ -52,6 +53,7 @@ function jsonSafe(value) {
 const compiledPublicKeyModule = compileTypeScript(publicKeySource);
 const compiledBootstrapModule = compileTypeScript(bootstrapSource);
 const compiledThemeModule = compileTypeScript(themeSource);
+const compiledComposerModule = compileTypeScript(composerSource);
 const compiledChatModule = compileTypeScript(chatSource);
 const compiledWidgetVisitorIdentityModule = compileTypeScript(widgetVisitorIdentitySource);
 const sharedVisitorIdentity = loadModule(compileTypeScript(sharedVisitorIdentitySource), { encodeURIComponent });
@@ -150,9 +152,11 @@ test('widget UI renders bootstrap states and a minimal live chat shell', () => {
   assert.match(viteEnvSource, /vite\/client/);
   assert.doesNotMatch(`${mainSource}
 ${appSource}
+${composerSource}
 ${chatSource}`, /XMLHttpRequest|postMessage|Gateway|WebSocket/i);
   assert.doesNotMatch(`${mainSource}
 ${appSource}
+${composerSource}
 ${bootstrapSource}
 ${chatSource}`, ownerOnlyLocalDeliveryPattern);
 });
@@ -179,9 +183,9 @@ test('mobile safe-area chat CSS keeps messages scrollable and composer reachable
   assert.match(stylesSource, /\.widget-chat__messages \{[\s\S]*overflow-y: auto;[\s\S]*overscroll-behavior: contain;[\s\S]*scroll-padding-block: 8px max\(8px, env\(safe-area-inset-bottom, 0px\)\);/);
   assert.match(stylesSource, /\.widget-chat__message \{[\s\S]*max-width: 86%;[\s\S]*overflow-wrap: anywhere;/);
   assert.match(stylesSource, /\.widget-chat__composer \{[\s\S]*position: relative;[\s\S]*z-index: 1;[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;[\s\S]*padding-bottom: max\(0px, env\(safe-area-inset-bottom, 0px\)\);/);
-  assert.match(stylesSource, /\.widget-chat__composer input \{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*min-width: 0;/);
+  assert.match(stylesSource, /\.widget-chat__composer textarea \{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*min-width: 0;[\s\S]*max-height: 96px;[\s\S]*resize: none;/);
   assert.match(stylesSource, /\.widget-chat__composer button \{[\s\S]*min-width: 0;[\s\S]*white-space: nowrap;/);
-  assert.match(stylesSource, /@media \(max-width: 359px\), \(max-height: 420px\) \{[\s\S]*\.widget-welcome \{[\s\S]*gap: 10px;[\s\S]*padding: 14px;[\s\S]*\.widget-chat__message \{[\s\S]*max-width: 92%;[\s\S]*\.widget-chat__composer input,[\s\S]*\.widget-chat__composer button \{[\s\S]*padding: 9px 10px;/);
+  assert.match(stylesSource, /@media \(max-width: 359px\), \(max-height: 420px\) \{[\s\S]*\.widget-welcome \{[\s\S]*gap: 10px;[\s\S]*padding: 14px;[\s\S]*\.widget-chat__message \{[\s\S]*max-width: 92%;[\s\S]*\.widget-chat__composer textarea,[\s\S]*\.widget-chat__composer button \{[\s\S]*padding: 9px 10px;/);
   assert.match(stylesSource, /@media \(max-width: 279px\) \{[\s\S]*\.widget-chat__composer \{[\s\S]*grid-template-columns: minmax\(0, 1fr\);[\s\S]*align-items: stretch;[\s\S]*\.widget-chat__composer button \{[\s\S]*width: 100%;/);
   assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
 });
@@ -216,21 +220,24 @@ test('chat panel message layout keeps messages scrollable and wrapped', () => {
   assert.match(stylesSource, /\.widget-chat__message \{[\s\S]*max-width: 86%;[\s\S]*justify-self: start;/);
   assert.match(stylesSource, /\.widget-chat__message\[data-sender="visitor"\] \{[\s\S]*justify-self: end;[\s\S]*background: var\(--widget-accent-color\);/);
   assert.match(stylesSource, /\.widget-chat__message\[data-sender="agent"\],[\s\S]*\.widget-chat__message\[data-sender="system"\] \{[\s\S]*justify-self: start;/);
-  assert.match(stylesSource, /\.widget-chat__message p \{[\s\S]*overflow-wrap: anywhere;/);
+  assert.match(stylesSource, /\.widget-chat__message p \{[\s\S]*overflow-wrap: anywhere;[\s\S]*white-space: pre-wrap;/);
   assert.match(stylesSource, /\.widget-chat__composer \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;/);
   assert.doesNotMatch(`${appSource}
 ${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
 });
 
-test('composer interaction exposes form submit affordance and accessible states', () => {
+test('composer interaction exposes multiline textarea submit affordance and accessible states', () => {
   assert.match(appSource, /const isSending = chatState\.sendStatus === 'sending';/);
   assert.match(appSource, /const canSend = !isSending && draftMessage\.trim\(\)\.length > 0;/);
-  assert.match(appSource, /Press Enter to send\./);
+  assert.match(appSource, /function submitDraftMessage\(\) \{[\s\S]*chatState\.status !== 'ready' \|\| chatState\.sendStatus === 'sending'[\s\S]*const body = draftMessage\.trim\(\);[\s\S]*if \(!body\)/);
+  assert.match(appSource, /Press Enter to send\. Shift\+Enter for a new line\./);
   assert.match(appSource, /Sending your message/);
   assert.match(appSource, /Couldn’t send\. Try again\./);
   assert.match(appSource, /<form[\s\S]*className="widget-chat__composer"[\s\S]*onSubmit=\{handleSubmit\}[\s\S]*data-send-status=\{chatState\.sendStatus\}[\s\S]*aria-busy=\{isSending\}/);
   assert.match(appSource, /htmlFor="widget-chat-message-input"/);
-  assert.match(appSource, /id="widget-chat-message-input"/);
+  assert.match(appSource, /<textarea[\s\S]*id="widget-chat-message-input"[\s\S]*rows=\{3\}/);
+  assert.match(appSource, /onKeyDown=\{handleComposerKeyDown\}/);
+  assert.match(appSource, /resolveWidgetComposerKeyAction\(event, draftMessage\)/);
   assert.match(appSource, /placeholder="Type your message…"/);
   assert.match(appSource, /autoComplete="off"/);
   assert.match(appSource, /aria-describedby="widget-chat-composer-status"/);
@@ -239,16 +246,43 @@ test('composer interaction exposes form submit affordance and accessible states'
   assert.match(appSource, /aria-label=\{isSending \? 'Sending message' : 'Send message'\}/);
   assert.match(appSource, /role=\{composerStatusRole\}/);
   assert.match(stylesSource, /\.widget-chat__composer-field \{[\s\S]*min-width: 0;[\s\S]*display: grid;/);
-  assert.match(stylesSource, /\.widget-chat__composer input::placeholder \{[\s\S]*color: #94a3b8;/);
-  assert.match(stylesSource, /\.widget-chat__composer input:focus-visible,[\s\S]*\.widget-chat__composer button:focus-visible \{[\s\S]*outline: 2px solid var\(--widget-accent-focus-color\);/);
+  assert.match(stylesSource, /\.widget-chat__composer textarea \{[\s\S]*min-height: 74px;[\s\S]*max-height: 96px;[\s\S]*resize: none;/);
+  assert.match(stylesSource, /\.widget-chat__composer textarea::placeholder \{[\s\S]*color: #94a3b8;/);
+  assert.match(stylesSource, /\.widget-chat__composer textarea:focus-visible,[\s\S]*\.widget-chat__composer button:focus-visible \{[\s\S]*outline: 2px solid var\(--widget-accent-focus-color\);/);
   assert.match(stylesSource, /\.widget-chat__composer button:disabled \{[\s\S]*background: #94a3b8;/);
   assert.match(stylesSource, /\.widget-chat__composer-status \{[\s\S]*grid-column: 1 \/ -1;[\s\S]*min-height: 18px;/);
   assert.match(stylesSource, /\.widget-chat__composer\[data-send-status="sending"\] \.widget-chat__composer-status \{[\s\S]*color: var\(--widget-accent-color\);/);
-  assert.match(stylesSource, /\.widget-chat__composer\[data-send-status="error"\] input \{[\s\S]*border-color: #dc2626;/);
+  assert.match(stylesSource, /\.widget-chat__composer\[data-send-status="error"\] textarea \{[\s\S]*border-color: #dc2626;/);
   assert.match(stylesSource, /\.widget-chat__composer\[data-send-status="error"\] \.widget-chat__composer-status \{[\s\S]*color: #dc2626;[\s\S]*font-weight: 700;/);
-  assert.doesNotMatch(appSource, /onKeyDown|onKeyUp|KeyboardEvent/);
+  assert.doesNotMatch(appSource, /<input|type="text"|onKeyUp/);
   assert.doesNotMatch(`${appSource}
+${composerSource}
 ${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
+});
+
+test('composer keyboard behavior submits plain Enter without breaking multiline input or IME composition', () => {
+  const { resolveWidgetComposerKeyAction } = loadModule(compiledComposerModule);
+
+  assert.deepEqual(jsonSafe(resolveWidgetComposerKeyAction({ key: 'Enter', shiftKey: false, nativeEvent: { isComposing: false } }, '  Hello\n')), {
+    shouldPreventDefault: true,
+    shouldSubmit: true,
+  });
+  assert.deepEqual(jsonSafe(resolveWidgetComposerKeyAction({ key: 'Enter', shiftKey: false, nativeEvent: { isComposing: false } }, '  \n  ')), {
+    shouldPreventDefault: true,
+    shouldSubmit: false,
+  });
+  assert.deepEqual(jsonSafe(resolveWidgetComposerKeyAction({ key: 'Enter', shiftKey: true, nativeEvent: { isComposing: false } }, 'Hello')), {
+    shouldPreventDefault: false,
+    shouldSubmit: false,
+  });
+  assert.deepEqual(jsonSafe(resolveWidgetComposerKeyAction({ key: 'Enter', shiftKey: false, nativeEvent: { isComposing: true } }, 'Hello')), {
+    shouldPreventDefault: false,
+    shouldSubmit: false,
+  });
+  assert.deepEqual(jsonSafe(resolveWidgetComposerKeyAction({ key: 'a', shiftKey: false, nativeEvent: { isComposing: false } }, 'Hello')), {
+    shouldPreventDefault: false,
+    shouldSubmit: false,
+  });
 });
 
 test('chat surface uses safe branding tokens from data attributes', () => {
@@ -260,8 +294,8 @@ test('chat surface uses safe branding tokens from data attributes', () => {
   assert.match(stylesSource, /\.widget-welcome--accent-blue \.widget-welcome__assistant \{[\s\S]*color: var\(--widget-accent-color\);/);
   assert.match(stylesSource, /\.widget-chat__message \{[\s\S]*border-radius: var\(--widget-card-radius\);[\s\S]*border-bottom-left-radius: var\(--widget-tail-radius\);/);
   assert.match(stylesSource, /\.widget-chat__message\[data-sender="visitor"\] \{[\s\S]*border-color: var\(--widget-accent-color\);[\s\S]*background: var\(--widget-accent-color\);/);
-  assert.match(stylesSource, /\.widget-chat__composer input \{[\s\S]*border-radius: var\(--widget-pill-radius\);/);
-  assert.match(stylesSource, /\.widget-chat__composer input:focus-visible \{[\s\S]*border-color: var\(--widget-accent-color\);/);
+  assert.match(stylesSource, /\.widget-chat__composer textarea \{[\s\S]*border-radius: var\(--widget-card-radius\);/);
+  assert.match(stylesSource, /\.widget-chat__composer textarea:focus-visible \{[\s\S]*border-color: var\(--widget-accent-color\);/);
   assert.match(stylesSource, /\.widget-chat__composer button \{[\s\S]*border-radius: var\(--widget-pill-radius\);[\s\S]*background: var\(--widget-accent-color\);/);
   assert.match(stylesSource, /\.widget-chat__composer\[data-send-status="sending"\] \.widget-chat__composer-status \{[\s\S]*color: var\(--widget-accent-color\);/);
   assert.match(stylesSource, /\.widget-welcome\[data-color-mode="dark"\] \.widget-chat__message\[data-sender="visitor"\],[\s\S]*\.widget-welcome--mode-dark \.widget-chat__message\[data-sender="visitor"\] \{[\s\S]*border-color: var\(--widget-accent-border-color\);[\s\S]*background: var\(--widget-accent-color\);/);
@@ -302,6 +336,7 @@ test('theme config path has no arbitrary CSS or HTML injection surface', () => {
   const themeProductSources = [
     mainSource,
     appSource,
+    composerSource,
     bootstrapSource,
     themeSource,
     chatSource,

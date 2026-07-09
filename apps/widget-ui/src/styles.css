@@ -268,6 +268,7 @@ body {
   font-size: 14px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .widget-chat__composer {
@@ -293,28 +294,34 @@ body {
   font-weight: 700;
 }
 
-.widget-chat__composer input {
+.widget-chat__composer textarea {
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  min-height: 74px;
+  max-height: 96px;
   padding: 10px 12px;
+  overflow-y: auto;
+  resize: none;
   border: 1px solid #cbd5e1;
-  border-radius: var(--widget-pill-radius);
+  border-radius: var(--widget-card-radius);
   color: #0f172a;
   background: #ffffff;
+  font: inherit;
+  line-height: 1.4;
 }
 
-.widget-chat__composer input::placeholder {
+.widget-chat__composer textarea::placeholder {
   color: #94a3b8;
 }
 
-.widget-chat__composer input:focus-visible,
+.widget-chat__composer textarea:focus-visible,
 .widget-chat__composer button:focus-visible {
   outline: 2px solid var(--widget-accent-focus-color);
   outline-offset: 2px;
 }
 
-.widget-chat__composer input:focus-visible {
+.widget-chat__composer textarea:focus-visible {
   border-color: var(--widget-accent-color);
 }
 
@@ -335,7 +342,7 @@ body {
 }
 
 .widget-chat__composer button:disabled,
-.widget-chat__composer input:disabled {
+.widget-chat__composer textarea:disabled {
   cursor: not-allowed;
   opacity: 0.7;
 }
@@ -353,7 +360,7 @@ body {
   color: var(--widget-accent-color);
 }
 
-.widget-chat__composer[data-send-status="error"] input {
+.widget-chat__composer[data-send-status="error"] textarea {
   border-color: #dc2626;
 }
 
@@ -403,8 +410,8 @@ body {
   background: var(--widget-accent-color);
 }
 
-.widget-welcome[data-color-mode="dark"] .widget-chat__composer input,
-.widget-welcome--mode-dark .widget-chat__composer input {
+.widget-welcome[data-color-mode="dark"] .widget-chat__composer textarea,
+.widget-welcome--mode-dark .widget-chat__composer textarea {
   color: #e5edf8;
   border-color: #334155;
   background: #0f172a;
@@ -457,7 +464,7 @@ body {
     gap: 6px;
   }
 
-  .widget-chat__composer input,
+  .widget-chat__composer textarea,
   .widget-chat__composer button {
     padding: 9px 10px;
   }
@@ -528,8 +535,8 @@ body {
     background: var(--widget-accent-color);
   }
 
-  .widget-welcome[data-color-mode="system"] .widget-chat__composer input,
-  .widget-welcome--mode-system .widget-chat__composer input {
+  .widget-welcome[data-color-mode="system"] .widget-chat__composer textarea,
+  .widget-welcome--mode-system .widget-chat__composer textarea {
     color: #e5edf8;
     border-color: #334155;
     background: #0f172a;
