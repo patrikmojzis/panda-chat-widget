@@ -324,7 +324,7 @@ test('widget chat source contract preserves reader position and offers one jump-
 test('composer interaction exposes multiline textarea submit affordance and accessible states', () => {
   assert.match(appSource, /const isSending = chatState\.sendStatus === 'sending';/);
   assert.match(appSource, /const canSend = !isSending && draftMessage\.trim\(\)\.length > 0;/);
-  assert.match(appSource, /function submitDraftMessage\(\) \{[\s\S]*chatState\.status !== 'ready' \|\| chatState\.sendStatus === 'sending'[\s\S]*const body = draftMessage\.trim\(\);[\s\S]*if \(!body\)/);
+  assert.match(appSource, /function submitDraftMessage\(\) \{[\s\S]*sendInFlightRef\.current \|\| chatState\.status !== 'ready'[\s\S]*const draftSource = draftMessageRef\.current;[\s\S]*const normalizedBody = draftSource\.trim\(\);[\s\S]*if \(!normalizedBody\)/);
   assert.match(appSource, /Press Enter to send\. Shift\+Enter for a new line\./);
   assert.match(appSource, /Sending your message/);
   assert.match(appSource, /Couldn’t send\. Try again\./);
@@ -353,6 +353,51 @@ test('composer interaction exposes multiline textarea submit affordance and acce
   assert.doesNotMatch(`${appSource}
 ${composerSource}
 ${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
+});
+
+test('composer failed-send retry keeps one scoped in-page attempt', () => {
+  // Source proves wiring/order/privacy only; browser and real Postgres probes must prove races and idempotency.
+  const widgetChat = appSource.match(/function WidgetChat[\s\S]*?\n}\n\nfunction mergeLiveMessage/)?.[0] ?? '';
+  const submit = widgetChat.match(/async function submitDraftMessage[\s\S]*?\n  }\n\n  function handleMessageScroll/)?.[0] ?? '';
+  const pendingDeclaration = widgetChat.match(/const pendingSendAttemptRef = useRef<\{[\s\S]*?\} \| null>\(null\);/)?.[0] ?? '';
+  const composerChange = widgetChat.match(/onChange=\{\(event\) => \{[\s\S]*?\}\}/)?.[0] ?? '';
+  const readyMarkup = widgetChat.match(/return \(\s*<div className="widget-chat"[\s\S]*?\n  \);\n}/)?.[0] ?? '';
+
+  assert.match(pendingDeclaration, /publicKey: string;[\s\S]*visitorSessionId: string;[\s\S]*conversationId: string;[\s\S]*normalizedBody: string;[\s\S]*clientMessageId: string;/);
+  assert.equal(pendingDeclaration.match(/: string;/g)?.length, 5);
+  assert.match(submit, /pendingAttempt\?\.publicKey === publicKey[\s\S]*pendingAttempt\.visitorSessionId === chatState\.visitorSessionId[\s\S]*pendingAttempt\.conversationId === chatState\.conversationId[\s\S]*pendingAttempt\.normalizedBody === normalizedBody[\s\S]*\? pendingAttempt/);
+
+  const orderedSendSteps = [
+    'if (sendInFlightRef.current',
+    'sendInFlightRef.current = true;',
+    'try {',
+    'createWidgetClientMessageId()',
+    'pendingSendAttemptRef.current = attempt;',
+    "draftMessageRef.current = '';",
+    "setDraftMessage('');",
+    'await sendWidgetMessage(',
+    '} catch {',
+    '} finally {',
+    'sendInFlightRef.current = false;',
+  ].map((step) => submit.indexOf(step));
+  assert.ok(orderedSendSteps.every((position) => position >= 0));
+  assert.deepEqual(orderedSendSteps, [...orderedSendSteps].sort((left, right) => left - right));
+
+  assert.equal(submit.match(/pendingSendAttemptRef\.current === attempt/g)?.length, 2);
+  assert.match(submit, /if \(pendingSendAttemptRef\.current === attempt\) \{\s*pendingSendAttemptRef\.current = null;/);
+  assert.match(submit, /catch \{[\s\S]*if \(attempt === null && draftMessageRef\.current === draftSource\) \{\s*draftMessageRef\.current = normalizedBody;\s*setDraftMessage\(normalizedBody\);[\s\S]*else if \(attempt !== null && pendingSendAttemptRef\.current === attempt\) \{\s*draftMessageRef\.current = attempt\.normalizedBody;\s*setDraftMessage\(attempt\.normalizedBody\);/);
+  assert.match(submit, /finally \{\s*sendInFlightRef\.current = false;\s*\}/);
+
+  const orderedEditSteps = [
+    'pendingSendAttemptRef.current = null;',
+    'draftMessageRef.current = event.target.value;',
+    'setDraftMessage(event.target.value);',
+  ].map((step) => composerChange.indexOf(step));
+  assert.ok(orderedEditSteps.every((position) => position >= 0));
+  assert.deepEqual(orderedEditSteps, [...orderedEditSteps].sort((left, right) => left - right));
+  assert.doesNotMatch(widgetChat, /localStorage|sessionStorage|indexedDB|document\.cookie|console\./);
+  assert.ok(readyMarkup);
+  assert.doesNotMatch(readyMarkup, /clientMessageId/);
 });
 
 test('composer keyboard behavior submits plain Enter without breaking multiline input or IME composition', () => {
