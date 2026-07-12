@@ -165,6 +165,15 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const [draftMessage, setDraftMessage] = useState('');
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const draftMessageRef = useRef('');
+  const sendInFlightRef = useRef(false);
+  const pendingSendAttemptRef = useRef<{
+    publicKey: string;
+    visitorSessionId: string;
+    conversationId: string;
+    normalizedBody: string;
+    clientMessageId: string;
+  } | null>(null);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const visitorKeyRef = useRef<{ publicKey: string; visitorKey: string } | null>(null);
   const retryPendingRef = useRef(false);
@@ -320,31 +329,63 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   }, [readyConversationId, latestRenderedSeq]);
 
   async function submitDraftMessage() {
-    if (chatState.status !== 'ready' || chatState.sendStatus === 'sending') {
+    if (sendInFlightRef.current || chatState.status !== 'ready') {
       return;
     }
 
-    const body = draftMessage.trim();
+    const draftSource = draftMessageRef.current;
+    const normalizedBody = draftSource.trim();
 
-    if (!body) {
+    if (!normalizedBody) {
       return;
     }
 
-    setDraftMessage('');
-    setChatState((currentState) => markSendStatus(currentState, 'sending'));
+    let attempt: typeof pendingSendAttemptRef.current = null;
+    sendInFlightRef.current = true;
 
     try {
-      const response = await sendWidgetMessage(publicKey, {
-        visitorSessionId: chatState.visitorSessionId,
-        conversationId: chatState.conversationId,
-        clientMessageId: createWidgetClientMessageId(),
-        body,
+      const pendingAttempt = pendingSendAttemptRef.current;
+      attempt = pendingAttempt?.publicKey === publicKey
+        && pendingAttempt.visitorSessionId === chatState.visitorSessionId
+        && pendingAttempt.conversationId === chatState.conversationId
+        && pendingAttempt.normalizedBody === normalizedBody
+        ? pendingAttempt
+        : {
+            publicKey,
+            visitorSessionId: chatState.visitorSessionId,
+            conversationId: chatState.conversationId,
+            normalizedBody,
+            clientMessageId: createWidgetClientMessageId(),
+          };
+      pendingSendAttemptRef.current = attempt;
+      draftMessageRef.current = '';
+      setDraftMessage('');
+      setChatState((currentState) => markSendStatus(currentState, 'sending'));
+
+      const response = await sendWidgetMessage(attempt.publicKey, {
+        visitorSessionId: attempt.visitorSessionId,
+        conversationId: attempt.conversationId,
+        clientMessageId: attempt.clientMessageId,
+        body: attempt.normalizedBody,
       }, { baseHref });
+
+      if (pendingSendAttemptRef.current === attempt) {
+        pendingSendAttemptRef.current = null;
+      }
 
       setChatState((currentState) => mergeLiveMessage(markSendStatus(currentState, 'idle'), response.message));
     } catch {
       setChatState((currentState) => markSendStatus(currentState, 'error'));
-      setDraftMessage(body);
+
+      if (attempt === null && draftMessageRef.current === draftSource) {
+        draftMessageRef.current = normalizedBody;
+        setDraftMessage(normalizedBody);
+      } else if (attempt !== null && pendingSendAttemptRef.current === attempt) {
+        draftMessageRef.current = attempt.normalizedBody;
+        setDraftMessage(attempt.normalizedBody);
+      }
+    } finally {
+      sendInFlightRef.current = false;
     }
   }
 
@@ -475,7 +516,11 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
             id="widget-chat-message-input"
             rows={3}
             value={draftMessage}
-            onChange={(event) => setDraftMessage(event.target.value)}
+            onChange={(event) => {
+              pendingSendAttemptRef.current = null;
+              draftMessageRef.current = event.target.value;
+              setDraftMessage(event.target.value);
+            }}
             onKeyDown={handleComposerKeyDown}
             placeholder="Type your message…"
             autoComplete="off"
