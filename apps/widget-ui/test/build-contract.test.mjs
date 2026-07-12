@@ -438,6 +438,97 @@ test('composer keyboard behavior submits plain Enter without breaking multiline 
   });
 });
 
+test('keyboard send focus intent is armed after capture and cancelled by other submit paths', () => {
+  // Source checks event ordering and data boundaries only; real Chromium must prove focus behavior.
+  const widgetChat = appSource.match(/function WidgetChat[\s\S]*?\n}\n\nfunction mergeLiveMessage/)?.[0] ?? '';
+  const listenerEffect = widgetChat.match(/useEffect\(\(\) => \{\n    function markInteraction[\s\S]*?\n  }, \[\]\);/)?.[0] ?? '';
+  const submitHandler = widgetChat.match(/function handleSubmit[\s\S]*?\n  }\n\n  function handleComposerKeyDown/)?.[0] ?? '';
+  const keyHandler = widgetChat.match(/function handleComposerKeyDown[\s\S]*?\n  }\n\n  if \(chatState\.status/)?.[0] ?? '';
+  const pendingRequest = widgetChat.match(/const pendingComposerFocusRef = useRef<\{[\s\S]*?\} \| null>\(null\);/)?.[0] ?? '';
+
+  assert.match(widgetChat, /const \[composerFocusSettleTick, setComposerFocusSettleTick\] = useState\(0\);/);
+  assert.match(widgetChat, /const interactionEpochRef = useRef\(0\);/);
+  assert.match(widgetChat, /const latestComposerScopeRef = useRef<\{\s*publicKey: string;\s*visitorSessionId: string;\s*conversationId: string;\s*\} \| null>\(null\);/);
+  assert.match(widgetChat, /const composerTextareaRef = useRef<HTMLTextAreaElement \| null>\(null\);/);
+  assert.deepEqual([...pendingRequest.matchAll(/^    (\w+):/gm)].map((match) => match[1]), [
+    'textarea',
+    'interactionEpoch',
+    'publicKey',
+    'visitorSessionId',
+    'conversationId',
+  ]);
+  assert.doesNotMatch(pendingRequest, /body|content|draft|clientMessageId|event/i);
+  assert.match(widgetChat, /latestComposerScopeRef\.current = chatState\.status === 'ready'\s*\? \{ publicKey, visitorSessionId: chatState\.visitorSessionId, conversationId: chatState\.conversationId \}\s*: null;/);
+
+  const listeners = [
+    ['pointerdown', 'markInteraction', true],
+    ['keydown', 'markInteraction', true],
+    ['focusin', 'handleFocusIn', true],
+    ['blur', 'handleWindowBlur', false],
+  ];
+  assert.equal(listenerEffect.match(/window\.addEventListener\(/g)?.length, listeners.length);
+  assert.equal(listenerEffect.match(/window\.removeEventListener\(/g)?.length, listeners.length);
+  for (const [eventName, handler, capture] of listeners) {
+    const options = capture ? ', true' : '';
+    assert.equal(listenerEffect.split(`window.addEventListener('${eventName}', ${handler}${options});`).length - 1, 1);
+    assert.equal(listenerEffect.split(`window.removeEventListener('${eventName}', ${handler}${options});`).length - 1, 1);
+  }
+  assert.match(listenerEffect, /event\.target !== document\.body && event\.target !== document\.documentElement/);
+  assert.match(listenerEffect, /if \(event\.target === window\) \{\s*markInteraction\(\);/);
+  assert.match(listenerEffect, /pendingComposerFocusRef\.current = null;\s*};\s*}, \[\]\);/);
+
+  const submitSteps = ['event.preventDefault();', 'pendingComposerFocusRef.current = null;', 'void submitDraftMessage();']
+    .map((step) => submitHandler.indexOf(step));
+  assert.ok(submitSteps.every((position) => position >= 0));
+  assert.deepEqual(submitSteps, [...submitSteps].sort((left, right) => left - right));
+
+  for (const gate of [
+    '!keyAction.shouldSubmit',
+    'sendInFlightRef.current',
+    'event.currentTarget !== document.activeElement',
+    '!document.hasFocus()',
+    '!latestScope',
+  ]) {
+    assert.ok(keyHandler.includes(gate), `missing keyboard focus gate: ${gate}`);
+  }
+  const armSteps = [
+    'event.preventDefault();',
+    'interactionEpoch: interactionEpochRef.current,',
+    'pendingComposerFocusRef.current = request;',
+    'submitDraftMessage().finally(() => {',
+    'pendingComposerFocusRef.current === request',
+    'setComposerFocusSettleTick((currentTick) => currentTick + 1);',
+  ].map((step) => keyHandler.indexOf(step));
+  assert.ok(armSteps.every((position) => position >= 0));
+  assert.deepEqual(armSteps, [...armSteps].sort((left, right) => left - right));
+  assert.match(widgetChat, /<textarea\s+ref=\{composerTextareaRef\}/);
+});
+
+test('keyboard send focus intent is consumed before guarded neutral-focus restoration', () => {
+  // This source wiring cannot prove browser focus, iframe blur, StrictMode, or scroll behavior.
+  const widgetChat = appSource.match(/function WidgetChat[\s\S]*?\n}\n\nfunction mergeLiveMessage/)?.[0] ?? '';
+  const focusEffect = widgetChat.match(/useLayoutEffect\(\(\) => \{\n    const request = pendingComposerFocusRef[\s\S]*?\n  }, \[composerFocusSettleTick\]\);/)?.[0] ?? '';
+  const consumePosition = focusEffect.indexOf('pendingComposerFocusRef.current = null;');
+  const guardPosition = focusEffect.indexOf('interactionEpochRef.current !== request.interactionEpoch');
+
+  assert.ok(consumePosition >= 0 && consumePosition < guardPosition);
+  for (const guard of [
+    'latestScope?.publicKey !== request.publicKey',
+    'latestScope.visitorSessionId !== request.visitorSessionId',
+    'latestScope.conversationId !== request.conversationId',
+    'composerTextareaRef.current !== request.textarea',
+    '!request.textarea.isConnected',
+    'request.textarea.disabled',
+    '!document.hasFocus()',
+    'activeElement !== document.body && activeElement !== document.documentElement && activeElement !== null',
+  ]) {
+    assert.ok(focusEffect.includes(guard), `missing settle guard: ${guard}`);
+  }
+  assert.match(focusEffect, /request\.textarea\.focus\(\{ preventScroll: true \}\);/);
+  assert.equal(focusEffect.match(/\.focus\(/g)?.length, 1);
+  assert.doesNotMatch(focusEffect, /requestAnimationFrame|setTimeout|try\s*\{|catch|autoFocus|scroll(?:Top|To|IntoView)/);
+});
+
 test('chat surface uses safe branding tokens from data attributes', () => {
   assert.match(appSource, /data-color-mode=\{theme\.colorMode\}/);
   assert.match(appSource, /data-accent=\{theme\.accent\}/);

@@ -165,7 +165,22 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const [draftMessage, setDraftMessage] = useState('');
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [composerFocusSettleTick, setComposerFocusSettleTick] = useState(0);
   const draftMessageRef = useRef('');
+  const interactionEpochRef = useRef(0);
+  const pendingComposerFocusRef = useRef<{
+    textarea: HTMLTextAreaElement;
+    interactionEpoch: number;
+    publicKey: string;
+    visitorSessionId: string;
+    conversationId: string;
+  } | null>(null);
+  const latestComposerScopeRef = useRef<{
+    publicKey: string;
+    visitorSessionId: string;
+    conversationId: string;
+  } | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const sendInFlightRef = useRef(false);
   const pendingSendAttemptRef = useRef<{
     publicKey: string;
@@ -183,6 +198,40 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   const readyConversationId = chatState.status === 'ready' ? chatState.conversationId : null;
   const renderedMessageCount = chatState.status === 'ready' ? chatState.messageState.messages.length : 0;
   const latestRenderedSeq = chatState.status === 'ready' ? chatState.messageState.latestSeq : 0;
+  latestComposerScopeRef.current = chatState.status === 'ready'
+    ? { publicKey, visitorSessionId: chatState.visitorSessionId, conversationId: chatState.conversationId }
+    : null;
+
+  useEffect(() => {
+    function markInteraction() {
+      interactionEpochRef.current += 1;
+    }
+
+    function handleFocusIn(event: FocusEvent) {
+      if (event.target !== document.body && event.target !== document.documentElement) {
+        markInteraction();
+      }
+    }
+
+    function handleWindowBlur(event: Event) {
+      if (event.target === window) {
+        markInteraction();
+      }
+    }
+
+    window.addEventListener('pointerdown', markInteraction, true);
+    window.addEventListener('keydown', markInteraction, true);
+    window.addEventListener('focusin', handleFocusIn, true);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      window.removeEventListener('pointerdown', markInteraction, true);
+      window.removeEventListener('keydown', markInteraction, true);
+      window.removeEventListener('focusin', handleFocusIn, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      pendingComposerFocusRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let isCurrent = true;
@@ -328,6 +377,38 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     };
   }, [readyConversationId, latestRenderedSeq]);
 
+  useLayoutEffect(() => {
+    const request = pendingComposerFocusRef.current;
+
+    if (!request) {
+      return;
+    }
+
+    pendingComposerFocusRef.current = null;
+    const latestScope = latestComposerScopeRef.current;
+
+    if (
+      interactionEpochRef.current !== request.interactionEpoch
+      || latestScope?.publicKey !== request.publicKey
+      || latestScope.visitorSessionId !== request.visitorSessionId
+      || latestScope.conversationId !== request.conversationId
+      || composerTextareaRef.current !== request.textarea
+      || !request.textarea.isConnected
+      || request.textarea.disabled
+      || !document.hasFocus()
+    ) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+
+    if (activeElement !== document.body && activeElement !== document.documentElement && activeElement !== null) {
+      return;
+    }
+
+    request.textarea.focus({ preventScroll: true });
+  }, [composerFocusSettleTick]);
+
   async function submitDraftMessage() {
     if (sendInFlightRef.current || chatState.status !== 'ready') {
       return;
@@ -430,6 +511,7 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    pendingComposerFocusRef.current = null;
     void submitDraftMessage();
   }
 
@@ -441,10 +523,31 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     }
 
     event.preventDefault();
+    const latestScope = latestComposerScopeRef.current;
 
-    if (keyAction.shouldSubmit) {
-      void submitDraftMessage();
+    if (
+      !keyAction.shouldSubmit
+      || sendInFlightRef.current
+      || event.currentTarget !== document.activeElement
+      || !document.hasFocus()
+      || !latestScope
+    ) {
+      return;
     }
+
+    const request = {
+      textarea: event.currentTarget,
+      interactionEpoch: interactionEpochRef.current,
+      publicKey: latestScope.publicKey,
+      visitorSessionId: latestScope.visitorSessionId,
+      conversationId: latestScope.conversationId,
+    };
+    pendingComposerFocusRef.current = request;
+    void submitDraftMessage().finally(() => {
+      if (pendingComposerFocusRef.current === request) {
+        setComposerFocusSettleTick((currentTick) => currentTick + 1);
+      }
+    });
   }
 
   if (chatState.status === 'loading') {
@@ -513,6 +616,7 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
         <label className="widget-chat__composer-field" htmlFor="widget-chat-message-input">
           <span>Message</span>
           <textarea
+            ref={composerTextareaRef}
             id="widget-chat-message-input"
             rows={3}
             value={draftMessage}
