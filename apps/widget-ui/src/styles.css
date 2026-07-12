@@ -539,14 +539,34 @@ body {
   }
 }
 
-@media (max-width: 279px) {
-  .widget-chat__composer {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: stretch;
+@media (max-height: 420px) {
+  .widget-shell,
+  .widget-chat {
+    gap: 0;
   }
 
-  .widget-chat__composer button {
-    width: 100%;
+  .widget-shell__eyebrow {
+    line-height: 1;
+  }
+
+  .widget-welcome {
+    grid-template-rows: minmax(0, 1fr);
+    padding-block: 0;
+  }
+
+  .widget-welcome > .widget-welcome__assistant,
+  .widget-welcome > h1,
+  .widget-welcome > p:not(.widget-welcome__assistant) {
+    display: none;
+  }
+
+  .widget-chat__composer,
+  .widget-chat__composer-field {
+    row-gap: 4px;
+  }
+
+  .widget-chat__jump-to-latest {
+    bottom: 10px;
   }
 }
 

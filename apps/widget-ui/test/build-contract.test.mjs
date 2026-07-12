@@ -186,7 +186,16 @@ test('mobile safe-area chat CSS keeps messages scrollable and composer reachable
   assert.match(stylesSource, /\.widget-chat__composer textarea \{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*min-width: 0;[\s\S]*max-height: 96px;[\s\S]*resize: none;/);
   assert.match(stylesSource, /\.widget-chat__composer button \{[\s\S]*min-width: 0;[\s\S]*white-space: nowrap;/);
   assert.match(stylesSource, /@media \(max-width: 359px\), \(max-height: 420px\) \{[\s\S]*\.widget-welcome \{[\s\S]*gap: 10px;[\s\S]*padding: 14px;[\s\S]*\.widget-chat__message \{[\s\S]*max-width: 92%;[\s\S]*\.widget-chat__composer textarea,[\s\S]*\.widget-chat__composer button \{[\s\S]*padding: 9px 10px;/);
-  assert.match(stylesSource, /@media \(max-width: 279px\) \{[\s\S]*\.widget-chat__composer \{[\s\S]*grid-template-columns: minmax\(0, 1fr\);[\s\S]*align-items: stretch;[\s\S]*\.widget-chat__composer button \{[\s\S]*width: 100%;/);
+  // Regex/source wiring does not prove layout; browser acceptance remains independent.
+  const shortPanelMedia = stylesSource.match(/@media \(max-height: 420px\) \{[\s\S]*?\n\}\n(?=\n@media )/)?.[0] ?? '';
+  assert.match(shortPanelMedia, /  \.widget-shell,\n  \.widget-chat \{\n    gap: 0;\n  \}/);
+  assert.match(shortPanelMedia, /  \.widget-shell__eyebrow \{\n    line-height: 1;\n  \}/);
+  assert.match(shortPanelMedia, /  \.widget-welcome \{\n    grid-template-rows: minmax\(0, 1fr\);\n    padding-block: 0;\n  \}/);
+  assert.match(shortPanelMedia, /  \.widget-welcome > \.widget-welcome__assistant,\n  \.widget-welcome > h1,\n  \.widget-welcome > p:not\(\.widget-welcome__assistant\) \{\n    display: none;\n  \}/);
+  assert.match(shortPanelMedia, /  \.widget-chat__composer,\n  \.widget-chat__composer-field \{\n    row-gap: 4px;\n  \}/);
+  assert.match(shortPanelMedia, /  \.widget-chat__jump-to-latest \{\n    bottom: 10px;\n  \}/);
+  assert.doesNotMatch(shortPanelMedia, /prefers-color-scheme/);
+  assert.doesNotMatch(stylesSource, /@media \(max-width: 279px\)/);
   assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
 });
 
