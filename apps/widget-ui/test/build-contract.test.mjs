@@ -322,6 +322,10 @@ test('widget chat source contract preserves reader position and offers one jump-
 });
 
 test('composer interaction exposes multiline textarea submit affordance and accessible states', () => {
+  // Source proves the Send target CSS wiring only; Chromium must prove its computed size.
+  const composerButtonRule = stylesSource.match(/^\.widget-chat__composer button \{([^}]*)\}$/m)?.[1] ?? '';
+
+  assert.match(composerButtonRule, /min-height: 44px;/);
   assert.match(appSource, /const isSending = chatState\.sendStatus === 'sending';/);
   assert.match(appSource, /const canSend = !isSending && draftMessage\.trim\(\)\.length > 0;/);
   assert.match(appSource, /function submitDraftMessage\(\) \{[\s\S]*sendInFlightRef\.current \|\| chatState\.status !== 'ready'[\s\S]*const draftSource = draftMessageRef\.current;[\s\S]*const normalizedBody = draftSource\.trim\(\);[\s\S]*if \(!normalizedBody\)/);
