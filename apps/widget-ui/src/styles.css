@@ -388,6 +388,7 @@ body {
 
 .widget-chat__composer button {
   min-width: 0;
+  min-height: 44px;
   padding: 10px 14px;
   border: 0;
   border-radius: var(--widget-pill-radius);
