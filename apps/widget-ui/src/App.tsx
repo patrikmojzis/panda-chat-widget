@@ -159,7 +159,12 @@ type WidgetChatProps = {
 function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   const [chatState, setChatState] = useState<WidgetChatState>({ status: 'loading' });
   const [draftMessage, setDraftMessage] = useState('');
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const followsLatestRef = useRef(true);
+  const previousReadyConversationRef = useRef<{ conversationId: string; latestSeq: number } | null>(null);
+  const messageCorrectionAnimationFrameRef = useRef<number | null>(null);
+  const readyConversationId = chatState.status === 'ready' ? chatState.conversationId : null;
   const renderedMessageCount = chatState.status === 'ready' ? chatState.messageState.messages.length : 0;
   const latestRenderedSeq = chatState.status === 'ready' ? chatState.messageState.latestSeq : 0;
 
@@ -222,7 +227,38 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   }, [baseHref, publicKey]);
 
   useLayoutEffect(() => {
+    const previousReadyConversation = previousReadyConversationRef.current;
+
+    if (!readyConversationId) {
+      previousReadyConversationRef.current = null;
+      return;
+    }
+
+    const isNewConversation = previousReadyConversation?.conversationId !== readyConversationId;
+    const hasHigherLatestSeq = previousReadyConversation !== null
+      && !isNewConversation
+      && latestRenderedSeq > previousReadyConversation.latestSeq;
+
+    if (!isNewConversation && !hasHigherLatestSeq) {
+      return;
+    }
+
+    previousReadyConversationRef.current = {
+      conversationId: readyConversationId,
+      latestSeq: latestRenderedSeq,
+    };
+
+    if (isNewConversation) {
+      followsLatestRef.current = true;
+      setShowJumpToLatest(false);
+    }
+
     if (renderedMessageCount === 0) {
+      return;
+    }
+
+    if (!followsLatestRef.current) {
+      setShowJumpToLatest(true);
       return;
     }
 
@@ -232,20 +268,30 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
       return;
     }
 
-    const scrollElement = messageScrollElement;
+    messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
 
-    function scrollMessagesToBottom() {
-      scrollElement.scrollTop = scrollElement.scrollHeight;
-    }
+    const animationFrameId = requestAnimationFrame(() => {
+      if (messageCorrectionAnimationFrameRef.current !== animationFrameId) {
+        return;
+      }
 
-    scrollMessagesToBottom();
+      messageCorrectionAnimationFrameRef.current = null;
 
-    const animationFrameId = requestAnimationFrame(scrollMessagesToBottom);
+      if (!followsLatestRef.current || messageScrollRef.current !== messageScrollElement) {
+        return;
+      }
+
+      messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
+    });
+    messageCorrectionAnimationFrameRef.current = animationFrameId;
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      if (messageCorrectionAnimationFrameRef.current === animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        messageCorrectionAnimationFrameRef.current = null;
+      }
     };
-  }, [renderedMessageCount, latestRenderedSeq]);
+  }, [readyConversationId, latestRenderedSeq]);
 
   async function submitDraftMessage() {
     if (chatState.status !== 'ready' || chatState.sendStatus === 'sending') {
@@ -273,6 +319,35 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     } catch {
       setChatState((currentState) => markSendStatus(currentState, 'error'));
       setDraftMessage(body);
+    }
+  }
+
+  function handleMessageScroll() {
+    const messageScrollElement = messageScrollRef.current;
+
+    if (!messageScrollElement) {
+      return;
+    }
+
+    const followsLatest = Math.max(
+      0,
+      messageScrollElement.scrollHeight - messageScrollElement.clientHeight - messageScrollElement.scrollTop,
+    ) <= 48;
+    followsLatestRef.current = followsLatest;
+
+    if (followsLatest) {
+      setShowJumpToLatest(false);
+    }
+  }
+
+  function handleJumpToLatest() {
+    followsLatestRef.current = true;
+    setShowJumpToLatest(false);
+
+    const messageScrollElement = messageScrollRef.current;
+
+    if (messageScrollElement) {
+      messageScrollElement.scrollTop = messageScrollElement.scrollHeight;
     }
   }
 
@@ -314,19 +389,31 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
 
   return (
     <div className="widget-chat" aria-label={`${assistantName} conversation`}>
-      <div className="widget-chat__messages" aria-live="polite" ref={messageScrollRef}>
-        {chatState.messageState.messages.length === 0 ? (
-          <WidgetStateMessage tone="empty" title="No messages yet" body="Send a message below to start the conversation." />
-        ) : (
-          <ol className="widget-chat__message-list">
-            {chatState.messageState.messages.map((message) => (
-              <li key={message.id} className="widget-chat__message" data-sender={message.sender}>
-                <strong>{message.sender === 'visitor' ? 'You' : assistantName}</strong>
-                <p>{message.body}</p>
-              </li>
-            ))}
-          </ol>
-        )}
+      <div className="widget-chat__message-region">
+        <div
+          className="widget-chat__messages"
+          aria-live="polite"
+          ref={messageScrollRef}
+          onScroll={handleMessageScroll}
+        >
+          {chatState.messageState.messages.length === 0 ? (
+            <WidgetStateMessage tone="empty" title="No messages yet" body="Send a message below to start the conversation." />
+          ) : (
+            <ol className="widget-chat__message-list">
+              {chatState.messageState.messages.map((message) => (
+                <li key={message.id} className="widget-chat__message" data-sender={message.sender}>
+                  <strong>{message.sender === 'visitor' ? 'You' : assistantName}</strong>
+                  <p>{message.body}</p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+        {showJumpToLatest ? (
+          <button className="widget-chat__jump-to-latest" type="button" onClick={handleJumpToLatest}>
+            Jump to latest
+          </button>
+        ) : null}
       </div>
       <form
         className="widget-chat__composer"
