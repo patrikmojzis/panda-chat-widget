@@ -210,7 +210,7 @@ ${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|c
 });
 
 test('chat panel message layout keeps messages scrollable and wrapped', () => {
-  assert.match(appSource, /className="widget-chat__messages" aria-live="polite"/);
+  assert.match(appSource, /className="widget-chat__messages"[\s\S]*aria-live="polite"[\s\S]*ref=\{messageScrollRef\}/);
   assert.match(appSource, /<WidgetStateMessage tone="empty" title="No messages yet"/);
   assert.match(appSource, /className="widget-chat__message-list"/);
   assert.match(appSource, /data-sender=\{message\.sender\}/);
@@ -227,32 +227,60 @@ ${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|c
 });
 
 
-test('widget chat auto-scrolls only the message pane after latest rendered message layout settles', () => {
-  const loadingReturnIndex = appSource.indexOf("if (chatState.status === 'loading') {");
-  const refMatch = appSource.match(/const messageScrollRef = useRef<HTMLDivElement \| null>\(null\);/);
-  const countMatch = appSource.match(/const renderedMessageCount =\s*chatState\.status === 'ready'\s*\?\s*chatState\.messageState\.messages\.length\s*:\s*0;/);
-  const latestSeqMatch = appSource.match(/const latestRenderedSeq =\s*chatState\.status === 'ready'\s*\?\s*chatState\.messageState\.latestSeq\s*:\s*0;/);
-  const effectMatch = appSource.match(/useLayoutEffect\(\(\) => \{([\s\S]*?)\n  \}, \[([^\]]+)\]\);/);
+test('widget chat source contract preserves reader position and offers one jump-to-latest overlay', () => {
+  // Source checks wiring and guardrails; browser coverage proves scroll and RAF timing.
+  const effectMatch = appSource.match(/useLayoutEffect\(\(\) => \{([\s\S]*?)\n  \}, \[readyConversationId, latestRenderedSeq\]\);/);
+  const scrollHandlerMatch = appSource.match(/function handleMessageScroll\(\) \{([\s\S]*?)\n  \}\n\n  function handleJumpToLatest/);
+  const jumpHandlerMatch = appSource.match(/function handleJumpToLatest\(\) \{([\s\S]*?)\n  \}\n\n  function handleSubmit/);
+  const jumpButtonMatch = appSource.match(/<button className="widget-chat__jump-to-latest" type="button" onClick=\{handleJumpToLatest\}>\s*Jump to latest\s*<\/button>/);
 
-  assert.ok(loadingReturnIndex > -1);
-  assert.ok(refMatch?.index !== undefined && refMatch.index < loadingReturnIndex);
-  assert.ok(countMatch?.index !== undefined && countMatch.index < loadingReturnIndex);
-  assert.ok(latestSeqMatch?.index !== undefined && latestSeqMatch.index < loadingReturnIndex);
-  assert.ok(effectMatch?.index !== undefined && effectMatch.index < loadingReturnIndex);
-  assert.match(appSource, /<div className="widget-chat__messages" aria-live="polite" ref=\{messageScrollRef\}>/);
+  assert.ok(effectMatch);
+  assert.ok(scrollHandlerMatch);
+  assert.ok(jumpHandlerMatch);
+  assert.ok(jumpButtonMatch);
+  assert.equal(appSource.match(/Jump to latest/g)?.length, 1);
+  assert.match(appSource, /className="widget-chat__messages"[\s\S]*aria-live="polite"[\s\S]*ref=\{messageScrollRef\}[\s\S]*onScroll=\{handleMessageScroll\}/);
 
-  const [, effectBody, effectDeps] = effectMatch;
-  assert.match(effectBody, /if \(renderedMessageCount === 0\) \{\s*return;\s*\}/);
-  assert.match(effectBody, /const messageScrollElement = messageScrollRef\.current;/);
-  assert.match(effectBody, /if \(!messageScrollElement\) \{\s*return;\s*\}/);
-  assert.match(effectBody, /function scrollMessagesToBottom\(\) \{[\s\S]*\b(\w+)\.scrollTop = \1\.scrollHeight;[\s\S]*\}/);
-  assert.match(effectBody, /scrollMessagesToBottom\(\);[\s\S]*const animationFrameId = requestAnimationFrame\(scrollMessagesToBottom\);/);
-  assert.match(effectBody, /return \(\) => \{[\s\S]*cancelAnimationFrame\(animationFrameId\);[\s\S]*\};/);
+  const [, scrollHandlerBody] = scrollHandlerMatch;
+  assert.match(
+    scrollHandlerBody,
+    /Math\.max\(\s*0,\s*messageScrollElement\.scrollHeight\s*-\s*messageScrollElement\.clientHeight\s*-\s*messageScrollElement\.scrollTop,?\s*\)\s*<=\s*48/,
+  );
+  assert.match(scrollHandlerBody, /followsLatestRef\.current = followsLatest;/);
+  assert.match(scrollHandlerBody, /if \(followsLatest\) \{\s*setShowJumpToLatest\(false\);\s*\}/);
+  assert.doesNotMatch(scrollHandlerBody, /Math\.(?:ceil|floor|round|trunc)|setShowJumpToLatest\(true\)/);
+
+  const [, effectBody] = effectMatch;
+  assert.match(effectBody, /if \(!readyConversationId\) \{\s*previousReadyConversationRef\.current = null;\s*return;/);
+  assert.match(effectBody, /previousReadyConversation\?\.conversationId !== readyConversationId/);
+  assert.match(effectBody, /latestRenderedSeq > previousReadyConversation\.latestSeq/);
+  assert.match(effectBody, /if \(!isNewConversation && !hasHigherLatestSeq\) \{\s*return;/);
+  assert.match(effectBody, /if \(isNewConversation\) \{\s*followsLatestRef\.current = true;\s*setShowJumpToLatest\(false\);/);
+  assert.match(effectBody, /if \(renderedMessageCount === 0\) \{\s*return;/);
+
+  const unpinnedBranch = effectBody.match(/if \(!followsLatestRef\.current\) \{([\s\S]*?)\n    \}/)?.[1] ?? '';
+  assert.match(unpinnedBranch, /setShowJumpToLatest\(true\);\s*return;/);
+  assert.doesNotMatch(unpinnedBranch, /scrollTop|requestAnimationFrame/);
+  assert.match(effectBody, /messageScrollElement\.scrollTop = messageScrollElement\.scrollHeight;[\s\S]*requestAnimationFrame\(\(\) =>/);
   assert.equal(effectBody.match(/\brequestAnimationFrame\(/g)?.length, 1);
+  assert.match(effectBody, /messageCorrectionAnimationFrameRef\.current !== animationFrameId/);
+  assert.match(effectBody, /!followsLatestRef\.current \|\| messageScrollRef\.current !== messageScrollElement/);
+  assert.match(effectBody, /cancelAnimationFrame\(animationFrameId\);[\s\S]*messageCorrectionAnimationFrameRef\.current = null;/);
   assert.equal(effectBody.match(/\bcancelAnimationFrame\(/g)?.length, 1);
-  assert.equal(effectDeps.replace(/\s/g, ''), 'renderedMessageCount,latestRenderedSeq');
-  assert.doesNotMatch(effectDeps, /chatState|messages|sendStatus|draft/i);
-  assert.doesNotMatch(effectBody, /setChatState|setDraftMessage|window|document|parent|postMessage|ResizeObserver|setTimeout|setInterval|focus\(|scrollIntoView|scrollTo\(|behavior/i);
+
+  const [, jumpHandlerBody] = jumpHandlerMatch;
+  assert.match(jumpHandlerBody, /followsLatestRef\.current = true;\s*setShowJumpToLatest\(false\);/);
+  assert.match(jumpHandlerBody, /messageScrollElement\.scrollTop = messageScrollElement\.scrollHeight;/);
+  assert.doesNotMatch(jumpHandlerBody, /requestAnimationFrame|scrollTo\(|behavior|focus\(/);
+  assert.doesNotMatch(jumpButtonMatch[0], /autoFocus|aria-label|data-(?:message|count|seq|body)/i);
+
+  assert.match(appSource, /<div className="widget-chat__message-region">[\s\S]*className="widget-chat__messages"[\s\S]*\{showJumpToLatest \? \([\s\S]*widget-chat__jump-to-latest[\s\S]*<\/div>\s*<form/);
+  assert.match(stylesSource, /\.widget-chat__message-region \{[\s\S]*position: relative;[\s\S]*overflow: hidden;/);
+  assert.match(stylesSource, /\.widget-chat__jump-to-latest \{[\s\S]*position: absolute;[\s\S]*min-height: 44px;[\s\S]*color: [^;]+;[\s\S]*background: [^;]+;/);
+  assert.match(stylesSource, /\.widget-chat__jump-to-latest:focus-visible \{[\s\S]*outline: 3px solid var\(--widget-accent-focus-color\);/);
+  assert.match(stylesSource, /\.widget-welcome\[data-color-mode="dark"\] \.widget-chat__jump-to-latest,[\s\S]*\{[\s\S]*color: [^;]+;[\s\S]*background: [^;]+;/);
+  assert.match(stylesSource, /@media \(prefers-color-scheme: dark\) \{[\s\S]*\.widget-welcome\[data-color-mode="system"\] \.widget-chat__jump-to-latest/);
+  assert.doesNotMatch(`${appSource}\n${stylesSource}`, /ResizeObserver|\bscroll-behavior|behavior:\s*['"]smooth['"]|autoFocus|postMessage|window\.parent|parent\.postMessage/i);
 });
 
 test('composer interaction exposes multiline textarea submit affordance and accessible states', () => {
