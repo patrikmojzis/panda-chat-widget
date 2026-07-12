@@ -2,6 +2,7 @@
   --widget-accent-color: #2563eb;
   --widget-accent-border-color: #3b82f6;
   --widget-accent-focus-color: #93c5fd;
+  --widget-state-action-focus-color: #0f172a;
   --widget-panel-radius: 16px;
   --widget-card-radius: 14px;
   --widget-tail-radius: 4px;
@@ -98,6 +99,8 @@ body {
 
 .widget-welcome[data-color-mode="dark"],
 .widget-welcome--mode-dark {
+  --widget-state-action-focus-color: #ffffff;
+
   color: #e5edf8;
   background: #0f172a;
   border-color: #1e293b;
@@ -153,6 +156,12 @@ body {
   text-align: center;
 }
 
+.widget-state__content {
+  display: grid;
+  gap: 6px;
+  place-items: center;
+}
+
 .widget-state__icon {
   width: 10px;
   height: 10px;
@@ -191,6 +200,24 @@ body {
 
 .widget-state--error p {
   color: #991b1b;
+}
+
+.widget-state__action {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--widget-accent-border-color);
+  border-radius: var(--widget-pill-radius);
+  color: #ffffff;
+  background: var(--widget-accent-color);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+
+.widget-state__action:focus-visible {
+  outline: 3px solid var(--widget-state-action-focus-color);
+  outline-offset: 2px;
 }
 
 .widget-welcome .widget-state,
@@ -525,6 +552,8 @@ body {
 @media (prefers-color-scheme: dark) {
   .widget-welcome[data-color-mode="system"],
   .widget-welcome--mode-system {
+    --widget-state-action-focus-color: #ffffff;
+
     color: #e5edf8;
     background: #0f172a;
     border-color: #1e293b;

@@ -1,4 +1,4 @@
-import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   applyWidgetChatMessage,
   createWidgetChatMessagesState,
@@ -97,6 +97,7 @@ type WidgetStateMessageProps = {
   title: string;
   body: string;
   role?: 'status' | 'alert';
+  action?: ReactNode;
 };
 
 function BootstrapPlaceholder({ state, bootstrapBaseHref }: BootstrapPlaceholderProps) {
@@ -115,12 +116,15 @@ function BootstrapPlaceholder({ state, bootstrapBaseHref }: BootstrapPlaceholder
   return <WelcomeState bootstrap={state.bootstrap} bootstrapBaseHref={bootstrapBaseHref} />;
 }
 
-function WidgetStateMessage({ tone, title, body, role = 'status' }: WidgetStateMessageProps) {
+function WidgetStateMessage({ tone, title, body, role = 'status', action }: WidgetStateMessageProps) {
   return (
-    <section className={`widget-state widget-state--${tone}`} role={role} aria-live={role === 'alert' ? 'assertive' : 'polite'}>
-      <span className="widget-state__icon" aria-hidden="true" />
-      <h2>{title}</h2>
-      <p>{body}</p>
+    <section className={`widget-state widget-state--${tone}`}>
+      <div key={role} className="widget-state__content" role={role} aria-live={role === 'alert' ? 'assertive' : 'polite'}>
+        <span className="widget-state__icon" aria-hidden="true" />
+        <h2>{title}</h2>
+        <p>{body}</p>
+      </div>
+      {action}
     </section>
   );
 }
@@ -158,9 +162,12 @@ type WidgetChatProps = {
 
 function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   const [chatState, setChatState] = useState<WidgetChatState>({ status: 'loading' });
+  const [initializationAttempt, setInitializationAttempt] = useState(0);
   const [draftMessage, setDraftMessage] = useState('');
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const visitorKeyRef = useRef<{ publicKey: string; visitorKey: string } | null>(null);
+  const retryPendingRef = useRef(false);
   const followsLatestRef = useRef(true);
   const previousReadyConversationRef = useRef<{ conversationId: string; latestSeq: number } | null>(null);
   const messageCorrectionAnimationFrameRef = useRef<number | null>(null);
@@ -174,11 +181,27 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
 
     async function initializeChat() {
       try {
-        const visitorKey = getOrCreateWidgetVisitorKey(publicKey);
-        const visitorSessionResponse = await createWidgetVisitorSession(publicKey, visitorKey, { baseHref });
+        let visitorKey = visitorKeyRef.current;
+
+        if (visitorKey?.publicKey !== publicKey) {
+          visitorKey = { publicKey, visitorKey: getOrCreateWidgetVisitorKey(publicKey) };
+          visitorKeyRef.current = visitorKey;
+        }
+
+        const visitorSessionResponse = await createWidgetVisitorSession(publicKey, visitorKey.visitorKey, { baseHref });
+
+        if (!isCurrent) {
+          return;
+        }
+
         const conversationResponse = await createWidgetConversation(publicKey, visitorSessionResponse.visitorSession.id, {
           baseHref,
         });
+
+        if (!isCurrent) {
+          return;
+        }
+
         const messageListResponse = await listWidgetMessages(publicKey, {
           visitorSessionId: visitorSessionResponse.visitorSession.id,
           conversationId: conversationResponse.conversation.id,
@@ -210,13 +233,16 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
             setChatState((currentState) => mergeLiveMessage(currentState, message));
           },
         });
+        retryPendingRef.current = false;
       } catch {
         if (isCurrent) {
+          retryPendingRef.current = false;
           setChatState({ status: 'error' });
         }
       }
     }
 
+    retryPendingRef.current = true;
     setChatState({ status: 'loading' });
     void initializeChat();
 
@@ -224,7 +250,7 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
       isCurrent = false;
       subscription?.close();
     };
-  }, [baseHref, publicKey]);
+  }, [baseHref, publicKey, initializationAttempt]);
 
   useLayoutEffect(() => {
     const previousReadyConversation = previousReadyConversationRef.current;
@@ -351,6 +377,16 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     }
   }
 
+  function handleRetry() {
+    if (retryPendingRef.current) {
+      return;
+    }
+
+    retryPendingRef.current = true;
+    setChatState({ status: 'loading' });
+    setInitializationAttempt((currentAttempt) => currentAttempt + 1);
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void submitDraftMessage();
@@ -375,7 +411,19 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
   }
 
   if (chatState.status === 'error') {
-    return <WidgetStateMessage tone="error" title="Chat couldn’t start" body="Please refresh or try again later." role="alert" />;
+    return (
+      <WidgetStateMessage
+        tone="error"
+        title="Chat couldn’t start"
+        body="Try again now, or come back later."
+        role="alert"
+        action={(
+          <button className="widget-state__action" type="button" onClick={handleRetry}>
+            Try again
+          </button>
+        )}
+      />
+    );
   }
 
   const isSending = chatState.sendStatus === 'sending';
