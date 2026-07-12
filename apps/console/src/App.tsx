@@ -1,4 +1,4 @@
-import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useReducer, useRef, useState } from 'react';
 import {
   ApiError,
   createSite,
@@ -26,6 +26,7 @@ import {
   type SetupInput,
   type UpdateWidgetSettingsInput,
 } from './console-api';
+import { buildLocalManualReplyCommand, reduceLocalManualReplyCopyState } from './local-manual-reply-command';
 
 type AppState =
   | {
@@ -806,9 +807,18 @@ function WidgetSettingsPage({
   const [targetCopyState, setTargetCopyState] = useState<'idle' | 'copied'>('idle');
   const currentWidgetRef = useRef({ siteId, widgetId });
   const currentCandidateIdRef = useRef<string | null>(null);
-  currentWidgetRef.current = { siteId, widgetId };
-  currentCandidateIdRef.current =
+  const currentCandidateId =
     state.status === 'ready' ? (state.settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null) : null;
+  const [commandCopyState, dispatchCommandCopy] = useReducer(reduceLocalManualReplyCopyState, {
+    candidateId: currentCandidateId,
+    copiedCandidateId: null,
+  });
+  currentWidgetRef.current = { siteId, widgetId };
+  currentCandidateIdRef.current = currentCandidateId;
+
+  useEffect(() => {
+    dispatchCommandCopy({ type: 'candidateChanged', candidateId: currentCandidateId });
+  }, [currentCandidateId]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -1041,6 +1051,14 @@ function WidgetSettingsPage({
     }
   }
 
+  function handleCopyLocalManualReplyCommand(intentId: string, command: string) {
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(command).then(() => {
+        dispatchCommandCopy({ type: 'copyCompleted', candidateId: intentId });
+      });
+    }
+  }
+
   if (state.status === 'loading') {
     return <InlineState title="Loading widget settings…" body="Fetching safe settings, allowed domains, and install status." />;
   }
@@ -1063,6 +1081,9 @@ function WidgetSettingsPage({
     form.welcomeSubtitle.trim(),
   );
   const nextLocalReplyCandidate = state.settings.connection.localDelivery.nextLocalReplyCandidate;
+  const localManualReplyCommand = nextLocalReplyCandidate
+    ? buildLocalManualReplyCommand(nextLocalReplyCandidate.id)
+    : null;
 
   return (
     <section className="content-section" aria-labelledby="widget-settings-title">
@@ -1182,7 +1203,7 @@ function WidgetSettingsPage({
           </button>
         </div>
         <FormStatus state={diagnosticsRefreshState} error="Local diagnostics could not be refreshed. Unsaved widget copy and route handle drafts were kept; try again." />
-        {nextLocalReplyCandidate ? (
+        {nextLocalReplyCandidate && localManualReplyCommand ? (
           <div className="list-card list-card--nested" aria-label="Next local manual reply target">
             <div className="list-row list-row--static">
               <span>
@@ -1199,6 +1220,19 @@ function WidgetSettingsPage({
               </button>
             </div>
             <NextLocalReplyCandidateDetails candidate={nextLocalReplyCandidate} />
+            <div className="local-reply-command">
+              <strong>Targeted local manual reply command</strong>
+              <pre className="snippet-box local-reply-command__code" aria-label="Targeted local manual reply command"><code>{localManualReplyCommand}</code></pre>
+              <div className="button-row">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => handleCopyLocalManualReplyCommand(nextLocalReplyCandidate.id, localManualReplyCommand)}
+                >
+                  {commandCopyState.copiedCandidateId === nextLocalReplyCandidate.id ? 'Copied' : 'Copy reply command'}
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="empty-state" aria-label="No next local manual reply target">
