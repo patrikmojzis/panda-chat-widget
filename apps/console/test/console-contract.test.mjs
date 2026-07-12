@@ -210,6 +210,17 @@ test('console next local manual reply target exposes only allowlisted candidate 
   assert.match(candidateUiSource, /Copy target ID/);
   assert.match(candidateUiSource, /No next manual reply target ID/);
   assert.match(candidateUiSource, /NextLocalReplyCandidateDetails candidate=\{nextLocalReplyCandidate\}/);
+  assert.match(candidateUiSource, /Targeted local manual reply command/);
+  assert.match(candidateUiSource, /<pre className="snippet-box local-reply-command__code"[^>]*><code>\{localManualReplyCommand\}<\/code><\/pre>/);
+  assert.match(candidateUiSource, /handleCopyLocalManualReplyCommand\(nextLocalReplyCandidate\.id, localManualReplyCommand\)/);
+  assert.match(candidateUiSource, /Copy reply command/);
+  assert.match(appSource, /buildLocalManualReplyCommand\(nextLocalReplyCandidate\.id\)/);
+  assert.match(appSource, /\{nextLocalReplyCandidate && localManualReplyCommand \? \(/);
+  assert.match(
+    appSource,
+    /useEffect\(\(\) => \{\n\s+dispatchCommandCopy\(\{ type: 'candidateChanged', candidateId: currentCandidateId \}\);\n\s+\}, \[currentCandidateId\]\);/,
+  );
+  assert.match(appSource, /dispatchCommandCopy\(\{ type: 'copyCompleted', candidateId: intentId \}\)/);
 
   const localCandidateSources = `${candidateUiSource}\n${detailsSource}`;
   assert.doesNotMatch(localCandidateSources, /Object\.entries|Object\.keys|Object\.values|JSON\.stringify/);
@@ -245,6 +256,8 @@ test('console shell CSS uses semantic tokens and overflow-safe site/widget layou
   assert.match(stylesSource, /\.settings-grid \{/);
   assert.match(stylesSource, /\.snippet-box \{/);
   assert.match(stylesSource, /\.connection-status \{/);
+  assert.match(stylesSource, /\.local-reply-command \{/);
+  assert.match(stylesSource, /\.local-reply-command__code \{/);
   assert.match(stylesSource, /overflow-wrap: anywhere;/);
   assert.match(stylesSource, /@media \(max-width: 760px\)/);
   assert.doesNotMatch(stylesSource, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|cssText|url\(/);

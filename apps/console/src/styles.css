@@ -629,6 +629,22 @@ input {
   overflow-wrap: anywhere;
 }
 
+.local-reply-command {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.local-reply-command__code {
+  min-height: 0;
+  margin: 0;
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .inline-form {
   min-width: 0;
   display: grid;
