@@ -7,6 +7,7 @@ const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf
 const mainSource = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const apiSource = await readFile(new URL('../src/console-api.ts', import.meta.url), 'utf8');
+const localManualReplySource = await readFile(new URL('../src/local-manual-reply-command.ts', import.meta.url), 'utf8');
 const stylesSource = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
 const viteConfigSource = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
 
@@ -211,16 +212,44 @@ test('console next local manual reply target exposes only allowlisted candidate 
   assert.match(candidateUiSource, /No next manual reply target ID/);
   assert.match(candidateUiSource, /NextLocalReplyCandidateDetails candidate=\{nextLocalReplyCandidate\}/);
   assert.match(candidateUiSource, /Targeted local manual reply command/);
-  assert.match(candidateUiSource, /<pre className="snippet-box local-reply-command__code"[^>]*><code>\{localManualReplyCommand\}<\/code><\/pre>/);
-  assert.match(candidateUiSource, /handleCopyLocalManualReplyCommand\(nextLocalReplyCandidate\.id, localManualReplyCommand\)/);
+  assert.match(candidateUiSource, /<label className="field" htmlFor="local-manual-reply-text">[\s\S]*<span>Local manual reply text<\/span>[\s\S]*<textarea[\s\S]*id="local-manual-reply-text"[\s\S]*aria-describedby="local-manual-reply-guidance"/);
+  assert.match(candidateUiSource, /value=\{localManualReply\.draft\}/);
+  assert.match(candidateUiSource, /dispatchLocalManualReply\(\{ type: 'draftChanged', draft: event\.currentTarget\.value \}\)/);
+  assert.match(candidateUiSource, /\{localManualReplyCommand \? \([\s\S]*<pre className="snippet-box local-reply-command__code"[^>]*><code>\{localManualReplyCommand\}<\/code><\/pre>[\s\S]*\) : null\}/);
+  assert.match(candidateUiSource, /disabled=\{!localManualReplyCommand\}/);
+  assert.match(candidateUiSource, /Enter reply text to generate a command\./);
+  assert.match(candidateUiSource, /Copy failed; select the command manually\./);
+  assert.match(candidateUiSource, /handleCopyLocalManualReplyCommand\(localManualReplyCommand\)/);
+  assert.match(candidateUiSource, /localManualReply\.copiedCommand === localManualReplyCommand/);
   assert.match(candidateUiSource, /Copy reply command/);
-  assert.match(appSource, /buildLocalManualReplyCommand\(nextLocalReplyCandidate\.id\)/);
-  assert.match(appSource, /\{nextLocalReplyCandidate && localManualReplyCommand \? \(/);
+  assert.doesNotMatch(candidateUiSource, /<form|onSubmit=|fetch\(|localStorage|sessionStorage/);
+
+  assert.match(appSource, /key=\{JSON\.stringify\(\[route\.siteId, route\.widgetId\]\)\}/);
+  assert.match(appSource, /localManualReplyState\.scope\.siteId === siteId[\s\S]*localManualReplyState\.scope\.widgetId === widgetId[\s\S]*localManualReplyState\.scope\.candidateId === currentCandidateId[\s\S]*createLocalManualReplyState\(currentLocalManualReplyScope\)/);
+  assert.match(appSource, /observeLocalManualReplyCandidate\(refreshedCandidateId\);\n\s+setState/);
+
   assert.match(
     appSource,
-    /useEffect\(\(\) => \{\n\s+dispatchCommandCopy\(\{ type: 'candidateChanged', candidateId: currentCandidateId \}\);\n\s+\}, \[currentCandidateId\]\);/,
+    /useEffect\(\(\) => localManualReplyCopyCoordinator\.subscribe\(dispatchLocalManualReply\), \[\]\);/,
   );
-  assert.match(appSource, /dispatchCommandCopy\(\{ type: 'copyCompleted', candidateId: intentId \}\)/);
+  const commandCopyHandler = sourceSlice(
+    appSource,
+    'function handleCopyLocalManualReplyCommand(command: string)',
+    "  if (state.status === 'loading')",
+  );
+  assert.match(commandCopyHandler, /localManualReplyCopyCoordinator\.copy\(command, \(\) => navigator\.clipboard\)/);
+  assert.doesNotMatch(commandCopyHandler, /fetch\(|getWidgetSettings|updateWidgetSettings|localStorage|sessionStorage/);
+  assert.doesNotMatch(appSource, /copyRequestIdRef|writeLocalManualReplyCommand/);
+
+  assert.match(localManualReplySource, /const text = replyText\.trim\(\);/);
+  assert.match(localManualReplySource, /JSON\.stringify\(\{ targetIntentId, reply: \{ text \} \}\)/);
+  assert.match(localManualReplySource, /async copy[\s\S]*try \{[\s\S]*const clipboard = getClipboard\(\);[\s\S]*await clipboard\.writeText\(command\);[\s\S]*\} catch \{/);
+  assert.match(localManualReplySource, /export function createLocalManualReplyCopyCoordinator\(\)[\s\S]*const listeners = new Set/);
+  assert.match(localManualReplySource, /export const localManualReplyCopyCoordinator = createLocalManualReplyCopyCoordinator\(\);/);
+  assert.doesNotMatch(
+    localManualReplySource,
+    /visitorSessionId|routeHandleSnapshot|visitorMessageBody|clientMessageBody|messageBody|messageText|bodyText|messageContent|rawContent|localIntent|intentPayload|metadata/,
+  );
 
   const localCandidateSources = `${candidateUiSource}\n${detailsSource}`;
   assert.doesNotMatch(localCandidateSources, /Object\.entries|Object\.keys|Object\.values|JSON\.stringify/);
@@ -257,7 +286,11 @@ test('console shell CSS uses semantic tokens and overflow-safe site/widget layou
   assert.match(stylesSource, /\.snippet-box \{/);
   assert.match(stylesSource, /\.connection-status \{/);
   assert.match(stylesSource, /\.local-reply-command \{/);
-  assert.match(stylesSource, /\.local-reply-command__code \{/);
+  assert.match(stylesSource, /\.local-reply-command textarea \{[\s\S]*resize: vertical;/);
+  assert.match(stylesSource, /\.field textarea:focus-visible/);
+  assert.match(stylesSource, /\.local-reply-command__code \{[\s\S]*max-width: 100%;[\s\S]*overflow-x: auto;/);
+  assert.match(stylesSource, /\.local-reply-command__help/);
+  assert.match(stylesSource, /\.local-reply-command__error/);
   assert.match(stylesSource, /overflow-wrap: anywhere;/);
   assert.match(stylesSource, /@media \(max-width: 760px\)/);
   assert.doesNotMatch(stylesSource, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|cssText|url\(/);

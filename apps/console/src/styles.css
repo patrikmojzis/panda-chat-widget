@@ -46,7 +46,8 @@ a {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -121,7 +122,8 @@ input {
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field textarea {
   width: 100%;
   min-width: 0;
   padding: 11px 12px;
@@ -136,6 +138,7 @@ input {
 }
 
 .field input:focus-visible,
+.field textarea:focus-visible,
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
 .sidebar-user button:focus-visible,
@@ -146,6 +149,7 @@ input {
 }
 
 .field input:disabled,
+.field textarea:disabled,
 .primary-button:disabled {
   cursor: not-allowed;
   opacity: 0.7;
@@ -637,12 +641,32 @@ input {
   border-top: 1px solid var(--border);
 }
 
+.local-reply-command textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
 .local-reply-command__code {
+  max-width: 100%;
   min-height: 0;
   margin: 0;
+  overflow-x: auto;
   resize: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.local-reply-command__help,
+.local-reply-command__error {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.local-reply-command__error {
+  color: var(--destructive);
+  font-weight: 700;
 }
 
 .inline-form {
@@ -665,5 +689,9 @@ input {
   .inline-form,
   .local-reply-candidate-details {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .local-reply-command .secondary-button {
+    width: 100%;
   }
 }

@@ -26,7 +26,12 @@ import {
   type SetupInput,
   type UpdateWidgetSettingsInput,
 } from './console-api';
-import { buildLocalManualReplyCommand, reduceLocalManualReplyCopyState } from './local-manual-reply-command';
+import {
+  createLocalManualReplyState,
+  localManualReplyCopyCoordinator,
+  reduceLocalManualReplyState,
+  type LocalManualReplyScope,
+} from './local-manual-reply-command';
 
 type AppState =
   | {
@@ -393,7 +398,14 @@ function ConsoleRouteView({ onNavigate, route }: { onNavigate: NavigateHandler; 
   }
 
   if (route.page === 'widgetDetail') {
-    return <WidgetSettingsPage onNavigate={onNavigate} siteId={route.siteId} widgetId={route.widgetId} />;
+    return (
+      <WidgetSettingsPage
+        key={JSON.stringify([route.siteId, route.widgetId])}
+        onNavigate={onNavigate}
+        siteId={route.siteId}
+        widgetId={route.widgetId}
+      />
+    );
   }
 
   return <NotFoundPage onNavigate={onNavigate} />;
@@ -809,16 +821,26 @@ function WidgetSettingsPage({
   const currentCandidateIdRef = useRef<string | null>(null);
   const currentCandidateId =
     state.status === 'ready' ? (state.settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null) : null;
-  const [commandCopyState, dispatchCommandCopy] = useReducer(reduceLocalManualReplyCopyState, {
-    candidateId: currentCandidateId,
-    copiedCandidateId: null,
-  });
+  const currentLocalManualReplyScope: LocalManualReplyScope = { siteId, widgetId, candidateId: currentCandidateId };
+  const [localManualReplyState, dispatchLocalManualReply] = useReducer(
+    reduceLocalManualReplyState,
+    currentLocalManualReplyScope,
+    createLocalManualReplyState,
+  );
+  const localManualReply =
+    localManualReplyState.scope.siteId === siteId &&
+    localManualReplyState.scope.widgetId === widgetId &&
+    localManualReplyState.scope.candidateId === currentCandidateId
+      ? localManualReplyState
+      : createLocalManualReplyState(currentLocalManualReplyScope);
   currentWidgetRef.current = { siteId, widgetId };
   currentCandidateIdRef.current = currentCandidateId;
 
-  useEffect(() => {
-    dispatchCommandCopy({ type: 'candidateChanged', candidateId: currentCandidateId });
-  }, [currentCandidateId]);
+  function observeLocalManualReplyCandidate(candidateId: string | null) {
+    dispatchLocalManualReply({ type: 'scopeChanged', scope: { siteId, widgetId, candidateId } });
+  }
+
+  useEffect(() => localManualReplyCopyCoordinator.subscribe(dispatchLocalManualReply), []);
 
   useEffect(() => {
     let isCurrent = true;
@@ -831,6 +853,7 @@ function WidgetSettingsPage({
         ]);
 
         if (isCurrent) {
+          observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
           setState({ status: 'ready', settings, domains });
           setForm(formFromSettings(settings));
           setConnectionDraft(settings.connection.routeHandle ?? '');
@@ -862,6 +885,7 @@ function WidgetSettingsPage({
       getWidgetSettings(siteId, widgetId),
       listWidgetDomains(siteId, widgetId),
     ]);
+    observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
     setState({ status: 'ready', settings, domains });
     setForm(formFromSettings(settings));
     setConnectionDraft(settings.connection.routeHandle ?? '');
@@ -889,6 +913,7 @@ function WidgetSettingsPage({
         },
       };
       const settings = await updateWidgetSettings(siteId, widgetId, input);
+      observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
 
       if (state.status === 'ready') {
         setState({ status: 'ready', settings, domains: state.domains });
@@ -917,6 +942,7 @@ function WidgetSettingsPage({
 
     try {
       const settings = await updateWidgetSettings(siteId, widgetId, { connection: { routeHandle } });
+      observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
 
       if (state.status === 'ready') {
         setState({ status: 'ready', settings, domains: state.domains });
@@ -938,6 +964,7 @@ function WidgetSettingsPage({
 
     try {
       const settings = await updateWidgetSettings(siteId, widgetId, { connection: { routeHandle: null } });
+      observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
 
       if (state.status === 'ready') {
         setState({ status: 'ready', settings, domains: state.domains });
@@ -1013,6 +1040,7 @@ function WidgetSettingsPage({
         setTargetCopyState('idle');
       }
 
+      observeLocalManualReplyCandidate(refreshedCandidateId);
       setState((currentState) => {
         if (currentState.status !== 'ready') {
           return currentState;
@@ -1051,12 +1079,8 @@ function WidgetSettingsPage({
     }
   }
 
-  function handleCopyLocalManualReplyCommand(intentId: string, command: string) {
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText(command).then(() => {
-        dispatchCommandCopy({ type: 'copyCompleted', candidateId: intentId });
-      });
-    }
+  function handleCopyLocalManualReplyCommand(command: string) {
+    void localManualReplyCopyCoordinator.copy(command, () => navigator.clipboard);
   }
 
   if (state.status === 'loading') {
@@ -1081,9 +1105,7 @@ function WidgetSettingsPage({
     form.welcomeSubtitle.trim(),
   );
   const nextLocalReplyCandidate = state.settings.connection.localDelivery.nextLocalReplyCandidate;
-  const localManualReplyCommand = nextLocalReplyCandidate
-    ? buildLocalManualReplyCommand(nextLocalReplyCandidate.id)
-    : null;
+  const localManualReplyCommand = localManualReply.command;
 
   return (
     <section className="content-section" aria-labelledby="widget-settings-title">
@@ -1203,7 +1225,7 @@ function WidgetSettingsPage({
           </button>
         </div>
         <FormStatus state={diagnosticsRefreshState} error="Local diagnostics could not be refreshed. Unsaved widget copy and route handle drafts were kept; try again." />
-        {nextLocalReplyCandidate && localManualReplyCommand ? (
+        {nextLocalReplyCandidate ? (
           <div className="list-card list-card--nested" aria-label="Next local manual reply target">
             <div className="list-row list-row--static">
               <span>
@@ -1222,14 +1244,40 @@ function WidgetSettingsPage({
             <NextLocalReplyCandidateDetails candidate={nextLocalReplyCandidate} />
             <div className="local-reply-command">
               <strong>Targeted local manual reply command</strong>
-              <pre className="snippet-box local-reply-command__code" aria-label="Targeted local manual reply command"><code>{localManualReplyCommand}</code></pre>
+              <label className="field" htmlFor="local-manual-reply-text">
+                <span>Local manual reply text</span>
+                <textarea
+                  id="local-manual-reply-text"
+                  aria-describedby="local-manual-reply-guidance"
+                  value={localManualReply.draft}
+                  onChange={(event) => dispatchLocalManualReply({ type: 'draftChanged', draft: event.currentTarget.value })}
+                />
+              </label>
+              {localManualReplyCommand ? (
+                <pre className="snippet-box local-reply-command__code" aria-label="Targeted local manual reply command"><code>{localManualReplyCommand}</code></pre>
+              ) : null}
+              <p
+                id="local-manual-reply-guidance"
+                className={localManualReplyCommand && localManualReply.copyErrorCommand === localManualReplyCommand ? 'local-reply-command__error' : 'local-reply-command__help'}
+                role="status"
+                aria-live="polite"
+              >
+                {!localManualReplyCommand
+                  ? 'Enter reply text to generate a command.'
+                  : localManualReply.copyErrorCommand === localManualReplyCommand
+                    ? 'Copy failed; select the command manually.'
+                    : 'Copy this command and run it manually in a local terminal.'}
+              </p>
               <div className="button-row">
                 <button
                   className="secondary-button"
                   type="button"
-                  onClick={() => handleCopyLocalManualReplyCommand(nextLocalReplyCandidate.id, localManualReplyCommand)}
+                  disabled={!localManualReplyCommand}
+                  onClick={() => localManualReplyCommand && void handleCopyLocalManualReplyCommand(localManualReplyCommand)}
                 >
-                  {commandCopyState.copiedCandidateId === nextLocalReplyCandidate.id ? 'Copied' : 'Copy reply command'}
+                  {localManualReply.copiedCommand === localManualReplyCommand && localManualReplyCommand
+                    ? 'Copied'
+                    : 'Copy reply command'}
                 </button>
               </div>
             </div>
