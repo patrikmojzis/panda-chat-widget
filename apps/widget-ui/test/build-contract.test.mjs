@@ -190,23 +190,61 @@ test('mobile safe-area chat CSS keeps messages scrollable and composer reachable
   assert.doesNotMatch(`${mainSource}\n${appSource}\n${stylesSource}`, /postMessage|ResizeObserver|window\.parent|parent\.postMessage/i);
 });
 
-test('widget state copy is friendly, compact, and avoids runtime jargon', () => {
-  assert.match(appSource, /type WidgetStateMessageProps = \{[\s\S]*tone: 'loading' \| 'empty' \| 'error';/);
-  assert.match(appSource, /function WidgetStateMessage\(\{ tone, title, body, role = 'status' \}: WidgetStateMessageProps\)/);
-  assert.match(appSource, /className=\{`widget-state widget-state--\$\{tone\}`\}/);
-  assert.match(appSource, /aria-live=\{role === 'alert' \? 'assertive' : 'polite'\}/);
+test('widget states keep static live text separate from optional actions', () => {
+  // Source proves wiring only; Chromium must prove remount identity, announcements, focus, and races.
+  const stateMessage = appSource.match(/function WidgetStateMessage[\s\S]*?\n}\n\ntype WelcomeStateProps/)?.[0] ?? '';
+
+  assert.match(stateMessage, /<section className=\{`widget-state widget-state--\$\{tone\}`\}>/);
+  assert.match(stateMessage, /<div key=\{role\} className="widget-state__content" role=\{role\} aria-live=/);
+  assert.match(stateMessage, /<\/div>\s*\{action\}\s*<\/section>/);
+  assert.doesNotMatch(stateMessage.match(/<section[^>]*>/)?.[0] ?? '', /role=|aria-live=/);
   assert.match(appSource, /title="Loading chat…" body="This should only take a moment\."/);
   assert.match(appSource, /title="Starting chat…" body="Connecting you now\."/);
   assert.match(appSource, /title="No messages yet" body="Send a message below to start the conversation\."/);
-  assert.match(appSource, /title="Chat couldn’t start" body="Please refresh or try again later\." role="alert"/);
   assert.match(appSource, /title="Chat is unavailable" body="Please try again later\." role="alert"/);
-  assert.match(stylesSource, /\.widget-state \{[\s\S]*max-width: 336px;[\s\S]*min-height: 148px;[\s\S]*text-align: center;/);
-  assert.match(stylesSource, /\.widget-state__icon \{[\s\S]*border-radius: var\(--widget-pill-radius\);[\s\S]*background: var\(--widget-accent-color\);/);
-  assert.match(stylesSource, /\.widget-state--empty \{[\s\S]*border-style: dashed;/);
-  assert.match(stylesSource, /\.widget-state--error \{[\s\S]*border-color: #fecaca;[\s\S]*background: #fef2f2;/);
-  assert.doesNotMatch(appSource, /Loading widget configuration|Missing widget key|Widget configuration|publicKey query parameter|Gateway|backend|runtime/);
-  assert.doesNotMatch(`${appSource}
-${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
+  assert.match(stylesSource, /\.widget-state__content \{[\s\S]*display: grid;[\s\S]*place-items: center;/);
+  assert.doesNotMatch(`${appSource}\n${stylesSource}`, /dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML|style=|cssText|url\(/);
+});
+
+test('widget chat retry source contract keeps one guarded initialization chain', () => {
+  // These are tolerant wiring guards, not proof of runtime batching, StrictMode, storage, or accessibility behavior.
+  const widgetChat = appSource.match(/function WidgetChat[\s\S]*?\n}\n\nfunction mergeLiveMessage/)?.[0] ?? '';
+  const retryHandler = widgetChat.match(/function handleRetry[\s\S]*?\n  }\n\n  function handleSubmit/)?.[0] ?? '';
+  const initializeChat = widgetChat.match(/async function initializeChat[\s\S]*?\n    }\n\n    retryPendingRef/)?.[0] ?? '';
+  const retryMarkup = widgetChat.match(/<WidgetStateMessage\s+tone="error"[\s\S]*?\/>/)?.[0] ?? '';
+
+  assert.match(
+    retryHandler,
+    /if \(retryPendingRef\.current\)[\s\S]*retryPendingRef\.current = true;[\s\S]*setChatState\(\{ status: 'loading' \}\);[\s\S]*setInitializationAttempt\(\([^)]*\) => [^)]* \+ 1\)/,
+  );
+  assert.match(widgetChat, /useEffect\([\s\S]*?\}, \[[^\]]*publicKey[^\]]*initializationAttempt[^\]]*\]\);/);
+  assert.match(
+    initializeChat,
+    /visitorKey\?\.publicKey !== publicKey[\s\S]*getOrCreateWidgetVisitorKey\(publicKey\)[\s\S]*visitorKeyRef\.current = visitorKey/,
+  );
+  assert.match(
+    initializeChat,
+    /await createWidgetVisitorSession[\s\S]*if \(!isCurrent\)[\s\S]*await createWidgetConversation[\s\S]*if \(!isCurrent\)[\s\S]*await listWidgetMessages[\s\S]*if \(!isCurrent\)[\s\S]*setChatState\([\s\S]*subscribeToWidgetMessages/,
+  );
+  assert.match(widgetChat, /return \(\) => \{\s*isCurrent = false;\s*subscription\?\.close\(\);/);
+
+  assert.match(retryMarkup, /title="Chat couldn’t start"/);
+  assert.match(retryMarkup, /body="Try again now, or come back later\."/);
+  assert.match(retryMarkup, /role="alert"/);
+  assert.match(retryMarkup, /<button className="widget-state__action" type="button" onClick=\{handleRetry\}>\s*Try again\s*<\/button>/);
+  assert.doesNotMatch(retryMarkup, /publicKey|visitorSession|conversation|https?:|statusCode|response|owner|Panda|Gateway/i);
+
+  assert.match(stylesSource, /--widget-state-action-focus-color: #0f172a;/);
+  assert.match(stylesSource, /\.widget-state__action \{[\s\S]*min-height: 44px;[\s\S]*background: var\(--widget-accent-color\);/);
+  assert.match(stylesSource, /\.widget-state__action:focus-visible \{\s*outline: 3px solid var\(--widget-state-action-focus-color\);/);
+  assert.match(stylesSource, /\.widget-welcome\[data-color-mode="dark"\],[\s\S]*--widget-state-action-focus-color: #ffffff;/);
+  assert.match(stylesSource, /@media \(prefers-color-scheme: dark\) \{[\s\S]*\.widget-welcome\[data-color-mode="system"\],[\s\S]*--widget-state-action-focus-color: #ffffff;/);
+
+  assert.doesNotMatch(widgetChat, /AbortController|setTimeout|setInterval|localStorage|sessionStorage|\bfetch\(|XMLHttpRequest|sendBeacon|console\./);
+  assert.doesNotMatch(
+    `${bootstrapSource}\n${chatSource}\n${widgetVisitorIdentitySource}\n${sharedVisitorIdentitySource}`,
+    /initializationAttempt|retryPendingRef|widget-state__action|Try again now, or come back later\./,
+  );
 });
 
 test('chat panel message layout keeps messages scrollable and wrapped', () => {
@@ -231,7 +269,7 @@ test('widget chat source contract preserves reader position and offers one jump-
   // Source checks wiring and guardrails; browser coverage proves scroll and RAF timing.
   const effectMatch = appSource.match(/useLayoutEffect\(\(\) => \{([\s\S]*?)\n  \}, \[readyConversationId, latestRenderedSeq\]\);/);
   const scrollHandlerMatch = appSource.match(/function handleMessageScroll\(\) \{([\s\S]*?)\n  \}\n\n  function handleJumpToLatest/);
-  const jumpHandlerMatch = appSource.match(/function handleJumpToLatest\(\) \{([\s\S]*?)\n  \}\n\n  function handleSubmit/);
+  const jumpHandlerMatch = appSource.match(/function handleJumpToLatest\(\) \{([\s\S]*?)\n  \}\n\n  function handleRetry/);
   const jumpButtonMatch = appSource.match(/<button className="widget-chat__jump-to-latest" type="button" onClick=\{handleJumpToLatest\}>\s*Jump to latest\s*<\/button>/);
 
   assert.ok(effectMatch);
