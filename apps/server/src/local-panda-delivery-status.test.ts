@@ -538,7 +538,7 @@ test('delivery status wiring stays read-only server CLI-only with no stdin, muta
 
   assert.equal(
     serverPackage.scripts?.['local-panda:delivery-status'],
-    'node src/local-panda-delivery-status-cli.ts',
+    'node dist/local-panda-delivery-status-cli.js',
   );
   assert.match(readmeSource, /pnpm --filter @panda-chat-widget\/server local-panda:delivery-status/);
   assert.match(readmeSource, /read-only delivery status preflight/);

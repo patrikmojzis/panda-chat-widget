@@ -1061,7 +1061,7 @@ test('local Panda dispatch dry run stays on the server CLI surface only', () => 
 
   assert.equal(
     serverPackage.scripts?.['local-panda:dispatch-dry-run'],
-    'node src/local-panda-dispatch-dry-run-cli.ts',
+    'node dist/local-panda-dispatch-dry-run-cli.js',
   );
   assert.doesNotMatch(appSource, /local-panda-dispatch-dry-run|prepareNextLocalPandaDispatchDryRun|runLocalPandaDispatchDryRunCli/);
   assert.doesNotMatch(

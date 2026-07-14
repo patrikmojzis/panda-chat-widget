@@ -13,10 +13,12 @@ const gitignore = await readFile(new URL('../.gitignore', import.meta.url), 'utf
 
 test('basic HTML demo build prepares loader and widget UI artifacts', () => {
   assert.equal(packageJson.scripts.dev, 'node dev-server.mjs');
-  assert.match(packageJson.scripts.build, /@panda-chat-widget\/loader build/);
-  assert.match(packageJson.scripts.build, /@panda-chat-widget\/widget-ui build/);
+  assert.equal(packageJson.dependencies['@panda-chat-widget/loader'], 'workspace:*');
+  assert.equal(packageJson.dependencies['@panda-chat-widget/widget-ui'], 'workspace:*');
   assert.match(packageJson.scripts.build, /vendor\/panda-chat-widget-loader\.js/);
   assert.match(packageJson.scripts.build, /widget-dist/);
+  assert.match(packageJson.scripts.build, /dist\/index\.html/);
+  assert.match(packageJson.scripts.build, /dist\/vendor\/panda-chat-widget-loader\.js/);
   assert.equal(packageJson.scripts.test, 'node --test "test/**/*.test.mjs"');
   assert.match(gitignore, /^\/vendor\/$/m);
   assert.match(gitignore, /^\/widget-dist\/$/m);

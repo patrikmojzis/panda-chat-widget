@@ -16,7 +16,7 @@ const bootstrapSource = await readFile(new URL('../src/widget-bootstrap.ts', imp
 const themeSource = await readFile(new URL('../src/widget-theme.ts', import.meta.url), 'utf8');
 const chatSource = await readFile(new URL('../src/widget-chat.ts', import.meta.url), 'utf8');
 const widgetVisitorIdentitySource = await readFile(new URL('../src/widget-visitor-identity.ts', import.meta.url), 'utf8');
-const sharedVisitorIdentitySource = await readFile(new URL('../../../packages/shared/src/visitor-identity.ts', import.meta.url), 'utf8');
+const sharedVisitorIdentity = await import('@panda-chat-widget/shared');
 const ownerOnlyLocalDeliveryPattern = /localDelivery|nextLocalReplyCandidate|nextLocalReplyTarget|replyTarget|targetIntentId|queuedIntentCount|lastQueuedAt|claimedIntentCount|lastClaimedAt|appliedLocalReplyCount|lastAppliedLocalReplyAt/i;
 
 function compileTypeScript(source) {
@@ -56,12 +56,11 @@ const compiledThemeModule = compileTypeScript(themeSource);
 const compiledComposerModule = compileTypeScript(composerSource);
 const compiledChatModule = compileTypeScript(chatSource);
 const compiledWidgetVisitorIdentityModule = compileTypeScript(widgetVisitorIdentitySource);
-const sharedVisitorIdentity = loadModule(compileTypeScript(sharedVisitorIdentitySource), { encodeURIComponent });
 
 function loadWidgetModule(compiledSource) {
   return loadModule(compiledSource, {
     require: (specifier) => {
-      if (specifier.includes('packages/shared/src/visitor-identity')) {
+      if (specifier === '@panda-chat-widget/shared') {
         return sharedVisitorIdentity;
       }
 
@@ -116,7 +115,8 @@ async function flushAsyncWork() {
 
 test('widget UI package exposes real Vite scripts and dependencies', () => {
   assert.equal(packageJson.scripts.dev, 'vite --host 127.0.0.1');
-  assert.equal(packageJson.scripts.build, 'tsc -p tsconfig.json --noEmit --pretty false && vite build');
+  assert.equal(packageJson.scripts.build, 'rm -rf dist && tsc -p tsconfig.json --noEmit --pretty false && vite build');
+  assert.equal(packageJson.dependencies['@panda-chat-widget/shared'], 'workspace:*');
   assert.equal(packageJson.scripts.test, 'node --test "test/**/*.test.mjs"');
   assert.equal(packageJson.dependencies.react.startsWith('^'), true);
   assert.equal(packageJson.dependencies['react-dom'].startsWith('^'), true);
@@ -251,7 +251,7 @@ test('widget chat retry source contract keeps one guarded initialization chain',
 
   assert.doesNotMatch(widgetChat, /AbortController|setTimeout|setInterval|localStorage|sessionStorage|\bfetch\(|XMLHttpRequest|sendBeacon|console\./);
   assert.doesNotMatch(
-    `${bootstrapSource}\n${chatSource}\n${widgetVisitorIdentitySource}\n${sharedVisitorIdentitySource}`,
+    `${bootstrapSource}\n${chatSource}\n${widgetVisitorIdentitySource}`,
     /initializationAttempt|retryPendingRef|widget-state__action|Try again now, or come back later\./,
   );
 });

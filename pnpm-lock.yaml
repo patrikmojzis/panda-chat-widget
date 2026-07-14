@@ -36,6 +36,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@panda-chat-widget/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       fastify:
         specifier: ^5.8.5
         version: 5.8.5
@@ -52,6 +55,9 @@ importers:
 
   apps/widget-ui:
     dependencies:
+      '@panda-chat-widget/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -69,7 +75,14 @@ importers:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@24.13.2)
 
-  examples/basic-html: {}
+  examples/basic-html:
+    dependencies:
+      '@panda-chat-widget/loader':
+        specifier: workspace:*
+        version: link:../../packages/loader
+      '@panda-chat-widget/widget-ui':
+        specifier: workspace:*
+        version: link:../../apps/widget-ui
 
   packages/loader: {}
 

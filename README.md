@@ -1,12 +1,12 @@
 # Panda Chat Widget
 
-TypeScript/pnpm workspace for an embeddable chat widget spine. Current V1 work is still local/dev-only: vanilla loader, React/Vite iframe UI, Fastify API seams, Kysely/Postgres schema, first-owner auth/workspace foundation, protected console shell with workspace-scoped site/widget list-create plus widget settings/domain/snippet/Panda connection placeholder flows, a local-only Panda delivery-intent table for configured widgets, local demo seed data, visitor sessions, conversations, messages, SSE contracts, and a deterministic fake reply.
+TypeScript/pnpm workspace for an embeddable chat widget spine. The repository has a Node 24 compiled-artifact baseline for its Fastify server, migrations, operational CLIs, shared package, console, widget, loader, and reference host. Product behavior is still a local/self-hosted demo: Panda connection settings and delivery intents are local-only, and replies remain deterministic fakes.
 
 There is no Panda Gateway/Panda agent integration in this repo yet.
 
 ## Requirements
 
-- Node.js `>=24.0.0 <25` (declared in `package.json`)
+- Node.js 24 (`>=24.0.0 <25`, declared in `package.json`)
 - Corepack + pnpm `11.1.3`
 - Docker Compose only if you want the local Postgres service
 
@@ -17,7 +17,7 @@ corepack enable
 pnpm install --frozen-lockfile
 ```
 
-Local validation in the current agent environment has run under Node `v22.23.0`; pnpm emits expected engine warnings there. Prefer Node 24 for new development.
+All documented build and runtime commands require Node 24.
 
 ## Workspace
 
@@ -42,36 +42,39 @@ Supported key attributes remain `data-public-key`, `data-widget-key`, and `data-
 
 ## Common commands
 
-Run from the repository root unless noted.
+Run from the repository root unless noted. Build outputs are ignored, package-owned artifacts.
 
 | Command | What it does today |
 | --- | --- |
-| `pnpm check` | Workspace typecheck, lint placeholders, tests, and builds. |
-| `pnpm test` | Workspace tests. |
-| `pnpm --filter @panda-chat-widget/server test` | Server API/DB/SSE/runtime contract tests using fake DB seams. |
-| `pnpm --filter @panda-chat-widget/server local-panda:delivery-status` | Read-only local delivery diagnostics preflight; opens the configured DB, runs local SELECTs only, prints one JSON object, and does not claim/apply/mutate/network. |
-| `pnpm --filter @panda-chat-widget/server local-panda:dispatch-dry-run` | Claims one queued local Panda delivery intent and prints the existing local-only payload JSON; no network dispatch or reply apply. |
-| `cat reply-ingress-build-input.json \| pnpm --silent --filter @panda-chat-widget/server local-panda:reply-ingress-build` | Reads one wrapper JSON object from stdin and builds a local reply-ingress payload envelope; no DB/apply/Panda/Gateway/external CLI/network call. |
-| `pnpm --filter @panda-chat-widget/server local-panda:reply-round-trip` | Reuses one already-claimed unapplied local Panda delivery intent, or claims one queued intent if none exists, then builds a deterministic local fake reply ingress payload and inserts/replays one local agent message; no Panda/Gateway/external CLI/network call. |
-| `printf '%s\n' '{"reply":{"text":"Hello from the local manual reply"}}' \| pnpm --silent --filter @panda-chat-widget/server local-panda:reply-manual` | Reads one manual reply JSON object from stdin, reuses or claims one local Panda delivery intent unless optional `targetIntentId` is provided, builds/applies a local reply-ingress payload, and inserts/replays one local agent message; no Panda/Gateway/external CLI/network call. |
-| `cat reply-ingress.json \| pnpm --silent --filter @panda-chat-widget/server local-panda:reply-ingress-apply` | Reads one local reply-ingress JSON object from stdin and applies it through the existing local DB helper; no Panda/Gateway/external CLI/network call. |
-| `pnpm --filter @panda-chat-widget/widget-ui check` | Widget UI typecheck/tests/build. |
+| `pnpm build` | Cleans and builds shared ESM/declarations, console, widget, loader, reference, and non-test server/migration/CLI JavaScript in workspace dependency order. |
+| `pnpm check` | Runs substantive workspace typechecks, all tests, and clean production builds. There is no linter configured, so no command claims to lint. |
+| `pnpm test` | Performs a clean production build, then runs all workspace tests, including built-artifact/static-serving tests. |
+| `pnpm start` | Starts `apps/server/dist/main.js`; run `pnpm build` first. |
+| `pnpm --filter @panda-chat-widget/server db:migrate` | Runs the compiled migration entry `apps/server/dist/migrate.js`; requires a build and PostgreSQL. |
+| `pnpm --filter @panda-chat-widget/server db:seed` | Runs the compiled seed entry `apps/server/dist/seed.js`; requires a build and PostgreSQL. |
+| `pnpm --filter @panda-chat-widget/server test` | Server API/DB/SSE/runtime and built-artifact contract tests using fake DB seams; run `pnpm build` first. |
+| `pnpm --filter @panda-chat-widget/server local-panda:delivery-status` | Runs the compiled read-only local delivery diagnostics preflight; opens the configured DB, runs local SELECTs only, prints one JSON object, and does not claim/apply/mutate/network. |
+| `pnpm --filter @panda-chat-widget/server local-panda:dispatch-dry-run` | Runs the compiled CLI, claims one queued local Panda delivery intent, and prints the existing local-only payload JSON; no network dispatch or reply apply. |
+| `cat reply-ingress-build-input.json \| pnpm --silent --filter @panda-chat-widget/server local-panda:reply-ingress-build` | Runs the compiled stdin adapter and builds a local reply-ingress payload envelope; no DB/apply/Panda/Gateway/external CLI/network call. |
+| `pnpm --filter @panda-chat-widget/server local-panda:reply-round-trip` | Runs the compiled local-only CLI to reuse or claim one intent and insert/replay one deterministic fake reply; no Panda/Gateway/external CLI/network call. |
+| `printf '%s\n' '{"reply":{"text":"Hello from the local manual reply"}}' \| pnpm --silent --filter @panda-chat-widget/server local-panda:reply-manual` | Runs the compiled stdin CLI to reuse/claim an intent and apply one local manual reply; no Panda/Gateway/external CLI/network call. |
+| `cat reply-ingress.json \| pnpm --silent --filter @panda-chat-widget/server local-panda:reply-ingress-apply` | Runs the compiled stdin CLI and applies one local reply-ingress object through the existing DB helper. |
+| `pnpm --filter @panda-chat-widget/widget-ui check` | Widget UI typecheck/tests/build; build shared first when running this package in isolation. |
 | `pnpm --filter @panda-chat-widget/console check` | Console shell typecheck/tests/build. |
 | `pnpm --filter @panda-chat-widget/loader check` | Loader typecheck/tests/build. |
-| `pnpm --filter @panda-chat-widget/basic-html build` | Builds loader + React widget UI and copies artifacts into `examples/basic-html/vendor/` and `examples/basic-html/widget-dist/`. |
-| `pnpm --filter @panda-chat-widget/basic-html dev` | Serves the local demo on `127.0.0.1:4173` and proxies `/api/*` to `http://127.0.0.1:3000`. |
-
-Several package `lint`/`build` scripts still intentionally echo TODO placeholders. Treat `pnpm check` as the current repository validation contract, not a production build pipeline.
+| `pnpm --filter @panda-chat-widget/basic-html build` | Rebuilds the reference tree from already-built loader/widget dependencies; prefer root `pnpm build` from a clean checkout. |
+| `pnpm --filter @panda-chat-widget/basic-html dev` | Optional local source/demo server on `127.0.0.1:4173` with `/api/*` proxying to `http://127.0.0.1:3000`. |
 
 ## Local clickable demo runbook
 
-Use separate terminals for the server and the demo server. For repeatable browser/visual smoke, prefer a disposable local DB so the next local reply candidate belongs to the conversation you open during the runbook. If you intentionally keep an existing DB, run the delivery-status preflight before a mutating manual reply and verify `nextLocalReplyCandidate.conversationId` matches the currently open browser conversation; otherwise send a fresh visitor message or reset the DB first.
+Use a separate terminal for the compiled server and, only when using the optional port-4173 proxy workflow, the demo server. For repeatable browser/visual smoke, prefer a disposable local DB so the next local reply candidate belongs to the conversation you open during the runbook. If you intentionally keep an existing DB, run the delivery-status preflight before a mutating manual reply and verify `nextLocalReplyCandidate.conversationId` matches the currently open browser conversation; otherwise send a fresh visitor message or reset the DB first.
 
-1. Install dependencies:
+1. Install and build all artifacts under Node 24:
 
    ```sh
    corepack enable
    pnpm install --frozen-lockfile
+   pnpm build
    ```
 
 2. Start local Postgres. For a clean disposable smoke run, reset the local Postgres volume before starting it:
@@ -90,11 +93,13 @@ Use separate terminals for the server and the demo server. For repeatable browse
 
    Seed data is idempotent and uses public key `demo-local-widget`, local placeholder route handle `panda:local/demo`, and allowed domains `localhost` and `127.0.0.1`. Rerunning the seed restores that demo route handle; it is not a secret or real Panda connection.
 
-4. Start the DB-connected Fastify server:
+4. Start the DB-connected compiled Fastify server:
 
    ```sh
-   HOST=127.0.0.1 PORT=3000 SERVER_LOGGER=false pnpm --filter @panda-chat-widget/server dev
+   HOST=127.0.0.1 PORT=3000 SERVER_LOGGER=false pnpm start
    ```
+
+   `pnpm start`, migration, seed, and every `local-panda:*` package script execute `apps/server/dist/*.js`; they do not load server TypeScript. `pnpm --filter @panda-chat-widget/server dev` remains the source-watching development command.
 
    Health check:
 
@@ -103,21 +108,19 @@ Use separate terminals for the server and the demo server. For repeatable browse
    # {"ok":true}
    ```
 
-5. Optional: create the first owner workspace and open the protected console. The setup endpoint is transactionally singleton and returns an HttpOnly session cookie. Console code uses `/api/me`; `/me` exists only as a compatibility alias.
+5. Optional: create the first owner workspace at <http://127.0.0.1:3000/console/setup>. The compiled Fastify app serves the built console under `/console/`; login/setup are public shells, while other direct and deep links remain session-protected. The setup endpoint is transactionally singleton and returns an HttpOnly session cookie. Console code uses `/api/me`; `/me` exists only as a compatibility alias.
+
+6. Open the built same-origin reference host at <http://127.0.0.1:3000/reference/>, click the bottom-right `Chat` launcher, type a visitor message, and press `Send`. Fastify also serves the built widget at `/widget.html`, hashed widget files at `/assets/*`, and the classic loader at `/vendor/panda-chat-widget-loader.js`.
+
+   For the separate Vite-style local proxy workflow, the existing optional command remains:
 
    ```sh
-   pnpm --filter @panda-chat-widget/console build
-   # then open http://127.0.0.1:3000/console/setup while the Fastify server is running
-   ```
-
-6. Build and start the basic HTML demo:
-
-   ```sh
-   pnpm --filter @panda-chat-widget/basic-html build
    pnpm --filter @panda-chat-widget/basic-html dev
    ```
 
-7. Open <http://127.0.0.1:4173/>, click the bottom-right `Chat` launcher, type a visitor message, and press `Send`.
+   That development server runs at <http://127.0.0.1:4173/> and preserves its `/api/*` proxy/origin synthesis.
+
+7. Send a visitor message from either reference host.
 
 Expected result: the message appears in the widget, then the backend stores a deterministic local fake agent reply and delivers it through the same API/SSE/polling flow. The widget keeps the EventSource live path open for same-process server pushes and also sends one periodic catch-up `GET /messages?afterSeq=<latestSeq>` so out-of-band local DB replies from the server-only CLI path can appear in an already-open demo widget without a page reload. Because the seeded widget has the local placeholder route handle `panda:local/demo`, the backend also records one internal queued local delivery intent for the new visitor message. This is not exposed publicly and does not send anything to Panda/Gateway/CLI:
 
@@ -186,6 +189,10 @@ Thanks for trying the local Panda chat widget demo. This is a fake V1 reply, but
    The apply CLI stdin value must parse to a non-null, non-array JSON object. It is then delegated to the existing `applyLocalPandaReplyIngressPayloadV1` helper; malformed v1-shaped objects are reported as helper-controlled apply failures such as `invalid_payload` rather than rejected by a separate CLI schema layer. On success, stdout is a JSON envelope with `kind: "local-panda-reply-ingress-apply"`, `mode: "local-only-stdin-reply-ingress-apply"`, `completed: true`, `parsed: true`, `applyResult`, and a `metadata` object including `locality: "local-only"`, `input: "stdin-json-object"`, `network: "no-network"`, `pandaCall/gatewayCall/externalCliCall: "not-attempted"`, `childProcess: "not-used"`, `publicRoute/worker: "not-created"`, `statusLifecycleExpansion: "not-attempted"`, and `stateMutation: "local-db-apply-or-replay-via-existing-helper"`. Controlled helper failures keep the same envelope with `completed: false`, `parsed: true`, `failedStep: "apply_reply_ingress"`, `reason`, and `applyResult`, and exit 0. Empty stdin, malformed JSON, or JSON values that are `null`, arrays, or scalars print the same base envelope with `completed: false`, `parsed: false`, `failedStep: "stdin_parse"`, reason `empty_stdin`, `malformed_json`, or `json_value_not_object`, and exit 1 without opening the DB or printing stderr when run directly or through the documented `pnpm --silent` command; non-silent pnpm may add lifecycle noise around any script that exits 1. Once parsed, this mutates only the local DB by inserting or replaying one local agent message through the existing helper; it still creates no public route, worker, retry/dead-letter flow, status lifecycle expansion, fake-reply replacement, frontend exposure, Panda/Gateway call, child process, or network dispatch.
 
 The demo server is local-only. Defaults are `DEMO_HOST=127.0.0.1`, `DEMO_PORT=4173`, and `DEMO_BACKEND_URL=http://127.0.0.1:3000` (generic `HOST`, `PORT`, and `BACKEND_URL` also work). For proxied `/api/*` requests only, it synthesizes a safe localhost `Origin` when the browser omits one; the production Fastify API still enforces normal origin checks.
+
+## Built artifact and deployment scope
+
+The production command means “execute compiled JavaScript,” not “production deployment is complete.” The built Fastify app resolves sibling package-owned `dist` directories with `import.meta.url`; it needs no Vite/dev server and does not use `process.cwd()`, but this slice does not add Docker runtime packaging, TLS/reverse-proxy configuration, durable multi-process event delivery, a production rate limiter, or operational hardening. The separate port-4173 server is a local demo aid only. There is still no real Panda/Gateway integration.
 
 ## Server environment knobs
 

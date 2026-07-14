@@ -28,10 +28,10 @@ function countOccurrences(source, needle) {
 test('console package exposes Vite scripts including typecheck and check', () => {
   assert.equal(packageJson.name, '@panda-chat-widget/console');
   assert.equal(packageJson.scripts.dev, 'vite --host 127.0.0.1 --port 5174');
-  assert.equal(packageJson.scripts.build, 'tsc -p tsconfig.json --noEmit --pretty false && vite build');
+  assert.equal(packageJson.scripts.build, 'rm -rf dist && tsc -p tsconfig.json --noEmit --pretty false && vite build');
   assert.equal(packageJson.scripts.test, 'node --test "test/**/*.test.mjs"');
   assert.match(packageJson.scripts.typecheck, /tsc -p tsconfig\.json --noEmit --pretty false/);
-  assert.equal(packageJson.scripts.check, 'pnpm typecheck && pnpm lint && pnpm test && pnpm build');
+  assert.equal(packageJson.scripts.check, 'pnpm typecheck && pnpm test && pnpm build');
   assert.equal(packageJson.dependencies.react, '^19.2.7');
   assert.equal(packageJson.dependencies['react-dom'], '^19.2.7');
 });

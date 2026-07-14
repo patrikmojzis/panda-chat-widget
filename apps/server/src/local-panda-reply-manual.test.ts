@@ -1086,7 +1086,7 @@ test('manual reply CLI wiring stays local-only and documents the server-only std
   assert.match(manualSource, /applyLocalPandaReplyIngressPayloadV1/);
   assert.match(manualSource, /manualReplySource: 'stdin-manual-reply-text'/);
   assert.doesNotMatch(combinedManualSource, /deterministic-local-fake-reply|syntheticFakeReplyIngressPayload|Deterministic local fake reply/);
-  assert.equal(serverPackage.scripts?.['local-panda:reply-manual'], 'node src/local-panda-reply-manual-cli.ts');
+  assert.equal(serverPackage.scripts?.['local-panda:reply-manual'], 'node dist/local-panda-reply-manual-cli.js');
   assert.match(
     readmeSource,
     /printf '%s\\n' '\{"reply":\{"text":"Hello from the local manual reply"\}\}' \| pnpm --silent --filter @panda-chat-widget\/server local-panda:reply-manual/,

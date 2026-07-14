@@ -4,16 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc -p tsconfig.json --noEmit --pretty false && vite build",
+    "build": "rm -rf dist && tsc -p tsconfig.json --noEmit --pretty false && vite build",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add widget UI TypeScript sources\"; fi'",
-    "lint": "echo \"TODO: lint command not implemented yet for iframe React widget UI\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "description": "Owns the future iframe React widget UI.",
   "dependencies": {
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "@panda-chat-widget/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

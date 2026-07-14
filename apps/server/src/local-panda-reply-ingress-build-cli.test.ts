@@ -273,7 +273,7 @@ test('local reply ingress build CLI package script and README document the local
 
   assert.equal(
     serverPackage.scripts?.['local-panda:reply-ingress-build'],
-    'node src/local-panda-reply-ingress-build-cli.ts',
+    'node dist/local-panda-reply-ingress-build-cli.js',
   );
   assert.match(
     readmeSource,

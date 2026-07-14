@@ -8,11 +8,11 @@
   },
   "scripts": {
     "dev": "pnpm -r --if-present --parallel dev",
-    "build": "pnpm -r --if-present build",
-    "test": "pnpm -r --if-present test",
-    "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "pnpm -r --if-present lint",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "build": "pnpm -r --workspace-concurrency=1 --if-present build",
+    "test": "pnpm build && pnpm -r --workspace-concurrency=1 --if-present test",
+    "typecheck": "pnpm --filter @panda-chat-widget/shared build && pnpm -r --workspace-concurrency=1 --if-present typecheck",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "start": "pnpm --filter @panda-chat-widget/server start"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

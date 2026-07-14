@@ -5,7 +5,7 @@ import {
   parseVisitorKey,
   type VisitorSessionCreateRequest,
   type VisitorSessionCreateResponse,
-} from '../../../packages/shared/src/visitor-identity.ts';
+} from '@panda-chat-widget/shared';
 import type { DatabaseClient, DatabaseSchema } from './db.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
 import {

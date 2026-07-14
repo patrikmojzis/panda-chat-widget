@@ -4,25 +4,26 @@
   "private": true,
   "scripts": {
     "dev": "node --watch src/main.ts",
-    "build": "echo \"TODO: build command not implemented yet for server API/DB/SSE service\"",
-    "test": "node --test \"src/**/*.test.ts\"",
-    "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add server TypeScript sources\"; fi'",
-    "lint": "echo \"TODO: lint command not implemented yet for server API/DB/SSE service\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-    "db:migrate": "node src/migrate.ts",
-    "db:seed": "node src/seed.ts",
-    "local-panda:dispatch-dry-run": "node src/local-panda-dispatch-dry-run-cli.ts",
-    "local-panda:reply-round-trip": "node src/local-panda-reply-round-trip-cli.ts",
-    "local-panda:reply-manual": "node src/local-panda-reply-manual-cli.ts",
-    "local-panda:reply-ingress-apply": "node src/local-panda-reply-ingress-apply-cli.ts",
-    "local-panda:reply-ingress-build": "node src/local-panda-reply-ingress-build-cli.ts",
-    "local-panda:delivery-status": "node src/local-panda-delivery-status-cli.ts"
+    "build": "rm -rf dist && tsc -p tsconfig.build.json --pretty false",
+    "start": "node dist/main.js",
+    "test": "node --test \"src/**/*.test.ts\" \"test/**/*.test.mjs\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+    "check": "pnpm typecheck && pnpm build && pnpm test",
+    "db:migrate": "node dist/migrate.js",
+    "db:seed": "node dist/seed.js",
+    "local-panda:dispatch-dry-run": "node dist/local-panda-dispatch-dry-run-cli.js",
+    "local-panda:reply-round-trip": "node dist/local-panda-reply-round-trip-cli.js",
+    "local-panda:reply-manual": "node dist/local-panda-reply-manual-cli.js",
+    "local-panda:reply-ingress-apply": "node dist/local-panda-reply-ingress-apply-cli.js",
+    "local-panda:reply-ingress-build": "node dist/local-panda-reply-ingress-build-cli.js",
+    "local-panda:delivery-status": "node dist/local-panda-delivery-status-cli.js"
   },
   "description": "Owns the future API, database, and SSE service for the chat widget.",
   "dependencies": {
     "fastify": "^5.8.5",
     "kysely": "^0.29.2",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "@panda-chat-widget/shared": "workspace:*"
   },
   "type": "module",
   "devDependencies": {

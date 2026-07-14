@@ -797,7 +797,7 @@ test('local reply ingress apply CLI stays server-only without public route, fron
 
   assert.equal(
     serverPackage.scripts?.['local-panda:reply-ingress-apply'],
-    'node src/local-panda-reply-ingress-apply-cli.ts',
+    'node dist/local-panda-reply-ingress-apply-cli.js',
   );
   assert.match(
     readmeSource,

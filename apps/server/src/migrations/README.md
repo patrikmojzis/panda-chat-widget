@@ -1,6 +1,6 @@
 # Server migrations
 
-Kysely migration files live here and run in filename order via `pnpm --filter @panda-chat-widget/server db:migrate`.
+Kysely migration sources live here and compile to `apps/server/dist/migrations/*.js`. After `pnpm build`, they run in filename order via `pnpm --filter @panda-chat-widget/server db:migrate`; the production command loads only the compiled directory.
 
 Current migrations:
 

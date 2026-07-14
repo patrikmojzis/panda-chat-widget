@@ -4,11 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5174",
-    "build": "tsc -p tsconfig.json --noEmit --pretty false && vite build",
+    "build": "rm -rf dist && tsc -p tsconfig.json --noEmit --pretty false && vite build",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add console TypeScript sources\"; fi'",
-    "lint": "echo \"TODO: lint command not implemented yet for protected console React app\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "description": "Protected owner console shell for Panda chat widget.",
   "dependencies": {
