@@ -136,7 +136,7 @@ function runLoader({
 test('loader package builds one browser script artifact from the TypeScript entry', () => {
   assert.equal(packageJson.browser, 'dist/panda-chat-widget-loader.js');
   assert.equal(packageJson.main, 'dist/panda-chat-widget-loader.js');
-  assert.equal(packageJson.scripts.build, 'tsc -p tsconfig.build.json');
+  assert.equal(packageJson.scripts.build, 'rm -rf dist && tsc -p tsconfig.build.json');
   assert.deepEqual(buildConfig.include, ['src/panda-chat-widget-loader.ts']);
   assert.equal(buildConfig.compilerOptions.rootDir, './src');
   assert.equal(buildConfig.compilerOptions.outDir, './dist');

@@ -1,48 +1,32 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import vm from 'node:vm';
-import * as ts from 'typescript';
+
+import * as visitorIdentity from '@panda-chat-widget/shared';
 
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const visitorIdentitySource = await readFile(new URL('../src/visitor-identity.ts', import.meta.url), 'utf8');
-
-function compileTypeScript(source) {
-  return ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-    },
-  }).outputText;
-}
-
-function loadModule(compiledSource) {
-  const module = { exports: {} };
-
-  vm.runInNewContext(
-    compiledSource,
-    {
-      encodeURIComponent,
-      exports: module.exports,
-      module,
-    },
-    { timeout: 1000 },
-  );
-
-  return module.exports;
-}
+const visitorIdentityDeclaration = await readFile(new URL('../dist/visitor-identity.d.ts', import.meta.url), 'utf8');
+const visitorIdentityJavaScript = await readFile(new URL('../dist/visitor-identity.js', import.meta.url), 'utf8');
 
 function jsonSafe(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-const visitorIdentity = loadModule(compileTypeScript(visitorIdentitySource));
-
-test('shared package runs visitor identity contract tests', () => {
-  assert.equal(packageJson.scripts.test, 'node --test "test/**/*.test.mjs"');
-  assert.match(visitorIdentitySource, /export type VisitorSessionCreateRequest = \{\n  visitorKey: VisitorKey;/);
-  assert.match(visitorIdentitySource, /export type VisitorSessionCreateResponse = \{[\s\S]*visitorSession:/);
-  assert.match(visitorIdentitySource, /export type VisitorSessionReference = \{\n  visitorSessionId: VisitorSessionId;/);
+test('shared package exports built ESM and declarations for the visitor identity contract', () => {
+  assert.deepEqual(packageJson.exports, {
+    '.': {
+      types: './dist/visitor-identity.d.ts',
+      import: './dist/visitor-identity.js',
+    },
+  });
+  assert.equal(packageJson.main, './dist/visitor-identity.js');
+  assert.equal(packageJson.types, './dist/visitor-identity.d.ts');
+  assert.match(visitorIdentityJavaScript, /export const VISITOR_KEY_PREFIX/);
+  assert.doesNotMatch(visitorIdentityJavaScript, /export type|: string|\.ts['"]/);
+  assert.match(visitorIdentityDeclaration, /export type VisitorSessionCreateRequest = \{/);
+  assert.match(visitorIdentityDeclaration, /export type VisitorSessionCreateResponse = \{/);
+  assert.match(visitorIdentityDeclaration, /export type VisitorSessionReference = \{/);
 });
 
 test('visitor identity contract keeps opaque client storage separate from server session ids', () => {
@@ -86,7 +70,6 @@ test('visitor key parser accepts only opaque random-looking keys', () => {
     status: 'valid',
     visitorKey,
   });
-
   assert.deepEqual(jsonSafe(visitorIdentity.parseVisitorKey(undefined)), {
     status: 'invalid',
     reason: 'not_string',

@@ -53,6 +53,7 @@ async function createConsoleDistFixture(): Promise<string> {
   await mkdir(path.join(distPath, 'assets'), { recursive: true });
   await writeFile(path.join(distPath, 'index.html'), '<!doctype html><div id="root">Console shell</div>');
   await writeFile(path.join(distPath, 'assets', 'app.js'), 'console.log("console asset");');
+  await writeFile(path.join(distPath, 'assets', 'app.css'), 'body { color: black; }');
 
   return distPath;
 }
@@ -69,6 +70,7 @@ test('console login and setup shells are reachable while protected console redir
     const login = await app.inject({ method: 'GET', url: '/console/login' });
     const setup = await app.inject({ method: 'GET', url: '/console/setup' });
     const protectedShell = await app.inject({ method: 'GET', url: '/console' });
+    const protectedDeepLink = await app.inject({ method: 'GET', url: '/console/sites/site-1/widgets/widget-1' });
 
     assert.equal(login.statusCode, 200);
     assert.match(login.headers['content-type'] ?? '', /^text\/html/);
@@ -76,6 +78,8 @@ test('console login and setup shells are reachable while protected console redir
     assert.equal(setup.statusCode, 200);
     assert.equal(protectedShell.statusCode, 302);
     assert.equal(protectedShell.headers.location, '/console/login');
+    assert.equal(protectedDeepLink.statusCode, 302);
+    assert.equal(protectedDeepLink.headers.location, '/console/login');
   } finally {
     await app.close();
     await rm(distPath, { force: true, recursive: true });
@@ -90,10 +94,17 @@ test('authenticated console shell loads and protected APIs still return JSON 401
     assert.equal(hashSessionToken(TOKEN).length, 43);
 
     const shell = await app.inject({ method: 'GET', url: '/console', headers: { cookie: sessionCookie() } });
+    const deepLink = await app.inject({
+      method: 'GET',
+      url: '/console/sites/site-1/widgets/widget-1',
+      headers: { cookie: sessionCookie() },
+    });
     const api = await app.inject({ method: 'GET', url: '/api/dashboard' });
 
     assert.equal(shell.statusCode, 200);
     assert.match(shell.body, /Console shell/);
+    assert.equal(deepLink.statusCode, 200);
+    assert.match(deepLink.body, /Console shell/);
     assert.equal(api.statusCode, 401);
     assert.match(api.headers['content-type'] ?? '', /^application\/json/);
     assert.deepEqual(api.json(), { error: 'unauthenticated' });
@@ -131,14 +142,22 @@ test('console assets are served only from resolved dist paths and reject travers
 
   try {
     const asset = await app.inject({ method: 'GET', url: '/console/assets/app.js' });
+    const stylesheet = await app.inject({ method: 'GET', url: '/console/assets/app.css' });
+    const rawTraversal = await app.inject({ method: 'GET', url: '/console/assets/../index.html' });
     const traversal = await app.inject({ method: 'GET', url: '/console/assets/%2e%2e/index.html' });
+    const malformedPath = await app.inject({ method: 'GET', url: '/console/assets/%E0%A4%A' });
 
     assert.equal(asset.statusCode, 200);
     assert.match(asset.headers['content-type'] ?? '', /^text\/javascript/);
     assert.match(asset.body, /console asset/);
+    assert.equal(stylesheet.statusCode, 200);
+    assert.match(stylesheet.headers['content-type'] ?? '', /^text\/css/);
     assert.equal(resolveConsoleDistFile(distPath, '/assets/app.js'), path.join(distPath, 'assets', 'app.js'));
     assert.equal(resolveConsoleDistFile(distPath, '/assets/%2e%2e/index.html'), null);
+    assert.equal(rawTraversal.statusCode, 404);
     assert.equal(traversal.statusCode, 404);
+    assert.equal(malformedPath.statusCode, 400);
+    assert.doesNotMatch(malformedPath.body, /Console shell/);
   } finally {
     await app.close();
     await rm(distPath, { force: true, recursive: true });

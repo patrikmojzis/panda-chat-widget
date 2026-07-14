@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
 import { type AuthRouteOptions, registerAuthRoutes } from './auth-routes.ts';
+import { registerBuiltStaticRoutes, type BuiltStaticRouteOptions } from './built-static.ts';
 import { registerConsoleStaticRoutes } from './console-static.ts';
 import { registerConsoleSiteRoutes } from './console-sites.ts';
 import { registerConsoleWidgetSettingsRoutes } from './console-widget-settings.ts';
@@ -22,6 +23,7 @@ import { registerVisitorSessionRoutes } from './visitor-session.ts';
 import { registerWidgetBootstrapRoutes } from './widget-bootstrap.ts';
 
 export type BuildAppOptions = FastifyServerOptions & {
+  assets?: BuiltStaticRouteOptions;
   auth?: Partial<Omit<AuthRouteOptions, 'database'>> & { secureCookies?: boolean };
   console?: { distPath?: string };
   database?: DatabaseClient;
@@ -31,6 +33,7 @@ export type BuildAppOptions = FastifyServerOptions & {
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const {
+    assets,
     auth,
     console: consoleOptions,
     database,
@@ -51,6 +54,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   registerHealthRoutes(app);
+  registerBuiltStaticRoutes(app, assets);
 
   if (database) {
     const authOptions = {

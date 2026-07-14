@@ -862,7 +862,7 @@ test('local reply round trip wiring stays server CLI-only with no network, worke
   assert.match(roundTripSource, /applyLocalPandaReplyIngressPayloadV1/);
   assert.equal(
     serverPackage.scripts?.['local-panda:reply-round-trip'],
-    'node src/local-panda-reply-round-trip-cli.ts',
+    'node dist/local-panda-reply-round-trip-cli.js',
   );
   assert.doesNotMatch(
     appSource,

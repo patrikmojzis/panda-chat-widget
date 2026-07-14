@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Insertable } from 'kysely';
 
-import type { VisitorSessionReference } from '../../../packages/shared/src/visitor-identity.ts';
+import type { VisitorSessionReference } from '@panda-chat-widget/shared';
 import type { ConversationStatus, DatabaseClient, DatabaseSchema } from './db.ts';
 import { matchOriginToAllowedDomains } from './origin-domain.ts';
 import {

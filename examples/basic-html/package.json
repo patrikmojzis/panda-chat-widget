@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "node dev-server.mjs",
-    "build": "pnpm --filter @panda-chat-widget/loader build && pnpm --filter @panda-chat-widget/widget-ui build && rm -rf vendor widget-dist && mkdir -p vendor widget-dist && cp ../../packages/loader/dist/panda-chat-widget-loader.js vendor/panda-chat-widget-loader.js && cp -R ../../apps/widget-ui/dist/. widget-dist/",
+    "build": "rm -rf vendor widget-dist dist && mkdir -p vendor widget-dist dist/vendor && cp ../../packages/loader/dist/panda-chat-widget-loader.js vendor/panda-chat-widget-loader.js && cp ../../packages/loader/dist/panda-chat-widget-loader.js dist/vendor/panda-chat-widget-loader.js && cp -R ../../apps/widget-ui/dist/. widget-dist/ && cp index.html dist/index.html",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add basic HTML TypeScript sources\"; fi'",
-    "lint": "echo \"TODO: lint command not implemented yet for basic HTML host-page example\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "check": "pnpm test && pnpm build"
   },
-  "description": "Owns the basic HTML host-page demo for local widget testing."
+  "description": "Owns the basic HTML host-page demo for local widget testing.",
+  "dependencies": {
+    "@panda-chat-widget/loader": "workspace:*",
+    "@panda-chat-widget/widget-ui": "workspace:*"
+  }
 }

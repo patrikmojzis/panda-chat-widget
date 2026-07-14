@@ -3,12 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "echo \"TODO: dev command not implemented yet for host-page embed loader\"",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "typecheck": "sh -c 'if find src -type f \\( -name \"*.ts\" -o -name \"*.tsx\" \\) 2>/dev/null | grep -q .; then tsc -p tsconfig.json --noEmit --pretty false; else echo \"TODO: add loader TypeScript sources\"; fi'",
-    "lint": "echo \"TODO: lint command not implemented yet for host-page embed loader\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "description": "Owns the future vanilla TypeScript host-page embed loader.",
   "main": "dist/panda-chat-widget-loader.js",

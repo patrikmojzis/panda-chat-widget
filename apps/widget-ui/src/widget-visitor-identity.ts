@@ -3,7 +3,7 @@ import {
   parseVisitorKey,
   VISITOR_KEY_PREFIX,
   VISITOR_KEY_RANDOM_BYTES,
-} from '../../../packages/shared/src/visitor-identity';
+} from '@panda-chat-widget/shared';
 
 export type WidgetVisitorKeyStorage = Pick<Storage, 'getItem' | 'setItem'>;
 

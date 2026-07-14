@@ -1,5 +1,3 @@
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -7,6 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { authenticateRequest } from './auth-guard.ts';
 import type { DatabaseClient } from './db.ts';
+import { resolveStaticFile, serveStaticFile } from './static-files.ts';
 
 export const DEFAULT_CONSOLE_DIST_PATH = fileURLToPath(new URL('../../console/dist', import.meta.url));
 
@@ -46,29 +45,7 @@ export function registerConsoleStaticRoutes(app: FastifyInstance, options: Conso
 }
 
 export function resolveConsoleDistFile(distPath: string, requestPath: string): string | null {
-  let decodedPath: string;
-
-  try {
-    decodedPath = decodeURIComponent(requestPath.replace(/^\/+/, ''));
-  } catch {
-    return null;
-  }
-
-  const segments = decodedPath.split('/');
-
-  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
-    return null;
-  }
-
-  const root = path.resolve(distPath);
-  const filePath = path.resolve(root, ...segments);
-  const relativePath = path.relative(root, filePath);
-
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    return null;
-  }
-
-  return filePath;
+  return resolveStaticFile(distPath, requestPath);
 }
 
 async function serveProtectedConsoleIndex(
@@ -87,7 +64,7 @@ async function serveProtectedConsoleIndex(
 }
 
 async function serveConsoleIndex(distPath: string, reply: FastifyReply): Promise<FastifyReply> {
-  return serveFile(path.join(distPath, 'index.html'), reply, 'text/html; charset=utf-8');
+  return serveStaticFile(path.join(distPath, 'index.html'), reply, 'text/html; charset=utf-8');
 }
 
 async function serveConsoleAsset(distPath: string, requestPath: string, reply: FastifyReply): Promise<FastifyReply> {
@@ -97,28 +74,7 @@ async function serveConsoleAsset(distPath: string, requestPath: string, reply: F
     return reply.status(404).type('text/plain; charset=utf-8').send('Not found');
   }
 
-  return serveFile(filePath, reply, contentTypeForPath(filePath));
-}
-
-async function serveFile(filePath: string, reply: FastifyReply, contentType: string): Promise<FastifyReply> {
-  try {
-    const fileStat = await stat(filePath);
-
-    if (!fileStat.isFile()) {
-      return reply.status(404).type('text/plain; charset=utf-8').send('Not found');
-    }
-
-    return reply
-      .header('content-length', fileStat.size)
-      .type(contentType)
-      .send(createReadStream(filePath));
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      return reply.status(404).type('text/plain; charset=utf-8').send('Not found');
-    }
-
-    throw error;
-  }
+  return serveStaticFile(filePath, reply);
 }
 
 function readRawConsolePath(request: FastifyRequest): string | null {
@@ -129,26 +85,4 @@ function readRawConsolePath(request: FastifyRequest): string | null {
   }
 
   return rawPath.slice('/console'.length);
-}
-
-function contentTypeForPath(filePath: string): string {
-  switch (path.extname(filePath).toLowerCase()) {
-    case '.html':
-      return 'text/html; charset=utf-8';
-    case '.js':
-      return 'text/javascript; charset=utf-8';
-    case '.css':
-      return 'text/css; charset=utf-8';
-    case '.svg':
-      return 'image/svg+xml';
-    case '.png':
-      return 'image/png';
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg';
-    case '.webp':
-      return 'image/webp';
-    default:
-      return 'application/octet-stream';
-  }
 }
