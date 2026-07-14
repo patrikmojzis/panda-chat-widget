@@ -118,3 +118,30 @@ test('built static routes reject missing files and raw, encoded, or malformed tr
     await rm(fixture.rootPath, { force: true, recursive: true });
   }
 });
+
+test('encoded separators in built-static wildcard mount prefixes return 404', async () => {
+  const fixture = await createBuiltAssetsFixture();
+  const app = buildApp({ assets: fixture });
+
+  try {
+    for (const url of [
+      '/assets%2fwidget.js',
+      '/assets%2f..%2foutside.txt',
+      '/assets%252f..%252foutside.txt',
+      '/assets%5cwidget.js',
+      '/vendor%2fpanda-chat-widget-loader.js',
+      '/vendor%5cpanda-chat-widget-loader.js',
+      '/reference%2findex.html',
+      '/reference%2f..%2foutside.txt',
+    ]) {
+      const response = await app.inject({ method: 'GET', url });
+
+      assert.equal(response.statusCode, 404, `${url} should be 404, got ${response.statusCode}`);
+      assert.doesNotMatch(response.body, /must not be served/, url);
+      assert.doesNotMatch(response.body, /built widget|built loader|Reference host/, url);
+    }
+  } finally {
+    await app.close();
+    await rm(fixture.rootPath, { force: true, recursive: true });
+  }
+});

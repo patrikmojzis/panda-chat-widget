@@ -32,6 +32,10 @@ export function registerConsoleStaticRoutes(app: FastifyInstance, options: Conso
       return serveConsoleAsset(distPath, consolePath, reply);
     }
 
+    if (looksLikeAssetPath(consolePath)) {
+      return reply.status(404).type('text/plain; charset=utf-8').send('Not found');
+    }
+
     if (consolePath === '/index.html') {
       return reply.status(404).type('text/plain; charset=utf-8').send('Not found');
     }
@@ -75,6 +79,15 @@ async function serveConsoleAsset(distPath: string, requestPath: string, reply: F
   }
 
   return serveStaticFile(filePath, reply);
+}
+
+function looksLikeAssetPath(rawConsolePath: string): boolean {
+  const normalized = rawConsolePath
+    .replace(/%25(?:2[fF]|5[cC])/g, '/')
+    .replace(/%(?:2[fF]|5[cC])/g, '/')
+    .replace(/[\\/]+/g, '/');
+
+  return normalized.startsWith('/assets/') || normalized === '/assets';
 }
 
 function readRawConsolePath(request: FastifyRequest): string | null {

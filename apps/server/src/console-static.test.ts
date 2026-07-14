@@ -163,3 +163,98 @@ test('console assets are served only from resolved dist paths and reject travers
     await rm(distPath, { force: true, recursive: true });
   }
 });
+
+test('encoded and malformed asset-like console paths return 404 instead of SPA index', async () => {
+  const distPath = await createConsoleDistFixture();
+  const app = buildApp({ database: createConsoleAuthDatabase(), console: { distPath } });
+
+  try {
+    const encodedSlash = await app.inject({
+      method: 'GET',
+      url: '/console/assets%2fmissing.js',
+      headers: { cookie: sessionCookie() },
+    });
+    const encodedTraversal = await app.inject({
+      method: 'GET',
+      url: '/console/assets%2f..%2findex.html',
+      headers: { cookie: sessionCookie() },
+    });
+    const doubleEncodedTraversal = await app.inject({
+      method: 'GET',
+      url: '/console/assets%252f..%252findex.html',
+      headers: { cookie: sessionCookie() },
+    });
+    const encodedBackslash = await app.inject({
+      method: 'GET',
+      url: '/console/assets%5cmissing.js',
+      headers: { cookie: sessionCookie() },
+    });
+    const doubleSlash = await app.inject({
+      method: 'GET',
+      url: '/console//assets/missing.js',
+      headers: { cookie: sessionCookie() },
+    });
+
+    for (const [label, response] of [
+      ['encoded slash', encodedSlash],
+      ['encoded traversal', encodedTraversal],
+      ['double-encoded traversal', doubleEncodedTraversal],
+      ['encoded backslash', encodedBackslash],
+      ['double slash', doubleSlash],
+    ] as const) {
+      assert.equal(response.statusCode, 404, `${label} should be 404, got ${response.statusCode}`);
+      assert.doesNotMatch(response.body, /Console shell/, `${label} must not return SPA index`);
+    }
+  } finally {
+    await app.close();
+    await rm(distPath, { force: true, recursive: true });
+  }
+});
+
+test('legitimate SPA deep links still work with authentication', async () => {
+  const distPath = await createConsoleDistFixture();
+  const app = buildApp({ database: createConsoleAuthDatabase(), console: { distPath } });
+
+  try {
+    const deepLink = await app.inject({
+      method: 'GET',
+      url: '/console/sites/site-1/widgets/widget-1',
+      headers: { cookie: sessionCookie() },
+    });
+    const settings = await app.inject({
+      method: 'GET',
+      url: '/console/settings',
+      headers: { cookie: sessionCookie() },
+    });
+
+    assert.equal(deepLink.statusCode, 200);
+    assert.match(deepLink.body, /Console shell/);
+    assert.equal(settings.statusCode, 200);
+    assert.match(settings.body, /Console shell/);
+  } finally {
+    await app.close();
+    await rm(distPath, { force: true, recursive: true });
+  }
+});
+
+test('unauthenticated encoded asset-like paths return 404 not redirect', async () => {
+  const distPath = await createConsoleDistFixture();
+  const app = buildApp({ database: createConsoleAuthDatabase(), console: { distPath } });
+
+  try {
+    const encodedSlash = await app.inject({
+      method: 'GET',
+      url: '/console/assets%2fmissing.js',
+    });
+    const encodedBackslash = await app.inject({
+      method: 'GET',
+      url: '/console/assets%5cmissing.js',
+    });
+
+    assert.equal(encodedSlash.statusCode, 404);
+    assert.equal(encodedBackslash.statusCode, 404);
+  } finally {
+    await app.close();
+    await rm(distPath, { force: true, recursive: true });
+  }
+});
