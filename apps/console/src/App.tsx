@@ -1,82 +1,52 @@
-import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useReducer, useRef, useState } from 'react';
+import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useState } from 'react';
 import {
   ApiError,
   createSite,
   createWidget,
-  createWidgetDomain,
-  deleteWidgetDomain,
   getCurrentContext,
-  getSetupStatus,
   getSite,
-  getWidgetSettings,
+  getSetupStatus,
   listSites,
-  listWidgetDomains,
   listWidgets,
   login,
   logout,
   setupFirstOwner,
-  updateWidgetSettings,
-  type ConsoleAllowedDomain,
   type ConsoleSite,
   type ConsoleWidget,
-  type ConsoleWidgetNextLocalReplyCandidate,
-  type ConsoleWidgetSettings,
   type CurrentContext,
   type LoginInput,
   type SetupInput,
-  type UpdateWidgetSettingsInput,
 } from './console-api';
-import {
-  createLocalManualReplyState,
-  localManualReplyCopyCoordinator,
-  reduceLocalManualReplyState,
-  type LocalManualReplyScope,
-} from './local-manual-reply-command';
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
+import { WidgetSettingsLegacyCompatibility } from '@/compat/widget-settings-legacy-compat';
+import { AlertCircle, Globe, Menu } from 'lucide-react';
 
 type AppState =
-  | {
-      status: 'loading';
-    }
-  | {
-      status: 'setup';
-    }
-  | {
-      status: 'login';
-    }
-  | {
-      status: 'ready';
-      context: CurrentContext;
-    }
-  | {
-      status: 'error';
-      message: string;
-    };
+  | { status: 'loading' }
+  | { status: 'setup' }
+  | { status: 'login' }
+  | { status: 'ready'; context: CurrentContext }
+  | { status: 'error'; message: string };
 
 type SubmitState = 'idle' | 'submitting' | 'error';
 
 type ConsoleRoute =
-  | {
-      page: 'sites';
-    }
-  | {
-      page: 'createSite';
-    }
-  | {
-      page: 'siteDetail';
-      siteId: string;
-    }
-  | {
-      page: 'createWidget';
-      siteId: string;
-    }
-  | {
-      page: 'widgetDetail';
-      siteId: string;
-      widgetId: string;
-    }
-  | {
-      page: 'notFound';
-    };
+  | { page: 'sites' }
+  | { page: 'createSite' }
+  | { page: 'siteDetail'; siteId: string }
+  | { page: 'createWidget'; siteId: string }
+  | { page: 'widgetDetail'; siteId: string; widgetId: string }
+  | { page: 'notFound' };
 
 export function App() {
   const [state, setState] = useState<AppState>({ status: 'loading' });
@@ -126,11 +96,34 @@ export function App() {
   }, []);
 
   if (state.status === 'loading') {
-    return <StatePanel tone="loading" title="Loading console…" body="Checking your workspace session." />;
+    return (
+      <AuthPage>
+        <Card className="w-full max-w-[440px]" role="status" aria-live="polite">
+          <CardHeader className="space-y-2">
+            <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Panda Chat Console</p>
+            <CardTitle className="text-2xl">Loading console…</CardTitle>
+            <CardDescription>Checking your workspace session.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Spinner className="size-6" />
+          </CardContent>
+        </Card>
+      </AuthPage>
+    );
   }
 
   if (state.status === 'error') {
-    return <StatePanel tone="error" title="Console unavailable" body={state.message} role="alert" />;
+    return (
+      <AuthPage>
+        <Card className="w-full max-w-[440px]" role="alert" aria-live="assertive">
+          <CardHeader className="space-y-2">
+            <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Panda Chat Console</p>
+            <CardTitle className="text-2xl">Console unavailable</CardTitle>
+            <CardDescription>{state.message}</CardDescription>
+          </CardHeader>
+        </Card>
+      </AuthPage>
+    );
   }
 
   if (state.status === 'setup') {
@@ -145,24 +138,12 @@ export function App() {
 }
 
 type ReadyHandler = (context: CurrentContext) => void;
-
 type NavigateHandler = (path: string) => void;
 
-type StatePanelProps = {
-  body: string;
-  role?: 'status' | 'alert';
-  title: string;
-  tone: 'loading' | 'error';
-};
-
-function StatePanel({ body, role = 'status', title, tone }: StatePanelProps) {
+function AuthPage({ children }: { children: ReactNode }) {
   return (
-    <main className="auth-page" data-state={tone}>
-      <section className="state-card" role={role} aria-live={role === 'alert' ? 'assertive' : 'polite'}>
-        <p className="eyebrow">Panda Chat Console</p>
-        <h1>{title}</h1>
-        <p>{body}</p>
-      </section>
+    <main className="grid min-h-dvh min-w-0 place-items-center p-6 bg-background">
+      {children}
     </main>
   );
 }
@@ -173,6 +154,7 @@ function SetupScreen({ onReady }: { onReady: ReadyHandler }) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitState === 'submitting') return;
     setSubmitState('submitting');
 
     try {
@@ -184,57 +166,66 @@ function SetupScreen({ onReady }: { onReady: ReadyHandler }) {
     }
   }
 
+  const errorId = 'setup-error';
+  const hasError = submitState === 'error';
+
   return (
-    <main className="auth-page">
-      <form className="auth-card" onSubmit={handleSubmit} aria-busy={submitState === 'submitting'}>
-        <div className="auth-card__header">
-          <p className="eyebrow">First owner setup</p>
-          <h1>Create your workspace</h1>
-          <p>Set up the first owner account for this self-hosted Panda Chat Widget console.</p>
-        </div>
-
-        <label className="field" htmlFor="setup-workspace-name">
-          <span>Workspace name</span>
-          <input
-            id="setup-workspace-name"
-            autoFocus
-            placeholder="Acme Support"
-            value={form.workspaceName}
-            onChange={(event) => setForm({ ...form, workspaceName: event.currentTarget.value })}
-            disabled={submitState === 'submitting'}
-          />
-        </label>
-
-        <label className="field" htmlFor="setup-email">
-          <span>Email</span>
-          <input
-            id="setup-email"
-            type="email"
-            placeholder="owner@example.com"
-            value={form.email}
-            onChange={(event) => setForm({ ...form, email: event.currentTarget.value })}
-            disabled={submitState === 'submitting'}
-          />
-        </label>
-
-        <label className="field" htmlFor="setup-password">
-          <span>Password</span>
-          <input
-            id="setup-password"
-            type="password"
-            placeholder="At least 8 characters"
-            value={form.password}
-            onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
-            disabled={submitState === 'submitting'}
-          />
-        </label>
-
-        <FormStatus state={submitState} error="Setup failed. Check the fields and try again." />
-        <button className="primary-button" type="submit" disabled={submitState === 'submitting'}>
-          Create workspace
-        </button>
-      </form>
-    </main>
+    <AuthPage>
+      <Card className="w-full max-w-[440px]">
+        <CardHeader className="space-y-2">
+          <p className="text-xs font-extrabold uppercase tracking-wider text-primary">First owner setup</p>
+          <CardTitle className="text-2xl">Create your workspace</CardTitle>
+          <CardDescription>Set up the first owner account for this self-hosted Panda Chat Widget console.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} aria-busy={submitState === 'submitting'} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="setup-workspace-name">Workspace name</Label>
+              <Input
+                id="setup-workspace-name"
+                autoFocus
+                placeholder="Acme Support"
+                value={form.workspaceName}
+                onChange={(event) => setForm({ ...form, workspaceName: event.currentTarget.value })}
+                disabled={submitState === 'submitting'}
+                aria-invalid={hasError || undefined}
+                aria-describedby={hasError ? errorId : undefined}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="setup-email">Email</Label>
+              <Input
+                id="setup-email"
+                type="email"
+                placeholder="owner@example.com"
+                value={form.email}
+                onChange={(event) => setForm({ ...form, email: event.currentTarget.value })}
+                disabled={submitState === 'submitting'}
+                aria-invalid={hasError || undefined}
+                aria-describedby={hasError ? errorId : undefined}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="setup-password">Password</Label>
+              <Input
+                id="setup-password"
+                type="password"
+                placeholder="At least 8 characters"
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
+                disabled={submitState === 'submitting'}
+                aria-invalid={hasError || undefined}
+                aria-describedby={hasError ? errorId : undefined}
+              />
+            </div>
+            <FormStatus id={errorId} state={submitState} error="Setup failed. Check the fields and try again." />
+            <Button type="submit" disabled={submitState === 'submitting'} className="w-full">
+              {submitState === 'submitting' ? <><Spinner /> Creating…</> : 'Create workspace'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </AuthPage>
   );
 }
 
@@ -244,6 +235,7 @@ function LoginScreen({ onReady }: { onReady: ReadyHandler }) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitState === 'submitting') return;
     setSubmitState('submitting');
 
     try {
@@ -255,63 +247,120 @@ function LoginScreen({ onReady }: { onReady: ReadyHandler }) {
     }
   }
 
+  const errorId = 'login-error';
+  const hasError = submitState === 'error';
+
   return (
-    <main className="auth-page">
-      <form className="auth-card" onSubmit={handleSubmit} aria-busy={submitState === 'submitting'}>
-        <div className="auth-card__header">
-          <p className="eyebrow">Owner login</p>
-          <h1>Sign in to your console</h1>
-          <p>Use your owner account to manage this workspace.</p>
-        </div>
-
-        <label className="field" htmlFor="login-email">
-          <span>Email</span>
-          <input
-            id="login-email"
-            type="email"
-            autoFocus
-            placeholder="owner@example.com"
-            value={form.email}
-            onChange={(event) => setForm({ ...form, email: event.currentTarget.value })}
-            disabled={submitState === 'submitting'}
-          />
-        </label>
-
-        <label className="field" htmlFor="login-password">
-          <span>Password</span>
-          <input
-            id="login-password"
-            type="password"
-            placeholder="Your password"
-            value={form.password}
-            onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
-            disabled={submitState === 'submitting'}
-          />
-        </label>
-
-        <FormStatus state={submitState} error="Invalid email or password." />
-        <button className="primary-button" type="submit" disabled={submitState === 'submitting'}>
-          Sign in
-        </button>
-      </form>
-    </main>
+    <AuthPage>
+      <Card className="w-full max-w-[440px]">
+        <CardHeader className="space-y-2">
+          <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Owner login</p>
+          <CardTitle className="text-2xl">Sign in to your console</CardTitle>
+          <CardDescription>Use your owner account to manage this workspace.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} aria-busy={submitState === 'submitting'} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="login-email">Email</Label>
+              <Input
+                id="login-email"
+                type="email"
+                autoFocus
+                placeholder="owner@example.com"
+                value={form.email}
+                onChange={(event) => setForm({ ...form, email: event.currentTarget.value })}
+                disabled={submitState === 'submitting'}
+                aria-invalid={hasError || undefined}
+                aria-describedby={hasError ? errorId : undefined}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="login-password">Password</Label>
+              <Input
+                id="login-password"
+                type="password"
+                placeholder="Your password"
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.currentTarget.value })}
+                disabled={submitState === 'submitting'}
+                aria-invalid={hasError || undefined}
+                aria-describedby={hasError ? errorId : undefined}
+              />
+            </div>
+            <FormStatus id={errorId} state={submitState} error="Invalid email or password." />
+            <Button type="submit" disabled={submitState === 'submitting'} className="w-full">
+              {submitState === 'submitting' ? <><Spinner /> Signing in…</> : 'Sign in'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </AuthPage>
   );
 }
 
-function FormStatus({ error, state }: { error: string; state: SubmitState }) {
+function FormStatus({ error, id, state }: { error: string; id: string; state: SubmitState }) {
   if (state === 'submitting') {
-    return <p className="form-status" role="status">Working…</p>;
+    return <p className="min-h-5 text-sm text-muted-foreground" role="status">Working…</p>;
   }
 
   if (state === 'error') {
-    return <p className="form-status form-status--error" role="alert">{error}</p>;
+    return (
+      <Alert id={id} variant="destructive">
+        <AlertCircle className="size-4" />
+        <AlertTitle>Error</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
   }
 
-  return <p className="form-status" aria-hidden="true">&nbsp;</p>;
+  return <p className="min-h-5" aria-hidden="true">&nbsp;</p>;
+}
+
+function SidebarContent({
+  context,
+  onLogout,
+  onNavigate,
+  sitesActive,
+}: {
+  context: CurrentContext;
+  onLogout: () => void;
+  onNavigate: (path: string) => void;
+  sitesActive: boolean;
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className="inline-grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground font-black text-sm" aria-hidden="true">P</span>
+        <div className="min-w-0">
+          <p className="truncate font-extrabold text-sm">Panda Chat</p>
+          <span className="truncate text-xs text-muted-foreground block">Console</span>
+        </div>
+      </div>
+      <nav className="grid gap-1 mt-4" aria-label="Main navigation">
+        <a
+          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${sitesActive ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}
+          href="/console/sites"
+          aria-current={sitesActive ? 'page' : undefined}
+          onClick={(event) => handleNavigationClick(event, '/console/sites', onNavigate)}
+        >
+          <Globe className="size-4" />
+          Sites
+        </a>
+      </nav>
+      <div className="mt-auto pt-4">
+        <Separator className="mb-4" />
+        <div className="grid gap-2 min-w-0">
+          <span className="truncate text-xs text-muted-foreground">{context.user.email}</span>
+          <Button variant="outline" size="sm" onClick={onLogout}>Log out</Button>
+        </div>
+      </div>
+    </>
+  );
 }
 
 function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLoggedOut: () => void }) {
   const [route, setRoute] = useState<ConsoleRoute>(() => parseConsoleRoute(window.location.pathname));
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     function handlePopState() {
@@ -319,7 +368,6 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
     }
 
     window.addEventListener('popstate', handlePopState);
-
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
@@ -327,8 +375,8 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
     if (window.location.pathname !== path) {
       window.history.pushState(null, '', path);
     }
-
     setRoute(parseConsoleRoute(path));
+    setSheetOpen(false);
   }
 
   async function handleLogout() {
@@ -337,69 +385,60 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
     onLoggedOut();
   }
 
+  function handleLogoutClick() {
+    void handleLogout();
+  }
+
   const sitesActive = route.page === 'sites' || route.page === 'createSite' || route.page === 'siteDetail' || route.page === 'createWidget' || route.page === 'widgetDetail';
 
   return (
-    <div className="console-shell">
-      <aside className="sidebar" aria-label="Console navigation">
-        <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true">P</span>
-          <div>
-            <p>Panda Chat</p>
-            <span>Console</span>
-          </div>
-        </div>
-        <nav className="nav-list" aria-label="Main navigation">
-          <a
-            className={`nav-link${sitesActive ? ' nav-link--active' : ''}`}
-            href="/console/sites"
-            aria-current={sitesActive ? 'page' : undefined}
-            onClick={(event) => handleNavigationClick(event, '/console/sites', navigate)}
-          >
-            Sites
-          </a>
-        </nav>
-        <div className="sidebar-user">
-          <span>{context.user.email}</span>
-          <button type="button" onClick={() => void handleLogout()}>Log out</button>
-        </div>
+    <div className="grid min-h-dvh min-w-0 md:grid-cols-[16rem_minmax(0,1fr)]">
+      <aside className="hidden md:flex md:flex-col border-r bg-card p-4 min-w-0" aria-label="Console navigation">
+        <SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigate} sitesActive={sitesActive} />
       </aside>
 
-      <main className="console-main">
-        <header className="console-header">
-          <div className="min-w-0">
-            <p className="eyebrow">Workspace</p>
-            <h1>{context.workspace.name}</h1>
+      <main className="flex flex-col min-w-0">
+        <header className="sticky top-0 z-40 flex items-center gap-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 min-w-0">
+          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation menu">
+                <Menu className="size-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="flex flex-col w-[min(20rem,85vw)] p-4">
+              <SheetTitle>Panda Chat Console</SheetTitle>
+              <SheetDescription>Navigation and workspace controls.</SheetDescription>
+              <div className="flex flex-col flex-1 mt-4">
+                <SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigate} sitesActive={sitesActive} />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Workspace</p>
+            <h1 className="text-lg font-bold truncate md:text-xl">{context.workspace.name}</h1>
           </div>
-          <div className="user-pill" title={context.user.email}>{context.user.email}</div>
+          <div className="hidden sm:block max-w-[min(42vw,360px)] truncate rounded-full border px-3 py-1.5 text-xs text-muted-foreground" title={context.user.email}>
+            {context.user.email}
+          </div>
         </header>
 
-        <ConsoleRouteView route={route} onNavigate={navigate} />
+        <div className="flex-1 overflow-x-hidden p-4 md:p-6">
+          <ConsoleRouteView route={route} onNavigate={navigate} />
+        </div>
       </main>
     </div>
   );
 }
 
 function ConsoleRouteView({ onNavigate, route }: { onNavigate: NavigateHandler; route: ConsoleRoute }) {
-  if (route.page === 'sites') {
-    return <SiteListPage onNavigate={onNavigate} />;
-  }
-
-  if (route.page === 'createSite') {
-    return <CreateSitePage onNavigate={onNavigate} />;
-  }
-
-  if (route.page === 'siteDetail') {
-    return <SiteDetailPage onNavigate={onNavigate} siteId={route.siteId} />;
-  }
-
-  if (route.page === 'createWidget') {
-    return <CreateWidgetPage onNavigate={onNavigate} siteId={route.siteId} />;
-  }
-
+  if (route.page === 'sites') return <SiteListPage onNavigate={onNavigate} />;
+  if (route.page === 'createSite') return <CreateSitePage onNavigate={onNavigate} />;
+  if (route.page === 'siteDetail') return <SiteDetailPage onNavigate={onNavigate} siteId={route.siteId} />;
+  if (route.page === 'createWidget') return <CreateWidgetPage onNavigate={onNavigate} siteId={route.siteId} />;
   if (route.page === 'widgetDetail') {
     return (
-      <WidgetSettingsPage
+      <WidgetSettingsLegacyCompatibility
         key={JSON.stringify([route.siteId, route.widgetId])}
         onNavigate={onNavigate}
         siteId={route.siteId}
@@ -407,96 +446,66 @@ function ConsoleRouteView({ onNavigate, route }: { onNavigate: NavigateHandler; 
       />
     );
   }
-
   return <NotFoundPage onNavigate={onNavigate} />;
 }
 
+/* ---------- Site list ---------- */
+
 type SiteListState =
-  | {
-      status: 'loading';
-    }
-  | {
-      status: 'ready';
-      sites: ConsoleSite[];
-    }
-  | {
-      status: 'error';
-    };
+  | { status: 'loading' }
+  | { status: 'ready'; sites: ConsoleSite[] }
+  | { status: 'error' };
 
 function SiteListPage({ onNavigate }: { onNavigate: NavigateHandler }) {
   const [state, setState] = useState<SiteListState>({ status: 'loading' });
 
   useEffect(() => {
     let isCurrent = true;
-
     async function loadSites() {
       try {
         const sites = await listSites();
-
-        if (isCurrent) {
-          setState({ status: 'ready', sites });
-        }
+        if (isCurrent) setState({ status: 'ready', sites });
       } catch {
-        if (isCurrent) {
-          setState({ status: 'error' });
-        }
+        if (isCurrent) setState({ status: 'error' });
       }
     }
-
     void loadSites();
-
-    return () => {
-      isCurrent = false;
-    };
+    return () => { isCurrent = false; };
   }, []);
 
   return (
-    <section className="content-section" aria-labelledby="sites-title">
+    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="sites-title">
       <PageHeader
         eyebrow="Sites"
         title="Sites"
         body="Create a site for each web property that will use a chat widget."
-        action={(
-          <button className="primary-button" type="button" onClick={() => onNavigate('/console/sites/new')}>
-            Create site
-          </button>
-        )}
+        action={<Button onClick={() => onNavigate('/console/sites/new')}>Create site</Button>}
         titleId="sites-title"
       />
-
-      {state.status === 'loading' ? <InlineState title="Loading sites…" body="Fetching this workspace’s sites." /> : null}
+      {state.status === 'loading' ? (
+        <Card role="status" aria-live="polite"><CardHeader className="space-y-2"><Skeleton className="h-4 w-24" /><Skeleton className="h-6 w-48" /><Skeleton className="h-4 w-64" /></CardHeader></Card>
+      ) : null}
       {state.status === 'error' ? (
-        <InlineState tone="error" title="Sites unavailable" body="Refresh the page and try again." />
+        <Alert variant="destructive" aria-live="assertive"><AlertCircle className="size-4" /><AlertTitle>Sites unavailable</AlertTitle><AlertDescription>Refresh the page and try again.</AlertDescription></Alert>
       ) : null}
       {state.status === 'ready' && state.sites.length === 0 ? (
-        <EmptyState
-          title="No sites yet"
-          body="Create your first site to start organizing widgets for this workspace."
-          actionLabel="Create site"
-          onAction={() => onNavigate('/console/sites/new')}
-        />
+        <Empty><EmptyTitle>No sites yet</EmptyTitle><EmptyDescription>Create your first site to start organizing widgets for this workspace.</EmptyDescription><Button variant="secondary" onClick={() => onNavigate('/console/sites/new')}>Create site</Button></Empty>
       ) : null}
       {state.status === 'ready' && state.sites.length > 0 ? (
-        <div className="list-card" aria-label="Workspace sites">
-          {state.sites.map((site) => (
-            <button
-              className="list-row"
-              key={site.id}
-              type="button"
-              onClick={() => onNavigate(`/console/sites/${site.id}`)}
-            >
-              <span>
-                <strong>{site.name}</strong>
-                <small>Created {formatDate(site.createdAt)}</small>
-              </span>
-              <span className="row-pill">Open</span>
+        <Card className="overflow-hidden" aria-label="Workspace sites">
+          {state.sites.map((site, i) => (
+            <button className={`flex w-full items-center justify-between gap-4 p-4 text-left transition-colors hover:bg-muted min-w-0 ${i < state.sites.length - 1 ? 'border-b' : ''}`} key={site.id} type="button" onClick={() => onNavigate(`/console/sites/${site.id}`)}>
+              <span className="min-w-0"><strong className="block break-words">{site.name}</strong><small className="text-muted-foreground text-xs">Created {formatDate(site.createdAt)}</small></span>
+              <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">Open</span>
             </button>
           ))}
-        </div>
+        </Card>
       ) : null}
     </section>
   );
 }
+
+/* ---------- Create site ---------- */
 
 function CreateSitePage({ onNavigate }: { onNavigate: NavigateHandler }) {
   const [name, setName] = useState('');
@@ -504,8 +513,8 @@ function CreateSitePage({ onNavigate }: { onNavigate: NavigateHandler }) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitState === 'submitting') return;
     setSubmitState('submitting');
-
     try {
       const site = await createSite({ name });
       onNavigate(`/console/sites/${site.id}`);
@@ -514,168 +523,107 @@ function CreateSitePage({ onNavigate }: { onNavigate: NavigateHandler }) {
     }
   }
 
-  return (
-    <section className="content-section" aria-labelledby="create-site-title">
-      <PageHeader
-        eyebrow="Sites"
-        title="Create site"
-        body="Add a site to this workspace."
-        titleId="create-site-title"
-      />
+  const errorId = 'create-site-error';
+  const hasError = submitState === 'error';
 
-      <form className="dashboard-card form-card" onSubmit={handleSubmit} aria-busy={submitState === 'submitting'}>
-        <label className="field" htmlFor="site-name">
-          <span>Site name</span>
-          <input
-            id="site-name"
-            autoFocus
-            placeholder="Marketing website"
-            value={name}
-            onChange={(event) => setName(event.currentTarget.value)}
-            disabled={submitState === 'submitting'}
-          />
-        </label>
-        <FormStatus state={submitState} error="Site could not be created. Check the name and try again." />
-        <div className="button-row">
-          <button className="primary-button" type="submit" disabled={submitState === 'submitting' || !name.trim()}>
-            Create site
-          </button>
-          <button className="secondary-button" type="button" onClick={() => onNavigate('/console/sites')}>
-            Cancel
-          </button>
-        </div>
-      </form>
+  return (
+    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="create-site-title">
+      <PageHeader eyebrow="Sites" title="Create site" body="Add a site to this workspace." titleId="create-site-title" />
+      <Card className="max-w-[560px]">
+        <CardContent className="pt-6">
+          <form onSubmit={handleSubmit} aria-busy={submitState === 'submitting'} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="site-name">Site name</Label>
+              <Input id="site-name" autoFocus placeholder="Marketing website" value={name} onChange={(event) => setName(event.currentTarget.value)} disabled={submitState === 'submitting'} aria-invalid={hasError || undefined} aria-describedby={hasError ? errorId : undefined} />
+            </div>
+            <FormStatus id={errorId} state={submitState} error="Site could not be created. Check the name and try again." />
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={submitState === 'submitting' || !name.trim()}>Create site</Button>
+              <Button variant="outline" type="button" onClick={() => onNavigate('/console/sites')}>Cancel</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </section>
   );
 }
 
+/* ---------- Site detail ---------- */
+
 type SiteDetailState =
-  | {
-      status: 'loading';
-    }
-  | {
-      status: 'ready';
-      site: ConsoleSite;
-      widgets: ConsoleWidget[];
-    }
-  | {
-      status: 'notFound';
-    }
-  | {
-      status: 'error';
-    };
+  | { status: 'loading' }
+  | { status: 'ready'; site: ConsoleSite; widgets: ConsoleWidget[] }
+  | { status: 'notFound' }
+  | { status: 'error' };
 
 function SiteDetailPage({ onNavigate, siteId }: { onNavigate: NavigateHandler; siteId: string }) {
   const [state, setState] = useState<SiteDetailState>({ status: 'loading' });
 
   useEffect(() => {
     let isCurrent = true;
-
     async function loadSite() {
       try {
         const [site, widgets] = await Promise.all([getSite(siteId), listWidgets(siteId)]);
-
-        if (isCurrent) {
-          setState({ status: 'ready', site, widgets });
-        }
+        if (isCurrent) setState({ status: 'ready', site, widgets });
       } catch (error) {
-        if (!isCurrent) {
-          return;
-        }
-
+        if (!isCurrent) return;
         setState(error instanceof ApiError && error.status === 404 ? { status: 'notFound' } : { status: 'error' });
       }
     }
-
     setState({ status: 'loading' });
     void loadSite();
-
-    return () => {
-      isCurrent = false;
-    };
+    return () => { isCurrent = false; };
   }, [siteId]);
 
   if (state.status === 'loading') {
-    return <InlineState title="Loading site…" body="Fetching site details and widgets." />;
+    return <Card role="status" aria-live="polite"><CardHeader className="space-y-2"><Skeleton className="h-4 w-24" /><Skeleton className="h-6 w-48" /></CardHeader></Card>;
   }
 
   if (state.status === 'notFound') {
-    return <InlineState tone="error" title="Site not found" body="This site is not available in the current workspace." />;
+    return <Alert variant="destructive"><AlertCircle className="size-4" /><AlertTitle>Site not found</AlertTitle><AlertDescription>This site is not available in the current workspace.</AlertDescription></Alert>;
   }
 
   if (state.status === 'error') {
-    return <InlineState tone="error" title="Site unavailable" body="Refresh the page and try again." />;
+    return <Alert variant="destructive" aria-live="assertive"><AlertCircle className="size-4" /><AlertTitle>Site unavailable</AlertTitle><AlertDescription>Refresh the page and try again.</AlertDescription></Alert>;
   }
 
   return (
-    <section className="content-section" aria-labelledby="site-detail-title">
+    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="site-detail-title">
       <PageHeader
         eyebrow="Site detail"
         title={state.site.name}
         body="Create and review widgets for this site."
-        action={(
-          <button className="primary-button" type="button" onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/new`)}>
-            Create widget
-          </button>
-        )}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/new`)}>Create widget</Button>
+            <Button variant="outline" onClick={() => onNavigate('/console/sites')}>Back to sites</Button>
+          </div>
+        }
         titleId="site-detail-title"
       />
-
-      <section className="dashboard-card" aria-labelledby="widgets-title">
-        <div className="card-header-row">
-          <div>
-            <p className="eyebrow">Widgets</p>
-            <h2 id="widgets-title">Widget list</h2>
-          </div>
-          <button className="secondary-button" type="button" onClick={() => onNavigate('/console/sites')}>
-            Back to sites
-          </button>
-        </div>
-
-        {state.widgets.length === 0 ? (
-          <EmptyState
-            title="No widgets yet"
-            body="Create a widget for this site to generate its public key."
-            actionLabel="Create widget"
-            onAction={() => onNavigate(`/console/sites/${state.site.id}/widgets/new`)}
-          />
-        ) : (
-          <div className="list-card list-card--nested" aria-label="Site widgets">
-            {state.widgets.map((widget) => (
-              <button
-                className="list-row"
-                key={widget.id}
-                type="button"
-                onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/${widget.id}`)}
-              >
-                <span>
-                  <strong>{widget.name}</strong>
-                  <small>Public key</small>
-                </span>
-                <code className="public-key">{widget.publicKey}</code>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+      {state.widgets.length === 0 ? (
+        <Empty><EmptyTitle>No widgets yet</EmptyTitle><EmptyDescription>Create a widget for this site to generate its public key.</EmptyDescription><Button variant="secondary" onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/new`)}>Create widget</Button></Empty>
+      ) : (
+        <Card className="overflow-hidden" aria-label="Site widgets">
+          {state.widgets.map((widget, i) => (
+            <button className={`flex w-full items-center justify-between gap-4 p-4 text-left transition-colors hover:bg-muted min-w-0 ${i < state.widgets.length - 1 ? 'border-b' : ''}`} key={widget.id} type="button" onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/${widget.id}`)}>
+              <span className="min-w-0"><strong className="block break-words">{widget.name}</strong><small className="text-muted-foreground text-xs break-all">Public key</small></span>
+              <code className="min-w-0 max-w-full rounded-md bg-muted px-2 py-1 text-xs font-mono break-all">{widget.publicKey}</code>
+            </button>
+          ))}
+        </Card>
+      )}
     </section>
   );
 }
 
+/* ---------- Create widget ---------- */
+
 type CreateWidgetState =
-  | {
-      status: 'loading';
-    }
-  | {
-      status: 'ready';
-      site: ConsoleSite;
-    }
-  | {
-      status: 'notFound';
-    }
-  | {
-      status: 'error';
-    };
+  | { status: 'loading' }
+  | { status: 'ready'; site: ConsoleSite }
+  | { status: 'notFound' }
+  | { status: 'error' };
 
 function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler; siteId: string }) {
   const [state, setState] = useState<CreateWidgetState>({ status: 'loading' });
@@ -684,35 +632,24 @@ function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler;
 
   useEffect(() => {
     let isCurrent = true;
-
     async function loadSite() {
       try {
         const site = await getSite(siteId);
-
-        if (isCurrent) {
-          setState({ status: 'ready', site });
-        }
+        if (isCurrent) setState({ status: 'ready', site });
       } catch (error) {
-        if (!isCurrent) {
-          return;
-        }
-
+        if (!isCurrent) return;
         setState(error instanceof ApiError && error.status === 404 ? { status: 'notFound' } : { status: 'error' });
       }
     }
-
     setState({ status: 'loading' });
     void loadSite();
-
-    return () => {
-      isCurrent = false;
-    };
+    return () => { isCurrent = false; };
   }, [siteId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitState === 'submitting') return;
     setSubmitState('submitting');
-
     try {
       await createWidget(siteId, { name });
       onNavigate(`/console/sites/${siteId}`);
@@ -726,849 +663,79 @@ function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler;
   }
 
   if (state.status === 'loading') {
-    return <InlineState title="Loading site…" body="Checking the site before creating a widget." />;
+    return <Card role="status" aria-live="polite"><CardHeader className="space-y-2"><Skeleton className="h-4 w-24" /><Skeleton className="h-6 w-48" /></CardHeader></Card>;
   }
 
   if (state.status === 'notFound') {
-    return <InlineState tone="error" title="Site not found" body="This site is not available in the current workspace." />;
+    return <Alert variant="destructive"><AlertCircle className="size-4" /><AlertTitle>Site not found</AlertTitle><AlertDescription>This site is not available in the current workspace.</AlertDescription></Alert>;
   }
 
   if (state.status === 'error') {
-    return <InlineState tone="error" title="Site unavailable" body="Refresh the page and try again." />;
+    return <Alert variant="destructive" aria-live="assertive"><AlertCircle className="size-4" /><AlertTitle>Site unavailable</AlertTitle><AlertDescription>Refresh the page and try again.</AlertDescription></Alert>;
   }
 
-  return (
-    <section className="content-section" aria-labelledby="create-widget-title">
-      <PageHeader
-        eyebrow="Widgets"
-        title="Create widget"
-        body={`Add a widget for ${state.site.name}.`}
-        titleId="create-widget-title"
-      />
+  const errorId = 'create-widget-error';
+  const hasError = submitState === 'error';
 
-      <form className="dashboard-card form-card" onSubmit={handleSubmit} aria-busy={submitState === 'submitting'}>
-        <label className="field" htmlFor="widget-name">
-          <span>Widget name</span>
-          <input
-            id="widget-name"
-            autoFocus
-            placeholder="Support widget"
-            value={name}
-            onChange={(event) => setName(event.currentTarget.value)}
-            disabled={submitState === 'submitting'}
-          />
-        </label>
-        <FormStatus state={submitState} error="Widget could not be created. Check the name and try again." />
-        <div className="button-row">
-          <button className="primary-button" type="submit" disabled={submitState === 'submitting' || !name.trim()}>
-            Create widget
-          </button>
-          <button className="secondary-button" type="button" onClick={() => onNavigate(`/console/sites/${siteId}`)}>
-            Cancel
-          </button>
-        </div>
-      </form>
+  return (
+    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="create-widget-title">
+      <PageHeader eyebrow="Widgets" title="Create widget" body={`Add a widget for ${state.site.name}.`} titleId="create-widget-title" />
+      <Card className="max-w-[560px]">
+        <CardContent className="pt-6">
+          <form onSubmit={handleSubmit} aria-busy={submitState === 'submitting'} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="widget-name">Widget name</Label>
+              <Input id="widget-name" autoFocus placeholder="Support widget" value={name} onChange={(event) => setName(event.currentTarget.value)} disabled={submitState === 'submitting'} aria-invalid={hasError || undefined} aria-describedby={hasError ? errorId : undefined} />
+            </div>
+            <FormStatus id={errorId} state={submitState} error="Widget could not be created. Check the name and try again." />
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={submitState === 'submitting' || !name.trim()}>Create widget</Button>
+              <Button variant="outline" type="button" onClick={() => onNavigate(`/console/sites/${siteId}`)}>Cancel</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </section>
   );
 }
 
+/* ---------- Shared ---------- */
 
-type WidgetSettingsState =
-  | {
-      status: 'loading';
-    }
-  | {
-      status: 'ready';
-      settings: ConsoleWidgetSettings;
-      domains: ConsoleAllowedDomain[];
-    }
-  | {
-      status: 'notFound';
-    }
-  | {
-      status: 'error';
-    };
-
-type WidgetSettingsForm = {
-  name: string;
-  assistantDisplayName: string;
-  launcherLabel: string;
-  welcomeTitle: string;
-  welcomeSubtitle: string;
-  colorMode: 'light' | 'dark' | 'system';
-};
-
-function WidgetSettingsPage({
-  onNavigate,
-  siteId,
-  widgetId,
-}: {
-  onNavigate: NavigateHandler;
-  siteId: string;
-  widgetId: string;
-}) {
-  const [state, setState] = useState<WidgetSettingsState>({ status: 'loading' });
-  const [form, setForm] = useState<WidgetSettingsForm | null>(null);
-  const [domainDraft, setDomainDraft] = useState('');
-  const [connectionDraft, setConnectionDraft] = useState('');
-  const [submitState, setSubmitState] = useState<SubmitState>('idle');
-  const [connectionSubmitState, setConnectionSubmitState] = useState<SubmitState>('idle');
-  const [domainSubmitState, setDomainSubmitState] = useState<SubmitState>('idle');
-  const [diagnosticsRefreshState, setDiagnosticsRefreshState] = useState<SubmitState>('idle');
-  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
-  const [targetCopyState, setTargetCopyState] = useState<'idle' | 'copied'>('idle');
-  const currentWidgetRef = useRef({ siteId, widgetId });
-  const currentCandidateIdRef = useRef<string | null>(null);
-  const currentCandidateId =
-    state.status === 'ready' ? (state.settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null) : null;
-  const currentLocalManualReplyScope: LocalManualReplyScope = { siteId, widgetId, candidateId: currentCandidateId };
-  const [localManualReplyState, dispatchLocalManualReply] = useReducer(
-    reduceLocalManualReplyState,
-    currentLocalManualReplyScope,
-    createLocalManualReplyState,
-  );
-  const localManualReply =
-    localManualReplyState.scope.siteId === siteId &&
-    localManualReplyState.scope.widgetId === widgetId &&
-    localManualReplyState.scope.candidateId === currentCandidateId
-      ? localManualReplyState
-      : createLocalManualReplyState(currentLocalManualReplyScope);
-  currentWidgetRef.current = { siteId, widgetId };
-  currentCandidateIdRef.current = currentCandidateId;
-
-  function observeLocalManualReplyCandidate(candidateId: string | null) {
-    dispatchLocalManualReply({ type: 'scopeChanged', scope: { siteId, widgetId, candidateId } });
-  }
-
-  useEffect(() => localManualReplyCopyCoordinator.subscribe(dispatchLocalManualReply), []);
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    async function loadWidgetSettings() {
-      try {
-        const [settings, domains] = await Promise.all([
-          getWidgetSettings(siteId, widgetId),
-          listWidgetDomains(siteId, widgetId),
-        ]);
-
-        if (isCurrent) {
-          observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
-          setState({ status: 'ready', settings, domains });
-          setForm(formFromSettings(settings));
-          setConnectionDraft(settings.connection.routeHandle ?? '');
-          setCopyState('idle');
-          setTargetCopyState('idle');
-        }
-      } catch (error) {
-        if (!isCurrent) {
-          return;
-        }
-
-        setState(error instanceof ApiError && error.status === 404 ? { status: 'notFound' } : { status: 'error' });
-      }
-    }
-
-    setState({ status: 'loading' });
-    setForm(null);
-    setConnectionDraft('');
-    setDiagnosticsRefreshState('idle');
-    void loadWidgetSettings();
-
-    return () => {
-      isCurrent = false;
-    };
-  }, [siteId, widgetId]);
-
-  async function refreshReadyState() {
-    const [settings, domains] = await Promise.all([
-      getWidgetSettings(siteId, widgetId),
-      listWidgetDomains(siteId, widgetId),
-    ]);
-    observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
-    setState({ status: 'ready', settings, domains });
-    setForm(formFromSettings(settings));
-    setConnectionDraft(settings.connection.routeHandle ?? '');
-    setCopyState('idle');
-    setTargetCopyState('idle');
-  }
-
-  async function handleSettingsSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!form) {
-      return;
-    }
-
-    setSubmitState('submitting');
-
-    try {
-      const input: UpdateWidgetSettingsInput = {
-        name: form.name,
-        config: {
-          assistant: { displayName: form.assistantDisplayName },
-          launcher: { label: form.launcherLabel, icon: 'message' },
-          welcome: { title: form.welcomeTitle, subtitle: form.welcomeSubtitle },
-          theme: { colorMode: form.colorMode, accent: 'blue', radius: 'md' },
-        },
-      };
-      const settings = await updateWidgetSettings(siteId, widgetId, input);
-      observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
-
-      if (state.status === 'ready') {
-        setState({ status: 'ready', settings, domains: state.domains });
-      }
-
-      setForm(formFromSettings(settings));
-      setSubmitState('idle');
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setState({ status: 'notFound' });
-      } else {
-        setSubmitState('error');
-      }
-    }
-  }
-
-  async function handleConnectionSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const routeHandle = connectionDraft.trim();
-
-    if (!routeHandle) {
-      return;
-    }
-
-    setConnectionSubmitState('submitting');
-
-    try {
-      const settings = await updateWidgetSettings(siteId, widgetId, { connection: { routeHandle } });
-      observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
-
-      if (state.status === 'ready') {
-        setState({ status: 'ready', settings, domains: state.domains });
-      }
-
-      setConnectionDraft(settings.connection.routeHandle ?? '');
-      setConnectionSubmitState('idle');
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setState({ status: 'notFound' });
-      } else {
-        setConnectionSubmitState('error');
-      }
-    }
-  }
-
-  async function handleConnectionClear() {
-    setConnectionSubmitState('submitting');
-
-    try {
-      const settings = await updateWidgetSettings(siteId, widgetId, { connection: { routeHandle: null } });
-      observeLocalManualReplyCandidate(settings.connection.localDelivery.nextLocalReplyCandidate?.id ?? null);
-
-      if (state.status === 'ready') {
-        setState({ status: 'ready', settings, domains: state.domains });
-      }
-
-      setConnectionDraft('');
-      setConnectionSubmitState('idle');
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setState({ status: 'notFound' });
-      } else {
-        setConnectionSubmitState('error');
-      }
-    }
-  }
-
-  async function handleDomainSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const domain = domainDraft.trim();
-
-    if (!domain) {
-      return;
-    }
-
-    setDomainSubmitState('submitting');
-
-    try {
-      await createWidgetDomain(siteId, widgetId, { domain });
-      setDomainDraft('');
-      await refreshReadyState();
-      setDomainSubmitState('idle');
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setState({ status: 'notFound' });
-      } else {
-        setDomainSubmitState('error');
-      }
-    }
-  }
-
-  async function handleDeleteDomain(domainId: string) {
-    setDomainSubmitState('submitting');
-
-    try {
-      await deleteWidgetDomain(siteId, widgetId, domainId);
-      await refreshReadyState();
-      setDomainSubmitState('idle');
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setState({ status: 'notFound' });
-      } else {
-        setDomainSubmitState('error');
-      }
-    }
-  }
-
-  async function handleLocalDiagnosticsRefresh() {
-    const diagnosticsSiteId = siteId;
-    const diagnosticsWidgetId = widgetId;
-    setDiagnosticsRefreshState('submitting');
-
-    try {
-      const refreshedSettings = await getWidgetSettings(diagnosticsSiteId, diagnosticsWidgetId);
-
-      if (currentWidgetRef.current.siteId !== diagnosticsSiteId || currentWidgetRef.current.widgetId !== diagnosticsWidgetId) {
-        return;
-      }
-
-      const refreshedLocalDelivery = refreshedSettings.connection.localDelivery;
-      const refreshedCandidateId = refreshedLocalDelivery.nextLocalReplyCandidate?.id ?? null;
-
-      if (currentCandidateIdRef.current !== refreshedCandidateId) {
-        setTargetCopyState('idle');
-      }
-
-      observeLocalManualReplyCandidate(refreshedCandidateId);
-      setState((currentState) => {
-        if (currentState.status !== 'ready') {
-          return currentState;
-        }
-
-        return {
-          ...currentState,
-          settings: {
-            ...currentState.settings,
-            connection: {
-              ...currentState.settings.connection,
-              localDelivery: refreshedLocalDelivery,
-            },
-          },
-        };
-      });
-      setDiagnosticsRefreshState('idle');
-    } catch {
-      if (currentWidgetRef.current.siteId !== diagnosticsSiteId || currentWidgetRef.current.widgetId !== diagnosticsWidgetId) {
-        return;
-      }
-
-      setDiagnosticsRefreshState('error');
-    }
-  }
-
-  function handleCopySnippet(snippet: string) {
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText(snippet).then(() => setCopyState('copied'));
-    }
-  }
-
-  function handleCopyNextLocalReplyTarget(intentId: string) {
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText(intentId).then(() => setTargetCopyState('copied'));
-    }
-  }
-
-  function handleCopyLocalManualReplyCommand(command: string) {
-    void localManualReplyCopyCoordinator.copy(command, () => navigator.clipboard);
-  }
-
-  if (state.status === 'loading') {
-    return <InlineState title="Loading widget settings…" body="Fetching safe settings, allowed domains, and install status." />;
-  }
-
-  if (state.status === 'notFound') {
-    return <InlineState tone="error" title="Widget not found" body="This widget is not available in the current workspace." />;
-  }
-
-  if (state.status === 'error' || !form) {
-    return <InlineState tone="error" title="Widget settings unavailable" body="Refresh the page and try again." />;
-  }
-
-  const snippet = state.settings.install.snippet;
-  const hasSnippet = state.settings.install.snippetAvailable && snippet !== null;
-  const canSaveSettings = Boolean(
-    form.name.trim() &&
-    form.assistantDisplayName.trim() &&
-    form.launcherLabel.trim() &&
-    form.welcomeTitle.trim() &&
-    form.welcomeSubtitle.trim(),
-  );
-  const nextLocalReplyCandidate = state.settings.connection.localDelivery.nextLocalReplyCandidate;
-  const localManualReplyCommand = localManualReply.command;
-
+function PageHeader({ action, body, eyebrow, title, titleId }: { action?: ReactNode; body: string; eyebrow: string; title: string; titleId: string }) {
   return (
-    <section className="content-section" aria-labelledby="widget-settings-title">
-      <PageHeader
-        eyebrow="Widget settings"
-        title={state.settings.widget.name}
-        body="Manage safe widget copy, allowed domains, and the install snippet for this public key."
-        action={(
-          <button className="secondary-button" type="button" onClick={() => onNavigate(`/console/sites/${siteId}`)}>
-            Back to site
-          </button>
-        )}
-        titleId="widget-settings-title"
-      />
-
-      <section className="dashboard-card" aria-labelledby="widget-public-key-title">
-        <p className="eyebrow">Public key</p>
-        <h2 id="widget-public-key-title">Server-owned key</h2>
-        <p>Use this public key only in the loader snippet. It is safe to publish on allowed domains.</p>
-        <code className="public-key">{state.settings.widget.publicKey}</code>
-      </section>
-
-      <form className="dashboard-card form-card form-card--wide" onSubmit={handleSettingsSubmit} aria-busy={submitState === 'submitting'}>
-        <div>
-          <p className="eyebrow">Safe config</p>
-          <h2>Widget copy</h2>
-          <p>Only plain text and existing theme tokens are supported here.</p>
-        </div>
-        <div className="settings-grid">
-          <label className="field" htmlFor="widget-settings-name">
-            <span>Widget name</span>
-            <input
-              id="widget-settings-name"
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.currentTarget.value })}
-              disabled={submitState === 'submitting'}
-            />
-          </label>
-          <label className="field" htmlFor="widget-settings-assistant">
-            <span>Assistant display name</span>
-            <input
-              id="widget-settings-assistant"
-              value={form.assistantDisplayName}
-              onChange={(event) => setForm({ ...form, assistantDisplayName: event.currentTarget.value })}
-              disabled={submitState === 'submitting'}
-            />
-          </label>
-          <label className="field" htmlFor="widget-settings-launcher">
-            <span>Launcher label</span>
-            <input
-              id="widget-settings-launcher"
-              value={form.launcherLabel}
-              onChange={(event) => setForm({ ...form, launcherLabel: event.currentTarget.value })}
-              disabled={submitState === 'submitting'}
-            />
-          </label>
-          <label className="field" htmlFor="widget-settings-color-mode">
-            <span>Theme color mode</span>
-            <select
-              id="widget-settings-color-mode"
-              value={form.colorMode}
-              onChange={(event) => setForm({ ...form, colorMode: event.currentTarget.value as WidgetSettingsForm['colorMode'] })}
-              disabled={submitState === 'submitting'}
-            >
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-          <label className="field settings-grid__wide" htmlFor="widget-settings-title-input">
-            <span>Welcome title</span>
-            <input
-              id="widget-settings-title-input"
-              value={form.welcomeTitle}
-              onChange={(event) => setForm({ ...form, welcomeTitle: event.currentTarget.value })}
-              disabled={submitState === 'submitting'}
-            />
-          </label>
-          <label className="field settings-grid__wide" htmlFor="widget-settings-subtitle">
-            <span>Welcome subtitle</span>
-            <input
-              id="widget-settings-subtitle"
-              value={form.welcomeSubtitle}
-              onChange={(event) => setForm({ ...form, welcomeSubtitle: event.currentTarget.value })}
-              disabled={submitState === 'submitting'}
-            />
-          </label>
-        </div>
-        <FormStatus state={submitState} error="Settings could not be saved. Check the plain text fields and try again." />
-        <div className="button-row">
-          <button className="primary-button" type="submit" disabled={submitState === 'submitting' || !canSaveSettings}>
-            Save settings
-          </button>
-        </div>
-      </form>
-
-      <section className="dashboard-card" aria-labelledby="panda-connection-title" aria-busy={diagnosticsRefreshState === 'submitting'}>
-        <div>
-          <p className="eyebrow">Panda connection</p>
-          <h2 id="panda-connection-title">Connection placeholder</h2>
-          <p>Owner-only local deterministic fake reply diagnostic. It shows queued and claimed local future-dispatch intents plus fake reply rows applied locally; Gateway/CLI dispatch is not connected yet, so visitor messages still use the local fake reply loop.</p>
-          <p>Manual local/demo-only diagnostics refreshes re-fetch the owner widget settings endpoint without saving drafts or reloading the page.</p>
-        </div>
-        <div className="connection-status">
-          <span className="row-pill">{formatConnectionStatus(state.settings.connection.status)}</span>
-          <small>{state.settings.connection.routeHandle ? 'A placeholder route handle is saved.' : 'No route handle is saved yet.'}</small>
-          <small>{formatLocalDeliveryStatus(state.settings.connection.localDelivery)}</small>
-        </div>
-        <div className="button-row">
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void handleLocalDiagnosticsRefresh()}
-            disabled={diagnosticsRefreshState === 'submitting'}
-          >
-            {diagnosticsRefreshState === 'submitting' ? 'Refreshing local diagnostics…' : 'Refresh local diagnostics'}
-          </button>
-        </div>
-        <FormStatus state={diagnosticsRefreshState} error="Local diagnostics could not be refreshed. Unsaved widget copy and route handle drafts were kept; try again." />
-        {nextLocalReplyCandidate ? (
-          <div className="list-card list-card--nested" aria-label="Next local manual reply target">
-            <div className="list-row list-row--static">
-              <span>
-                <strong>next manual reply target ID</strong>
-                <code className="public-key">{nextLocalReplyCandidate.id}</code>
-                <small>Local-only targetIntentId for local-panda:reply-manual.</small>
-              </span>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => handleCopyNextLocalReplyTarget(nextLocalReplyCandidate.id)}
-              >
-                {targetCopyState === 'copied' ? 'Copied' : 'Copy target ID'}
-              </button>
-            </div>
-            <NextLocalReplyCandidateDetails candidate={nextLocalReplyCandidate} />
-            <div className="local-reply-command">
-              <strong>Targeted local manual reply command</strong>
-              <label className="field" htmlFor="local-manual-reply-text">
-                <span>Local manual reply text</span>
-                <textarea
-                  id="local-manual-reply-text"
-                  aria-describedby="local-manual-reply-guidance"
-                  value={localManualReply.draft}
-                  onChange={(event) => dispatchLocalManualReply({ type: 'draftChanged', draft: event.currentTarget.value })}
-                />
-              </label>
-              {localManualReplyCommand ? (
-                <pre className="snippet-box local-reply-command__code" aria-label="Targeted local manual reply command"><code>{localManualReplyCommand}</code></pre>
-              ) : null}
-              <p
-                id="local-manual-reply-guidance"
-                className={localManualReplyCommand && localManualReply.copyErrorCommand === localManualReplyCommand ? 'local-reply-command__error' : 'local-reply-command__help'}
-                role="status"
-                aria-live="polite"
-              >
-                {!localManualReplyCommand
-                  ? 'Enter reply text to generate a command.'
-                  : localManualReply.copyErrorCommand === localManualReplyCommand
-                    ? 'Copy failed; select the command manually.'
-                    : 'Copy this command and run it manually in a local terminal.'}
-              </p>
-              <div className="button-row">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={!localManualReplyCommand}
-                  onClick={() => localManualReplyCommand && void handleCopyLocalManualReplyCommand(localManualReplyCommand)}
-                >
-                  {localManualReply.copiedCommand === localManualReplyCommand && localManualReplyCommand
-                    ? 'Copied'
-                    : 'Copy reply command'}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="empty-state" aria-label="No next local manual reply target">
-            <h3>No next manual reply target ID</h3>
-            <p>Send a visitor message or leave a claimed local intent unapplied to show the next local-only target.</p>
-          </div>
-        )}
-        <form className="inline-form" onSubmit={handleConnectionSubmit} aria-busy={connectionSubmitState === 'submitting'}>
-          <label className="field" htmlFor="widget-connection-route-handle">
-            <span>Route handle</span>
-            <input
-              id="widget-connection-route-handle"
-              placeholder="panda:workspace/route"
-              value={connectionDraft}
-              onChange={(event) => setConnectionDraft(event.currentTarget.value)}
-              disabled={connectionSubmitState === 'submitting'}
-            />
-          </label>
-          <button className="primary-button" type="submit" disabled={connectionSubmitState === 'submitting' || !connectionDraft.trim()}>
-            Save placeholder
-          </button>
-        </form>
-        <div className="button-row">
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void handleConnectionClear()}
-            disabled={connectionSubmitState === 'submitting' || (!state.settings.connection.routeHandle && !connectionDraft.trim())}
-          >
-            Clear connection
-          </button>
-        </div>
-        <FormStatus state={connectionSubmitState} error="Panda connection placeholder could not be saved. Check the route handle and try again." />
-      </section>
-
-      <section className="dashboard-card" aria-labelledby="allowed-domains-title">
-        <div>
-          <p className="eyebrow">Allowed domains</p>
-          <h2 id="allowed-domains-title">Allowed domains</h2>
-          <p>Add each hostname where this widget may bootstrap. Ports are ignored for schemeful origins.</p>
-        </div>
-
-        {state.domains.length === 0 ? (
-          <EmptyState
-            title="No allowed domains yet"
-            body="Add an allowed domain before installing this widget on a website."
-            actionLabel="Focus domain field"
-            onAction={() => document.getElementById('widget-domain-input')?.focus()}
-          />
-        ) : (
-          <div className="list-card list-card--nested" aria-label="Allowed widget domains">
-            {state.domains.map((domain) => (
-              <div className="list-row list-row--static" key={domain.id}>
-                <span>
-                  <strong>{domain.domain}</strong>
-                  <small>Created {formatDate(domain.createdAt)}</small>
-                </span>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => void handleDeleteDomain(domain.id)}
-                  disabled={domainSubmitState === 'submitting'}
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <form className="inline-form" onSubmit={handleDomainSubmit} aria-busy={domainSubmitState === 'submitting'}>
-          <label className="field" htmlFor="widget-domain-input">
-            <span>Domain or origin</span>
-            <input
-              id="widget-domain-input"
-              placeholder="example.com or https://example.com"
-              value={domainDraft}
-              onChange={(event) => setDomainDraft(event.currentTarget.value)}
-              disabled={domainSubmitState === 'submitting'}
-            />
-          </label>
-          <button className="primary-button" type="submit" disabled={domainSubmitState === 'submitting' || !domainDraft.trim()}>
-            Add domain
-          </button>
-        </form>
-        <FormStatus state={domainSubmitState} error="Domain could not be updated. Check the hostname and try again." />
-      </section>
-
-      <section className="dashboard-card" aria-labelledby="install-snippet-title">
-        <div>
-          <p className="eyebrow">Install snippet</p>
-          <h2 id="install-snippet-title">Copy loader snippet</h2>
-          <p>The snippet appears after at least one allowed domain exists.</p>
-        </div>
-        {hasSnippet ? (
-          <>
-            <textarea className="snippet-box" readOnly value={snippet} aria-label="Install snippet" />
-            <div className="button-row">
-              <button className="secondary-button" type="button" onClick={() => handleCopySnippet(snippet)}>
-                {copyState === 'copied' ? 'Copied' : 'Copy snippet'}
-              </button>
-            </div>
-          </>
-        ) : (
-          <InlineState title="Snippet locked" body="Add an allowed domain to generate the install snippet." />
-        )}
-      </section>
-    </section>
-  );
-}
-
-function NextLocalReplyCandidateDetails({ candidate }: { candidate: ConsoleWidgetNextLocalReplyCandidate }) {
-  return (
-    <dl className="local-reply-candidate-details" aria-label="Next local reply candidate details">
-      <div className="local-reply-candidate-detail">
-        <dt>status</dt>
-        <dd><code className="public-key">{candidate.status}</code></dd>
-      </div>
-      <div className="local-reply-candidate-detail">
-        <dt>conversationId</dt>
-        <dd><code className="public-key">{candidate.conversationId}</code></dd>
-      </div>
-      <div className="local-reply-candidate-detail">
-        <dt>visitorMessageId</dt>
-        <dd><code className="public-key">{candidate.visitorMessageId}</code></dd>
-      </div>
-      <div className="local-reply-candidate-detail">
-        <dt>clientMessageId</dt>
-        <dd><code className="public-key">{candidate.clientMessageId}</code></dd>
-      </div>
-      <div className="local-reply-candidate-detail">
-        <dt>createdAt</dt>
-        <dd><code className="public-key">{candidate.createdAt}</code></dd>
-      </div>
-      <div className="local-reply-candidate-detail">
-        <dt>claimedAt</dt>
-        <dd><code className="public-key">{candidate.claimedAt ?? 'not claimed yet'}</code></dd>
-      </div>
-    </dl>
-  );
-}
-
-function formatConnectionStatus(status: ConsoleWidgetSettings['connection']['status']): string {
-  return status === 'configured_placeholder' ? 'Configured placeholder' : 'Not configured';
-}
-
-function formatLocalDeliveryStatus(localDelivery: ConsoleWidgetSettings['connection']['localDelivery']): string {
-  const queued = localDelivery.queuedIntentCount === 1
-    ? '1 queued intent'
-    : `${localDelivery.queuedIntentCount} queued intents`;
-  const claimed = localDelivery.claimedIntentCount === 1
-    ? '1 intent claimed locally'
-    : `${localDelivery.claimedIntentCount} intents claimed locally`;
-  const applied = localDelivery.appliedLocalReplyCount === 1
-    ? '1 fake reply application'
-    : `${localDelivery.appliedLocalReplyCount} fake reply applications`;
-  const lastQueued = localDelivery.lastQueuedAt ? `last queued ${formatDate(localDelivery.lastQueuedAt)}` : 'last queued never';
-  const lastClaimed = localDelivery.lastClaimedAt
-    ? `last claimed locally ${formatDate(localDelivery.lastClaimedAt)}`
-    : localDelivery.claimedIntentCount > 0
-      ? 'last claimed timestamp unavailable'
-      : 'last claimed locally never';
-  const lastApplied = localDelivery.lastAppliedLocalReplyAt
-    ? `last applied locally ${formatDate(localDelivery.lastAppliedLocalReplyAt)}`
-    : localDelivery.appliedLocalReplyCount > 0
-      ? 'last applied timestamp unavailable'
-      : 'last applied locally never';
-
-  return `Local deterministic fake reply diagnostic. Local future-dispatch queue: ${queued}; ${lastQueued}. Claimed locally: ${claimed}; ${lastClaimed}. Applied locally: ${applied}; ${lastApplied}.`;
-}
-
-function formFromSettings(settings: ConsoleWidgetSettings): WidgetSettingsForm {
-  return {
-    name: settings.widget.name,
-    assistantDisplayName: settings.config.assistant.displayName,
-    launcherLabel: settings.config.launcher.label,
-    welcomeTitle: settings.config.welcome.title,
-    welcomeSubtitle: settings.config.welcome.subtitle,
-    colorMode: settings.config.theme.colorMode,
-  };
-}
-
-function PageHeader({
-  action,
-  body,
-  eyebrow,
-  title,
-  titleId,
-}: {
-  action?: ReactNode;
-  body: string;
-  eyebrow: string;
-  title: string;
-  titleId: string;
-}) {
-  return (
-    <div className="page-header">
+    <div className="flex flex-col gap-4 min-w-0 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        <p className="eyebrow">{eyebrow}</p>
-        <h2 id={titleId}>{title}</h2>
-        <p>{body}</p>
+        <p className="text-xs font-extrabold uppercase tracking-wider text-primary">{eyebrow}</p>
+        <h2 id={titleId} className="text-xl font-bold md:text-2xl break-words">{title}</h2>
+        <p className="text-sm text-muted-foreground">{body}</p>
       </div>
-      {action ? <div className="page-actions">{action}</div> : null}
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
-  );
-}
-
-function EmptyState({
-  actionLabel,
-  body,
-  onAction,
-  title,
-}: {
-  actionLabel: string;
-  body: string;
-  onAction: () => void;
-  title: string;
-}) {
-  return (
-    <div className="empty-state">
-      <h3>{title}</h3>
-      <p>{body}</p>
-      <button className="secondary-button" type="button" onClick={onAction}>
-        {actionLabel}
-      </button>
-    </div>
-  );
-}
-
-function InlineState({ body, title, tone = 'loading' }: { body: string; title: string; tone?: 'loading' | 'error' }) {
-  return (
-    <section className="dashboard-card" role={tone === 'error' ? 'alert' : 'status'} aria-live={tone === 'error' ? 'assertive' : 'polite'}>
-      <p className="eyebrow">{tone === 'error' ? 'Needs attention' : 'Loading'}</p>
-      <h2>{title}</h2>
-      <p>{body}</p>
-    </section>
   );
 }
 
 function NotFoundPage({ onNavigate }: { onNavigate: NavigateHandler }) {
   return (
-    <section className="dashboard-card" role="alert">
-      <p className="eyebrow">Not found</p>
-      <h2>Console page not found</h2>
-      <p>Open the site list to continue managing this workspace.</p>
-      <button className="secondary-button" type="button" onClick={() => onNavigate('/console/sites')}>
-        View sites
-      </button>
-    </section>
+    <Alert role="alert" className="max-w-[760px]">
+      <AlertCircle className="size-4" />
+      <AlertTitle>Console page not found</AlertTitle>
+      <AlertDescription>Open the site list to continue managing this workspace.</AlertDescription>
+      <Button variant="outline" size="sm" className="mt-2 w-fit" onClick={() => onNavigate('/console/sites')}>View sites</Button>
+    </Alert>
   );
 }
 
 function parseConsoleRoute(pathname: string): ConsoleRoute {
   const pathnameWithoutTrailingSlash = pathname.replace(/\/+$/, '') || '/console';
   const segments = pathnameWithoutTrailingSlash.split('/').filter(Boolean).map(decodePathSegment);
-
-  if (segments[0] !== 'console') {
-    return { page: 'notFound' };
-  }
-
-  if (segments.length === 1) {
-    return { page: 'sites' };
-  }
-
-  if (segments[1] !== 'sites') {
-    return { page: 'notFound' };
-  }
-
-  if (segments.length === 2) {
-    return { page: 'sites' };
-  }
-
-  if (segments.length === 3 && segments[2] === 'new') {
-    return { page: 'createSite' };
-  }
-
-  if (segments.length === 3 && segments[2]) {
-    return { page: 'siteDetail', siteId: segments[2] };
-  }
-
-  if (segments.length === 5 && segments[2] && segments[3] === 'widgets' && segments[4] === 'new') {
-    return { page: 'createWidget', siteId: segments[2] };
-  }
-
-  if (segments.length === 5 && segments[2] && segments[3] === 'widgets' && segments[4]) {
-    return { page: 'widgetDetail', siteId: segments[2], widgetId: segments[4] };
-  }
-
+  if (segments[0] !== 'console') return { page: 'notFound' };
+  if (segments.length === 1) return { page: 'sites' };
+  if (segments[1] !== 'sites') return { page: 'notFound' };
+  if (segments.length === 2) return { page: 'sites' };
+  if (segments.length === 3 && segments[2] === 'new') return { page: 'createSite' };
+  if (segments.length === 3 && segments[2]) return { page: 'siteDetail', siteId: segments[2] };
+  if (segments.length === 5 && segments[2] && segments[3] === 'widgets' && segments[4] === 'new') return { page: 'createWidget', siteId: segments[2] };
+  if (segments.length === 5 && segments[2] && segments[3] === 'widgets' && segments[4]) return { page: 'widgetDetail', siteId: segments[2], widgetId: segments[4] };
   return { page: 'notFound' };
 }
 
@@ -1578,11 +745,7 @@ function handleNavigationClick(event: MouseEvent<HTMLAnchorElement>, path: strin
 }
 
 function decodePathSegment(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
+  try { return decodeURIComponent(segment); } catch { return segment; }
 }
 
 function formatDate(value: string): string {

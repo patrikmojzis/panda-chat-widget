@@ -1,0 +1,432 @@
+/*
+ * Widget Settings Legacy Compatibility Layer
+ *
+ * Every rule is rooted under .widget-settings-legacy-compat.
+ * Only WidgetSettingsLegacyCompatibility renders/imports this file.
+ * S4 deletes this entire file and the wrapper.
+ */
+
+.widget-settings-legacy-compat {
+  min-width: 0;
+  width: min(100%, 940px);
+  display: grid;
+  gap: 18px;
+}
+
+.widget-settings-legacy-compat .dashboard-card {
+  min-width: 0;
+  max-width: 760px;
+  display: grid;
+  gap: 10px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+}
+
+.widget-settings-legacy-compat .dashboard-card h2 {
+  font-size: 1.4rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .dashboard-card p {
+  margin: 0;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.widget-settings-legacy-compat .page-header {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.widget-settings-legacy-compat .page-header h2 {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.1;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .page-header p:not(.eyebrow) {
+  color: var(--muted-foreground);
+  margin: 0;
+}
+
+.widget-settings-legacy-compat .page-actions {
+  flex: 0 0 auto;
+}
+
+.widget-settings-legacy-compat .min-w-0 {
+  min-width: 0;
+}
+
+.widget-settings-legacy-compat .field {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--foreground);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.widget-settings-legacy-compat .field input,
+.widget-settings-legacy-compat .field textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  background: var(--card);
+  font: inherit;
+}
+
+.widget-settings-legacy-compat .field input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.widget-settings-legacy-compat .field input:focus-visible,
+.widget-settings-legacy-compat .field textarea:focus-visible,
+.widget-settings-legacy-compat .primary-button:focus-visible,
+.widget-settings-legacy-compat .secondary-button:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.widget-settings-legacy-compat .field input:disabled,
+.widget-settings-legacy-compat .field textarea:disabled,
+.widget-settings-legacy-compat .primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.widget-settings-legacy-compat .primary-button {
+  min-width: 0;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--primary-foreground);
+  background: var(--primary);
+  font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+}
+
+.widget-settings-legacy-compat .secondary-button {
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  background: var(--card);
+  font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+}
+
+.widget-settings-legacy-compat .secondary-button:hover {
+  background: var(--muted);
+}
+
+.widget-settings-legacy-compat .secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.widget-settings-legacy-compat .form-status {
+  min-height: 1.25rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+}
+
+.widget-settings-legacy-compat .form-status--error {
+  color: var(--destructive);
+  font-weight: 700;
+}
+
+.widget-settings-legacy-compat .button-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.widget-settings-legacy-compat .form-card {
+  max-width: 560px;
+}
+
+.widget-settings-legacy-compat .form-card--wide {
+  max-width: 760px;
+}
+
+.widget-settings-legacy-compat .settings-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.widget-settings-legacy-compat .settings-grid__wide {
+  grid-column: 1 / -1;
+}
+
+.widget-settings-legacy-compat .field select,
+.widget-settings-legacy-compat .snippet-box {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  background: var(--card);
+  font: inherit;
+}
+
+.widget-settings-legacy-compat .field select:focus-visible,
+.widget-settings-legacy-compat .snippet-box:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.widget-settings-legacy-compat .snippet-box {
+  min-height: 96px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.85rem;
+}
+
+.widget-settings-legacy-compat .public-key {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  color: var(--foreground);
+  background: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .connection-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.widget-settings-legacy-compat .connection-status small {
+  min-width: 0;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .row-pill {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: rgba(29, 78, 216, 0.08);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.widget-settings-legacy-compat .list-card {
+  min-width: 0;
+  max-width: 940px;
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.widget-settings-legacy-compat .list-card--nested {
+  max-width: none;
+  box-shadow: none;
+}
+
+.widget-settings-legacy-compat .list-row {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.widget-settings-legacy-compat .list-row:last-child {
+  border-bottom: 0;
+}
+
+.widget-settings-legacy-compat .list-row:hover {
+  background: var(--muted);
+}
+
+.widget-settings-legacy-compat .list-row--static {
+  cursor: default;
+}
+
+.widget-settings-legacy-compat .list-row--static:hover {
+  background: transparent;
+}
+
+.widget-settings-legacy-compat .list-row strong,
+.widget-settings-legacy-compat .list-row small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .list-row small {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.widget-settings-legacy-compat .empty-state {
+  min-width: 0;
+  max-width: 760px;
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+
+.widget-settings-legacy-compat .empty-state p,
+.widget-settings-legacy-compat .dashboard-card h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .empty-state p {
+  color: var(--muted-foreground);
+}
+
+.widget-settings-legacy-compat .inline-form {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.widget-settings-legacy-compat .local-reply-candidate-details {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.widget-settings-legacy-compat .local-reply-candidate-detail {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.widget-settings-legacy-compat .local-reply-candidate-detail dt {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.widget-settings-legacy-compat .local-reply-candidate-detail dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .local-reply-command {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.widget-settings-legacy-compat .local-reply-command textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.widget-settings-legacy-compat .local-reply-command__code {
+  max-width: 100%;
+  min-height: 0;
+  margin: 0;
+  overflow-x: auto;
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .local-reply-command__help,
+.widget-settings-legacy-compat .local-reply-command__error {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.widget-settings-legacy-compat .local-reply-command__error {
+  color: var(--destructive);
+  font-weight: 700;
+}
+
+@media (max-width: 767px) {
+  .widget-settings-legacy-compat .page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .widget-settings-legacy-compat .page-actions,
+  .widget-settings-legacy-compat .page-actions .primary-button {
+    width: 100%;
+  }
+
+  .widget-settings-legacy-compat .settings-grid,
+  .widget-settings-legacy-compat .inline-form,
+  .widget-settings-legacy-compat .local-reply-candidate-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .widget-settings-legacy-compat .local-reply-command .secondary-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .widget-settings-legacy-compat .dashboard-card,
+  .widget-settings-legacy-compat .empty-state {
+    padding: 18px;
+  }
+}
