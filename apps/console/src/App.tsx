@@ -40,7 +40,7 @@ type AppState =
 
 type SubmitState = 'idle' | 'submitting' | 'error';
 
-type ConsoleRoute =
+export type ConsoleRoute =
   | { page: 'sites' }
   | { page: 'createSite' }
   | { page: 'siteDetail'; siteId: string }
@@ -138,7 +138,7 @@ export function App() {
 }
 
 type ReadyHandler = (context: CurrentContext) => void;
-type NavigateHandler = (path: string) => void;
+export type NavigateHandler = (path: string) => void;
 
 function AuthPage({ children }: { children: ReactNode }) {
   return (
@@ -431,7 +431,7 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
   );
 }
 
-function ConsoleRouteView({ onNavigate, route }: { onNavigate: NavigateHandler; route: ConsoleRoute }) {
+export function ConsoleRouteView({ onNavigate, route }: { onNavigate: NavigateHandler; route: ConsoleRoute }) {
   if (route.page === 'sites') return <SiteListPage onNavigate={onNavigate} />;
   if (route.page === 'createSite') return <CreateSitePage onNavigate={onNavigate} />;
   if (route.page === 'siteDetail') return <SiteDetailPage onNavigate={onNavigate} siteId={route.siteId} />;
@@ -548,9 +548,58 @@ function CreateSitePage({ onNavigate }: { onNavigate: NavigateHandler }) {
   );
 }
 
+
+/* ---------- Exported seams for testable page workflows ---------- */
+
+export async function loadSiteDetailPageState(
+  siteId: string,
+  dependencies: { getSite: typeof getSite; listWidgets: typeof listWidgets },
+  isCurrent: () => boolean,
+): Promise<SiteDetailState | null> {
+  try {
+    const [site, widgets] = await Promise.all([dependencies.getSite(siteId), dependencies.listWidgets(siteId)]);
+    if (!isCurrent()) return null;
+    return { status: 'ready', site, widgets };
+  } catch (error) {
+    if (!isCurrent()) return null;
+    return error instanceof ApiError && error.status === 404 ? { status: 'notFound' } : { status: 'error' };
+  }
+}
+
+export async function loadCreateWidgetPageState(
+  siteId: string,
+  dependencies: { getSite: typeof getSite },
+  isCurrent: () => boolean,
+): Promise<CreateWidgetState | null> {
+  try {
+    const site = await dependencies.getSite(siteId);
+    if (!isCurrent()) return null;
+    return { status: 'ready', site };
+  } catch (error) {
+    if (!isCurrent()) return null;
+    return error instanceof ApiError && error.status === 404 ? { status: 'notFound' } : { status: 'error' };
+  }
+}
+
+export async function submitCreateWidgetPage(
+  siteId: string,
+  name: string,
+  dependencies: { createWidget: typeof createWidget },
+  onNavigate: NavigateHandler,
+): Promise<'created' | 'notFound' | 'error'> {
+  try {
+    await dependencies.createWidget(siteId, { name });
+    onNavigate(`/console/sites/${siteId}`);
+    return 'created';
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return 'notFound';
+    return 'error';
+  }
+}
+
 /* ---------- Site detail ---------- */
 
-type SiteDetailState =
+export type SiteDetailState =
   | { status: 'loading' }
   | { status: 'ready'; site: ConsoleSite; widgets: ConsoleWidget[] }
   | { status: 'notFound' }
@@ -561,17 +610,10 @@ function SiteDetailPage({ onNavigate, siteId }: { onNavigate: NavigateHandler; s
 
   useEffect(() => {
     let isCurrent = true;
-    async function loadSite() {
-      try {
-        const [site, widgets] = await Promise.all([getSite(siteId), listWidgets(siteId)]);
-        if (isCurrent) setState({ status: 'ready', site, widgets });
-      } catch (error) {
-        if (!isCurrent) return;
-        setState(error instanceof ApiError && error.status === 404 ? { status: 'notFound' } : { status: 'error' });
-      }
-    }
     setState({ status: 'loading' });
-    void loadSite();
+    void loadSiteDetailPageState(siteId, { getSite, listWidgets }, () => isCurrent).then((result) => {
+      if (result) setState(result);
+    });
     return () => { isCurrent = false; };
   }, [siteId]);
 
@@ -619,7 +661,7 @@ function SiteDetailPage({ onNavigate, siteId }: { onNavigate: NavigateHandler; s
 
 /* ---------- Create widget ---------- */
 
-type CreateWidgetState =
+export type CreateWidgetState =
   | { status: 'loading' }
   | { status: 'ready'; site: ConsoleSite }
   | { status: 'notFound' }
@@ -632,17 +674,10 @@ function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler;
 
   useEffect(() => {
     let isCurrent = true;
-    async function loadSite() {
-      try {
-        const site = await getSite(siteId);
-        if (isCurrent) setState({ status: 'ready', site });
-      } catch (error) {
-        if (!isCurrent) return;
-        setState(error instanceof ApiError && error.status === 404 ? { status: 'notFound' } : { status: 'error' });
-      }
-    }
     setState({ status: 'loading' });
-    void loadSite();
+    void loadCreateWidgetPageState(siteId, { getSite }, () => isCurrent).then((result) => {
+      if (result) setState(result);
+    });
     return () => { isCurrent = false; };
   }, [siteId]);
 
@@ -650,16 +685,9 @@ function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler;
     event.preventDefault();
     if (submitState === 'submitting') return;
     setSubmitState('submitting');
-    try {
-      await createWidget(siteId, { name });
-      onNavigate(`/console/sites/${siteId}`);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 404) {
-        setState({ status: 'notFound' });
-      } else {
-        setSubmitState('error');
-      }
-    }
+    const result = await submitCreateWidgetPage(siteId, name, { createWidget }, onNavigate);
+    if (result === 'notFound') setState({ status: 'notFound' });
+    else if (result === 'error') setSubmitState('error');
   }
 
   if (state.status === 'loading') {
@@ -725,7 +753,7 @@ function NotFoundPage({ onNavigate }: { onNavigate: NavigateHandler }) {
   );
 }
 
-function parseConsoleRoute(pathname: string): ConsoleRoute {
+export function parseConsoleRoute(pathname: string): ConsoleRoute {
   const pathnameWithoutTrailingSlash = pathname.replace(/\/+$/, '') || '/console';
   const segments = pathnameWithoutTrailingSlash.split('/').filter(Boolean).map(decodePathSegment);
   if (segments[0] !== 'console') return { page: 'notFound' };
