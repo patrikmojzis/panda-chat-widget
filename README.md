@@ -40,6 +40,41 @@ After adding at least one allowed domain for a widget in the protected console, 
 
 Supported key attributes remain `data-public-key`, `data-widget-key`, and `data-site-key`; script attributes win over `window.PandaChatWidgetConfig`. The loader creates a bottom-right launcher and opens an iframe at `/widget.html?publicKey=...` on the host origin.
 
+
+## SDK usage
+
+The loader package provides two consumption modes from the same lifecycle core:
+
+### ESM factory (side-effect-free)
+
+```js
+import { createPandaChatWidget } from '@panda-chat-widget/loader';
+
+const widget = createPandaChatWidget();
+
+widget.subscribe((state) => {
+  console.log(state.lifecycle, state.visibility, state.auth);
+});
+
+await widget.init({ publicKey: 'your-public-key' });
+widget.open();
+// later: widget.close(), widget.toggle(), widget.destroy()
+```
+
+Importing the ESM entry does not write globals, auto-initialize, acquire leases, or create DOM. Use `init()` explicitly.
+
+### Classic global (auto-init)
+
+```html
+<script src="/vendor/panda-chat-widget-loader.js" data-public-key="your-public-key" async></script>
+```
+
+The classic script sets `window.PandaChatWidget` (the default instance) and `window.PandaChatWidgetLoader` (version/config metadata). Use `window.PandaChatWidget.create()` to obtain additional factory instances.
+
+### Widget readiness
+
+S1 uses temporary iframe-load readiness: `init()` resolves when the iframe fires its `load` event. This is a staging seam, not validated shell readiness. S2 replaces only the readiness adapter with the exact-origin handshake and shell-ready driver; the lifecycle core and public API remain unchanged.
+
 ## Common commands
 
 Run from the repository root unless noted. Build outputs are ignored, package-owned artifacts.

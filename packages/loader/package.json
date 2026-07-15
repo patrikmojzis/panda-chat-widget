@@ -3,12 +3,22 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "build": "rm -rf dist && vite build && vite build --mode classic && tsc -p tsconfig.build.json",
+    "test": "rm -rf ../../.cache/loader-test-core && (pnpm build && vite build --mode test-core && tsc -p test/declarations/tsconfig.json --noEmit --pretty false && node --test \"test/**/*.test.mjs\"); status=$?; rm -rf ../../.cache/loader-test-core; exit $status",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
     "check": "pnpm typecheck && pnpm test && pnpm build"
   },
-  "description": "Owns the future vanilla TypeScript host-page embed loader.",
+  "description": "Lifecycle SDK core with side-effect-free ESM factory and classic global loader.",
   "main": "dist/panda-chat-widget-loader.js",
-  "browser": "dist/panda-chat-widget-loader.js"
+  "browser": "dist/panda-chat-widget-loader.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./classic": "./dist/panda-chat-widget-loader.js"
+  },
+  "devDependencies": {
+    "vite": "^8.0.16"
+  }
 }

@@ -47,6 +47,11 @@ export function createDemoServer(config = loadDemoServerConfig()) {
       return;
     }
 
+    if (requestUrl.pathname === '/esm.html' || requestUrl.pathname === '/esm') {
+      void serveFile(response, path.join(rootDir, 'esm.html'), request.method);
+      return;
+    }
+
     if (requestUrl.pathname === '/widget.html') {
       void serveFile(response, path.join(widgetDistDir, 'index.html'), request.method);
       return;

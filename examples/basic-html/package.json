@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node dev-server.mjs",
-    "build": "rm -rf vendor widget-dist dist && mkdir -p vendor widget-dist dist/vendor && cp ../../packages/loader/dist/panda-chat-widget-loader.js vendor/panda-chat-widget-loader.js && cp ../../packages/loader/dist/panda-chat-widget-loader.js dist/vendor/panda-chat-widget-loader.js && cp -R ../../apps/widget-ui/dist/. widget-dist/ && cp index.html dist/index.html",
+    "build": "rm -rf vendor widget-dist dist && mkdir -p vendor widget-dist dist/vendor && cp ../../packages/loader/dist/panda-chat-widget-loader.js vendor/panda-chat-widget-loader.js && cp ../../packages/loader/dist/index.js vendor/index.js && cp ../../packages/loader/dist/panda-chat-widget-loader.js dist/vendor/panda-chat-widget-loader.js && cp ../../packages/loader/dist/index.js dist/vendor/index.js && cp -R ../../apps/widget-ui/dist/. widget-dist/ && cp index.html dist/index.html && cp esm.html dist/esm.html",
     "test": "node --test \"test/**/*.test.mjs\"",
     "check": "pnpm test && pnpm build"
   },

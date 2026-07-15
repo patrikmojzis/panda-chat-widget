@@ -18,6 +18,8 @@ test('basic HTML demo build prepares loader and widget UI artifacts', () => {
   assert.match(packageJson.scripts.build, /vendor\/panda-chat-widget-loader\.js/);
   assert.match(packageJson.scripts.build, /widget-dist/);
   assert.match(packageJson.scripts.build, /dist\/index\.html/);
+  assert.match(packageJson.scripts.build, /dist\/esm\.html/);
+  assert.match(packageJson.scripts.build, /dist\/vendor\/index\.js/);
   assert.match(packageJson.scripts.build, /dist\/vendor\/panda-chat-widget-loader\.js/);
   assert.equal(packageJson.scripts.test, 'node --test "test/**/*.test.mjs"');
   assert.match(gitignore, /^\/vendor\/$/m);
@@ -29,6 +31,18 @@ test('basic HTML demo loads the loader with the stable demo widget key', () => {
   assert.match(indexHtml, /data-site-key="demo-local-widget"/);
   assert.match(indexHtml, /bottom-right launcher/);
   assert.doesNotMatch(indexHtml, /fetch\(|XMLHttpRequest|postMessage|innerHTML/);
+});
+
+
+test('basic HTML demo ESM page loads the ESM factory with explicit init', async () => {
+  const esmHtml = await readFile(new URL('../esm.html', import.meta.url), 'utf8');
+  assert.match(esmHtml, /createPandaChatWidget/);
+  assert.match(esmHtml, /\.init\(/);
+  assert.match(esmHtml, /\.destroy\(/);
+  assert.match(esmHtml, /type="module"/);
+  assert.match(esmHtml, /\/vendor\/index\.js/);
+  assert.doesNotMatch(esmHtml, /postMessage|innerHTML/);
+  assert.match(esmHtml, /temporary iframe-load readiness/);
 });
 
 test('demo server defaults to local host, port, backend, and localhost proxy origin', () => {
