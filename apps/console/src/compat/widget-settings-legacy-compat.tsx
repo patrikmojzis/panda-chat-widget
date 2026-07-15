@@ -92,8 +92,8 @@ export function copyLocalManualReplyCommand(
   command: string,
   getClipboard: () => Clipboard,
   coordinator = localManualReplyCopyCoordinator,
-): void {
-  void coordinator.copy(command, getClipboard);
+): Promise<boolean> {
+  return coordinator.copy(command, getClipboard);
 }
 
 export type LocalDiagnosticsResult =
