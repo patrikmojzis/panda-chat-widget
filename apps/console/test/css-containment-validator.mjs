@@ -1,8 +1,7 @@
 /**
- * Fail-closed CSS containment validator.
- * Accepts only the narrow grammar: rooted style rules, @media/@supports blocks,
- * comments, strings, and escapes. Rejects everything else.
- * Returns the count of validated style selectors, or throws SyntaxError.
+ * Fail-closed CSS containment validator (test-only).
+ * Typed delimiter stacks, nonempty allowed preludes, no dependencies.
+ * Returns validated selector count or throws SyntaxError.
  */
 
 export function validateLegacyCompatibilityCss(css, root = '.widget-settings-legacy-compat') {
@@ -34,13 +33,12 @@ export function validateLegacyCompatibilityCss(css, root = '.widget-settings-leg
   }
 
   function scanEscape() {
-    // pos is at backslash
     if (pos + 1 >= css.length) fail('dangling escape at end of input');
     pos += 2;
   }
 
   function scanString(quote) {
-    pos++; // skip opening quote
+    pos++;
     while (pos < css.length) {
       if (css[pos] === '\\') { scanEscape(); continue; }
       if (css[pos] === quote) { pos++; return; }
@@ -49,60 +47,56 @@ export function validateLegacyCompatibilityCss(css, root = '.widget-settings-leg
     fail(`unterminated string starting with ${quote}`);
   }
 
-  /**
-   * Scan a balanced block of declarations: { ... }
-   * Tracks parentheses () and brackets [] with typed depth.
-   * Rejects nested { } (which would be a nested rule).
-   */
+  const OPENERS = { '(': ')', '[': ']' };
+  const CLOSERS = { ')': '(', ']': '[' };
+
+  function pushDelim(stack, c, context) {
+    stack.push(c);
+  }
+
+  function popDelim(stack, c, context) {
+    const expected = CLOSERS[c];
+    if (stack.length === 0) fail(`mismatched ${c} in ${context}`);
+    if (stack[stack.length - 1] !== expected) fail(`mismatched ${c} in ${context} (expected ${OPENERS[stack[stack.length - 1]]})`);
+    stack.pop();
+  }
+
+  function requireEmpty(stack, context) {
+    if (stack.length > 0) {
+      const top = stack[stack.length - 1];
+      fail(`unclosed ${top} in ${context}`);
+    }
+  }
+
   function scanDeclarationBlock() {
     if (peek() !== '{') fail('expected {');
     pos++;
-    let parenDepth = 0;
-    let bracketDepth = 0;
+    const stack = [];
     while (pos < css.length) {
       const c = css[pos];
       if (c === '/' && pos + 1 < css.length && css[pos + 1] === '*') { skipComment(); continue; }
       if (c === '"' || c === "'") { scanString(c); continue; }
       if (c === '\\') { scanEscape(); continue; }
-      if (c === '(') { parenDepth++; pos++; continue; }
-      if (c === ')') {
-        if (parenDepth <= 0) fail('mismatched ) in declaration block');
-        parenDepth--; pos++; continue;
-      }
-      if (c === '[') { bracketDepth++; pos++; continue; }
-      if (c === ']') {
-        if (bracketDepth <= 0) fail('mismatched ] in declaration block');
-        bracketDepth--; pos++; continue;
-      }
+      if (c === '(' || c === '[') { pushDelim(stack, c, 'declaration block'); pos++; continue; }
+      if (c === ')' || c === ']') { popDelim(stack, c, 'declaration block'); pos++; continue; }
       if (c === '{') fail('nested { inside declaration block');
-      if (c === '}') {
-        if (parenDepth !== 0) fail('unclosed ( in declaration block');
-        if (bracketDepth !== 0) fail('unclosed [ in declaration block');
-        pos++;
-        return;
-      }
+      if (c === '}') { requireEmpty(stack, 'declaration block'); pos++; return; }
       pos++;
     }
     fail('unmatched { in declaration block');
   }
 
-  /**
-   * Split selector text on commas, honoring strings, comments, parens, brackets, escapes.
-   * Rejects empty selectors (trailing/leading/consecutive commas).
-   */
   function splitSelectors(selectorText) {
     const selectors = [];
     let current = '';
     let i = 0;
-    let parenDepth = 0;
-    let bracketDepth = 0;
+    const stack = [];
     while (i < selectorText.length) {
       const c = selectorText[i];
       if (c === '\\') {
         if (i + 1 >= selectorText.length) fail('dangling escape in selector');
         current += selectorText.slice(i, i + 2);
-        i += 2;
-        continue;
+        i += 2; continue;
       }
       if (c === '/' && i + 1 < selectorText.length && selectorText[i + 1] === '*') {
         const end = selectorText.indexOf('*/', i + 2);
@@ -120,28 +114,23 @@ export function validateLegacyCompatibilityCss(css, root = '.widget-settings-leg
         current += selectorText.slice(i, j + 1);
         i = j + 1; continue;
       }
-      if (c === '(') { parenDepth++; current += c; i++; continue; }
-      if (c === ')') {
-        if (parenDepth <= 0) fail('mismatched ) in selector');
-        parenDepth--; current += c; i++; continue;
+      if (c === '(' || c === '[') { stack.push(c); current += c; i++; continue; }
+      if (c === ')' || c === ']') {
+        const expected = CLOSERS[c];
+        if (stack.length === 0) fail(`mismatched ${c} in selector`);
+        if (stack[stack.length - 1] !== expected) fail(`mismatched ${c} in selector`);
+        stack.pop();
+        current += c; i++; continue;
       }
-      if (c === '[') { bracketDepth++; current += c; i++; continue; }
-      if (c === ']') {
-        if (bracketDepth <= 0) fail('mismatched ] in selector');
-        bracketDepth--; current += c; i++; continue;
-      }
-      if (c === ',' && parenDepth === 0 && bracketDepth === 0) {
+      if (c === ',' && stack.length === 0) {
         const trimmed = current.trim();
         if (!trimmed) fail('empty selector in list');
         selectors.push(trimmed);
-        current = '';
-        i++; continue;
+        current = ''; i++; continue;
       }
-      current += c;
-      i++;
+      current += c; i++;
     }
-    if (parenDepth !== 0) fail('unclosed ( in selector');
-    if (bracketDepth !== 0) fail('unclosed [ in selector');
+    if (stack.length > 0) fail(`unclosed ${stack[stack.length - 1]} in selector`);
     const last = current.trim();
     if (!last && selectors.length > 0) fail('empty selector after trailing comma');
     if (last) selectors.push(last);
@@ -149,7 +138,6 @@ export function validateLegacyCompatibilityCss(css, root = '.widget-settings-leg
   }
 
   function validateSelector(selector, rootClass) {
-    // Strip leading comments/whitespace
     let s = selector;
     while (true) {
       const before = s;
@@ -158,8 +146,6 @@ export function validateLegacyCompatibilityCss(css, root = '.widget-settings-leg
       if (s === before) break;
     }
     if (!s) return false;
-
-    // Must start with the exact root class
     if (!s.startsWith(rootClass)) return false;
     const after = s[rootClass.length];
     if (after === undefined) return true;
@@ -179,37 +165,31 @@ export function validateLegacyCompatibilityCss(css, root = '.widget-settings-leg
     validatedSelectorCount += selectors.length;
   }
 
-  /**
-   * Scan an at-rule prelude (the part between @name and {).
-   * Tracks typed parens and brackets for balance.
-   */
-  function scanAtRulePrelude() {
-    let parenDepth = 0;
-    let bracketDepth = 0;
+  function scanAtRulePrelude(atName) {
+    const stack = [];
+    let hasContent = false;
     while (pos < css.length) {
       const c = css[pos];
-      if (c === '{') {
-        if (parenDepth !== 0) fail('unclosed ( in at-rule prelude');
-        if (bracketDepth !== 0) fail('unclosed [ in at-rule prelude');
+      if (c === '{' || c === ';') {
+        requireEmpty(stack, `@${atName} prelude`);
+        if (!hasContent) fail(`empty @${atName} prelude`);
         return;
       }
-      if (c === ';') return;
       if (c === '/' && pos + 1 < css.length && css[pos + 1] === '*') { skipComment(); continue; }
-      if (c === '"' || c === "'") { scanString(css[pos]); continue; }
-      if (c === '\\') { scanEscape(); continue; }
-      if (c === '(') { parenDepth++; pos++; continue; }
-      if (c === ')') {
-        if (parenDepth <= 0) fail('mismatched ) in at-rule prelude');
-        parenDepth--; pos++; continue;
+      if (c === '"' || c === "'") { hasContent = true; scanString(css[pos]); continue; }
+      if (c === '\\') { hasContent = true; scanEscape(); continue; }
+      if (c === '(' || c === '[') { hasContent = true; stack.push(c); pos++; continue; }
+      if (c === ')' || c === ']') {
+        hasContent = true;
+        const expected = CLOSERS[c];
+        if (stack.length === 0) fail(`mismatched ${c} in @${atName} prelude`);
+        if (stack[stack.length - 1] !== expected) fail(`mismatched ${c} in @${atName} prelude`);
+        stack.pop(); pos++; continue;
       }
-      if (c === '[') { bracketDepth++; pos++; continue; }
-      if (c === ']') {
-        if (bracketDepth <= 0) fail('mismatched ] in at-rule prelude');
-        bracketDepth--; pos++; continue;
-      }
+      if (!/\s/.test(c)) hasContent = true;
       pos++;
     }
-    fail('unexpected end of input in at-rule prelude');
+    fail(`unexpected end of input in @${atName} prelude`);
   }
 
   function parseBlockContents(rootClass, allowedAtRules) {
@@ -217,33 +197,21 @@ export function validateLegacyCompatibilityCss(css, root = '.widget-settings-leg
       skipWhitespaceAndComments();
       if (pos >= css.length) break;
       if (peek() === '}') break;
+      if (peek() === '@') { parseAtRule(rootClass, allowedAtRules); continue; }
 
-      if (peek() === '@') {
-        parseAtRule(rootClass, allowedAtRules);
-        continue;
-      }
-
-      // Read selector text until {
       let selectorText = '';
       while (pos < css.length && peek() !== '{') {
         const c = css[pos];
-        if (c === '/' && pos + 1 < css.length && css[pos + 1] === '*') {
-          skipComment(); continue;
-        }
+        if (c === '/' && pos + 1 < css.length && css[pos + 1] === '*') { skipComment(); continue; }
         if (c === '"' || c === "'") {
-          const start = pos;
-          scanString(c);
-          selectorText += css.slice(start, pos);
-          continue;
+          const start = pos; scanString(c);
+          selectorText += css.slice(start, pos); continue;
         }
         if (c === '\\') {
           if (pos + 1 >= css.length) fail('dangling escape in selector');
-          selectorText += css.slice(pos, pos + 2);
-          pos += 2;
-          continue;
+          selectorText += css.slice(pos, pos + 2); pos += 2; continue;
         }
-        selectorText += c;
-        pos++;
+        selectorText += c; pos++;
       }
       if (pos >= css.length) fail('unexpected end of input in selector');
       parseStyleRule(selectorText.trim(), rootClass);
@@ -251,39 +219,23 @@ export function validateLegacyCompatibilityCss(css, root = '.widget-settings-leg
   }
 
   function parseAtRule(rootClass, allowedAtRules) {
-    if (peek() !== '@') fail('expected @');
     pos++;
     let name = '';
-    while (pos < css.length && /[a-zA-Z0-9-]/.test(peek())) {
-      name += css[pos++];
-    }
-
-    if (/^(-webkit-|-moz-)?keyframes$/i.test(name)) {
-      fail(`@${name} is not allowed`);
-    }
-
-    if (!allowedAtRules.includes(name)) {
-      fail(`@${name} is not an allowed at-rule`);
-    }
-
-    scanAtRulePrelude();
-
+    while (pos < css.length && /[a-zA-Z0-9-]/.test(peek())) { name += css[pos++]; }
+    if (/^(-webkit-|-moz-)?keyframes$/i.test(name)) fail(`@${name} is not allowed`);
+    if (!allowedAtRules.includes(name)) fail(`@${name} is not an allowed at-rule`);
+    scanAtRulePrelude(name);
     if (peek() === ';') fail(`statement @${name} is not allowed`);
     if (peek() !== '{') fail(`expected { after @${name}`);
-    pos++; // skip {
-
+    pos++;
     parseBlockContents(rootClass, allowedAtRules);
-
     skipWhitespaceAndComments();
     if (peek() !== '}') fail(`expected } to close @${name}`);
     pos++;
   }
 
-  const allowedAtRules = ['media', 'supports'];
-  parseBlockContents(root, allowedAtRules);
-
+  parseBlockContents(root, ['media', 'supports']);
   skipWhitespaceAndComments();
   if (pos < css.length) fail(`unexpected content at end: ${css.slice(pos, pos + 20)}`);
-
   return validatedSelectorCount;
 }
