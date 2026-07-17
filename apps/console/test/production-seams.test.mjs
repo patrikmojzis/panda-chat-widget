@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import { rmSync } from 'node:fs';
 
@@ -126,6 +128,17 @@ describe('ConsoleRouteView: exact compatibility key and props across two-dimensi
     assert.equal(el2.props.siteId, 'site-b'); assert.equal(el2.props.widgetId, 'widget-shared'); assert.equal(el2.props.onNavigate, callback);
     assert.equal(el3.props.siteId, 'site-a'); assert.equal(el3.props.widgetId, 'widget-other'); assert.equal(el3.props.onNavigate, callback);
   });
+});
+
+test('Sites route renders a stable programmatic heading focus target', () => {
+  const markup = renderToStaticMarkup(createElement(appMod.ConsoleRouteView, {
+    route: { page: 'sites' },
+    onNavigate: () => {},
+  }));
+  const headings = [...markup.matchAll(/<h2\b[^>]*>Sites<\/h2>/g)];
+  assert.equal(headings.length, 1);
+  assert.match(headings[0][0], /\bid="sites-title"/);
+  assert.match(headings[0][0], /\btabindex="-1"/);
 });
 
 // ═══════════════════════════════════════════════════════════════

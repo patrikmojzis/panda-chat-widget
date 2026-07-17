@@ -1,4 +1,4 @@
-import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useState } from 'react';
+import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
   createSite,
@@ -361,6 +361,7 @@ function SidebarContent({
 function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLoggedOut: () => void }) {
   const [route, setRoute] = useState<ConsoleRoute>(() => parseConsoleRoute(window.location.pathname));
   const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetNavigationFocusTargetRef = useRef<string | null>(null);
 
   useEffect(() => {
     function handlePopState() {
@@ -377,6 +378,28 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
     }
     setRoute(parseConsoleRoute(path));
     setSheetOpen(false);
+  }
+
+  function navigateFromSheet(path: string) {
+    sheetNavigationFocusTargetRef.current = 'sites-title';
+    navigate(path);
+  }
+
+  function handleSheetOpenChange(open: boolean) {
+    if (open) {
+      sheetNavigationFocusTargetRef.current = null;
+    }
+    setSheetOpen(open);
+  }
+
+  function handleSheetCloseAutoFocus(event: Event) {
+    const targetId = sheetNavigationFocusTargetRef.current;
+    sheetNavigationFocusTargetRef.current = null;
+    if (!targetId) return;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    event.preventDefault();
+    target.focus({ preventScroll: true });
   }
 
   async function handleLogout() {
@@ -399,17 +422,17 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
 
       <main className="flex flex-col min-w-0">
         <header className="sticky top-0 z-40 flex items-center gap-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 min-w-0">
-          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+          <Sheet open={sheetOpen} onOpenChange={handleSheetOpenChange}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation menu">
                 <Menu className="size-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="flex flex-col w-[min(20rem,85vw)] p-4">
+            <SheetContent side="left" className="flex flex-col w-[min(20rem,85vw)] p-4" onCloseAutoFocus={handleSheetCloseAutoFocus}>
               <SheetTitle>Panda Chat Console</SheetTitle>
               <SheetDescription>Navigation and workspace controls.</SheetDescription>
               <div className="flex flex-col flex-1 mt-4">
-                <SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigate} sitesActive={sitesActive} />
+                <SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigateFromSheet} sitesActive={sitesActive} />
               </div>
             </SheetContent>
           </Sheet>
@@ -734,7 +757,7 @@ function PageHeader({ action, body, eyebrow, title, titleId }: { action?: ReactN
     <div className="flex flex-col gap-4 min-w-0 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <p className="text-xs font-extrabold uppercase tracking-wider text-primary">{eyebrow}</p>
-        <h2 id={titleId} className="text-xl font-bold md:text-2xl break-words">{title}</h2>
+        <h2 id={titleId} className="text-xl font-bold md:text-2xl break-words" tabIndex={-1}>{title}</h2>
         <p className="text-sm text-muted-foreground">{body}</p>
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}

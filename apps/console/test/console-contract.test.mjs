@@ -131,6 +131,23 @@ test('responsive shell structure', () => {
   assert.match(appSource, /setSheetOpen\(false\)/);
 });
 
+test('mobile Sheet navigation focus is one-shot, consumer-scoped, and timer-free', () => {
+  assert.match(appSource, /type ReactNode, useEffect, useRef, useState/);
+  assert.match(appSource, /const sheetNavigationFocusTargetRef = useRef<string \| null>\(null\);/);
+  assert.match(appSource, /function navigateFromSheet\(path: string\) \{\s+sheetNavigationFocusTargetRef\.current = 'sites-title';\s+navigate\(path\);\s+\}/);
+  assert.match(appSource, /function handleSheetOpenChange\(open: boolean\) \{\s+if \(open\) \{\s+sheetNavigationFocusTargetRef\.current = null;\s+\}\s+setSheetOpen\(open\);\s+\}/);
+  assert.match(appSource, /function handleSheetCloseAutoFocus\(event: Event\) \{\s+const targetId = sheetNavigationFocusTargetRef\.current;\s+sheetNavigationFocusTargetRef\.current = null;\s+if \(!targetId\) return;\s+const target = document\.getElementById\(targetId\);\s+if \(!target\) return;\s+event\.preventDefault\(\);\s+target\.focus\(\{ preventScroll: true \}\);\s+\}/);
+  assert.match(appSource, /<Sheet open=\{sheetOpen\} onOpenChange=\{handleSheetOpenChange\}>/);
+  assert.match(appSource, /<SheetContent side="left" className="flex flex-col w-\[min\(20rem,85vw\)\] p-4" onCloseAutoFocus=\{handleSheetCloseAutoFocus\}>/);
+
+  const desktopNavigation = '<SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigate} sitesActive={sitesActive} />';
+  const mobileNavigation = '<SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigateFromSheet} sitesActive={sitesActive} />';
+  assert.equal(appSource.split(desktopNavigation).length - 1, 1);
+  assert.equal(appSource.split(mobileNavigation).length - 1, 1);
+  assert.match(appSource, /<ConsoleRouteView route=\{route\} onNavigate=\{navigate\} \/>/);
+  assert.doesNotMatch(appSource, /\bsetTimeout\b|\brequestAnimationFrame\b/);
+});
+
 test('Alert primitive ref types match rendered elements', async () => {
   const alertSource = await readFile(new URL('../src/components/ui/alert.tsx', import.meta.url), 'utf8');
   assert.match(alertSource, /forwardRef<HTMLHeadingElement/);
