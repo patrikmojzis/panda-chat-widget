@@ -210,24 +210,18 @@ describe('copyLocalManualReplyCommand: exact command/getter call and returned Pr
     const fakeCoordinator = {
       copy(cmd, getter) {
         copyCalls.push({ cmd, getter });
-        const cb = getter(); getterCount++;
+        const cb = getter();
         assert.equal(cb, sentinelClipboard);
         return sentinelPromise;
       },
     };
     const getClipboard = () => { getterCount++; return sentinelClipboard; };
-    // Reset getter count after definition
-    getterCount = 0;
     const result = compatMod.copyLocalManualReplyCommand('test-cmd', getClipboard, fakeCoordinator);
-    assert.equal(result, sentinelPromise);
-    assert.equal(copyCalls.length, 1);
-    assert.equal(copyCalls[0].cmd, 'test-cmd');
-    assert.equal(copyCalls[0].getter, getClipboard);
-    // The coordinator called getter once (count reset was after definition)
-    // Actually the coordinator's copy invokes getter() once which increments getterCount by 1 (from the coordinator fake)
-    // and the seam passes getClipboard to coordinator, the coordinator calls it once
-    // So total: coordinator's getter() call increments by 1, but we also count in the fake - let me simplify
+    assert.equal(result, sentinelPromise, 'must return exact coordinator promise');
     assert.equal(copyCalls.length, 1, 'coordinator.copy called exactly once');
+    assert.equal(copyCalls[0].cmd, 'test-cmd');
+    assert.equal(copyCalls[0].getter, getClipboard, 'getter identity forwarded');
+    assert.equal(getterCount, 1, 'getClipboard invoked exactly once');
     const resolved = await result;
     assert.equal(resolved, true);
   });
