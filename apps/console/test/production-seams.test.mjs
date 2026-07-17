@@ -285,6 +285,17 @@ describe('console-api request contracts via fake fetch', { concurrency: false },
     return calls;
   }
 
+  function installIdentityFakeFetch(responseBody, status = 200) {
+    const calls = [];
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method || 'GET', headers: init.headers || {}, body: init.body, credentials: init.credentials });
+      const response = new Response(status === 204 ? null : JSON.stringify(responseBody), { status, headers: { 'content-type': 'application/json' } });
+      if (status !== 204) Object.defineProperty(response, 'json', { value: async () => responseBody });
+      return response;
+    };
+    return calls;
+  }
+
   // Sentinel objects for exact identity checks
   const SITE_SENTINEL = Object.freeze({ id: 'site-sentinel', name: 'Site / ž', createdAt: '2026-01-01T00:00:00Z' });
   const WIDGET_SENTINEL = Object.freeze({ id: 'widget-sentinel', name: 'Widget / 漢', publicKey: 'pk-漢' });
@@ -292,25 +303,33 @@ describe('console-api request contracts via fake fetch', { concurrency: false },
   const CONTEXT_SENTINEL = Object.freeze({ user: Object.freeze({ email: 'a@b.c' }), workspace: Object.freeze({ name: 'W / ž' }) });
   const SETTINGS_SENTINEL = Object.freeze({ widget: {}, config: {}, install: {}, connection: {} });
 
+  const SETUP_STATUS_RESPONSE = Object.freeze({ setupRequired: false });
+  const SITE_LIST_RESPONSE = Object.freeze({ sites: Object.freeze([SITE_SENTINEL]) });
+  const SITE_RESPONSE = Object.freeze({ site: SITE_SENTINEL });
+  const WIDGET_LIST_RESPONSE = Object.freeze({ widgets: Object.freeze([WIDGET_SENTINEL]) });
+  const WIDGET_RESPONSE = Object.freeze({ widget: WIDGET_SENTINEL });
+  const DOMAIN_LIST_RESPONSE = Object.freeze({ domains: Object.freeze([DOMAIN_SENTINEL]) });
+  const DOMAIN_RESPONSE = Object.freeze({ domain: DOMAIN_SENTINEL });
+
   const table = [
-    { fn: 'getSetupStatus', args: [], method: 'GET', path: '/api/auth/setup-status', response: { setupRequired: false }, exactResult: (r) => { assert.equal(r.setupRequired, false); } },
-    { fn: 'getCurrentContext', args: [], method: 'GET', path: '/api/me', response: CONTEXT_SENTINEL, exactResult: (r) => { assert.deepEqual(r, CONTEXT_SENTINEL); } },
-    { fn: 'setupFirstOwner', args: [{ email: 'a@b.c', password: 'x', workspaceName: 'W' }], method: 'POST', path: '/api/auth/setup', hasBody: true, expectedBody: { email: 'a@b.c', password: 'x', workspaceName: 'W' }, response: CONTEXT_SENTINEL, exactResult: (r) => { assert.deepEqual(r, CONTEXT_SENTINEL); } },
-    { fn: 'login', args: [{ email: 'a@b.c', password: 'x' }], method: 'POST', path: '/api/auth/login', hasBody: true, expectedBody: { email: 'a@b.c', password: 'x' }, response: CONTEXT_SENTINEL, exactResult: (r) => { assert.deepEqual(r, CONTEXT_SENTINEL); } },
-    { fn: 'logout', args: [], method: 'POST', path: '/api/auth/logout', status: 204, exactResult: (r) => { assert.equal(r, undefined); } },
-    { fn: 'listSites', args: [], method: 'GET', path: '/api/console/sites', response: { sites: [SITE_SENTINEL] }, exactResult: (r) => { assert.deepEqual(r[0], SITE_SENTINEL); assert.equal(r.length, 1); } },
-    { fn: 'getSite', args: ['site / ž'], method: 'GET', path: '/api/console/sites/site%20%2F%20%C5%BE', response: { site: SITE_SENTINEL }, exactResult: (r) => { assert.deepEqual(r, SITE_SENTINEL); assert.equal(r.id, 'site-sentinel'); } },
-    { fn: 'createSite', args: [{ name: 'S' }], method: 'POST', path: '/api/console/sites', hasBody: true, expectedBody: { name: 'S' }, response: { site: SITE_SENTINEL }, exactResult: (r) => { assert.deepEqual(r, SITE_SENTINEL); assert.equal(r.id, 'site-sentinel'); } },
-    { fn: 'listWidgets', args: ['site / ž'], method: 'GET', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets', response: { widgets: [WIDGET_SENTINEL] }, exactResult: (r) => { assert.deepEqual(r[0], WIDGET_SENTINEL); assert.equal(r.length, 1); } },
-    { fn: 'createWidget', args: ['site / ž', { name: 'W' }], method: 'POST', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets', hasBody: true, expectedBody: { name: 'W' }, response: { widget: WIDGET_SENTINEL }, exactResult: (r) => { assert.deepEqual(r, WIDGET_SENTINEL); assert.equal(r.id, 'widget-sentinel'); } },
-    { fn: 'getWidgetSettings', args: ['site / ž', 'widget / 漢'], method: 'GET', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/settings', response: SETTINGS_SENTINEL, exactResult: (r) => { assert.deepEqual(r, SETTINGS_SENTINEL); } },
-    { fn: 'updateWidgetSettings', args: ['site / ž', 'widget / 漢', { name: 'N' }], method: 'PATCH', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/settings', hasBody: true, expectedBody: { name: 'N' }, response: SETTINGS_SENTINEL, exactResult: (r) => { assert.deepEqual(r, SETTINGS_SENTINEL); } },
-    { fn: 'listWidgetDomains', args: ['site / ž', 'widget / 漢'], method: 'GET', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/domains', response: { domains: [DOMAIN_SENTINEL] }, exactResult: (r) => { assert.deepEqual(r[0], DOMAIN_SENTINEL); assert.equal(r.length, 1); } },
-    { fn: 'createWidgetDomain', args: ['site / ž', 'widget / 漢', { domain: 'x.com' }], method: 'POST', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/domains', hasBody: true, expectedBody: { domain: 'x.com' }, response: { domain: DOMAIN_SENTINEL }, exactResult: (r) => { assert.deepEqual(r, DOMAIN_SENTINEL); assert.equal(r.id, 'domain-sentinel'); } },
-    { fn: 'deleteWidgetDomain', args: ['site / ž', 'widget / 漢', 'domain / ü'], method: 'DELETE', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/domains/domain%20%2F%20%C3%BC', status: 204, exactResult: (r) => { assert.equal(r, undefined); } },
+    { fn: 'getSetupStatus', args: [], method: 'GET', path: '/api/auth/setup-status', response: SETUP_STATUS_RESPONSE, expectedIdentity: SETUP_STATUS_RESPONSE, exactResult: (r) => { assert.equal(r.setupRequired, false); } },
+    { fn: 'getCurrentContext', args: [], method: 'GET', path: '/api/me', response: CONTEXT_SENTINEL, expectedIdentity: CONTEXT_SENTINEL, exactResult: (r) => { assert.deepEqual(r, CONTEXT_SENTINEL); } },
+    { fn: 'setupFirstOwner', args: [{ email: 'a@b.c', password: 'x', workspaceName: 'W' }], method: 'POST', path: '/api/auth/setup', hasBody: true, expectedBody: { email: 'a@b.c', password: 'x', workspaceName: 'W' }, response: CONTEXT_SENTINEL, expectedIdentity: CONTEXT_SENTINEL, exactResult: (r) => { assert.deepEqual(r, CONTEXT_SENTINEL); } },
+    { fn: 'login', args: [{ email: 'a@b.c', password: 'x' }], method: 'POST', path: '/api/auth/login', hasBody: true, expectedBody: { email: 'a@b.c', password: 'x' }, response: CONTEXT_SENTINEL, expectedIdentity: CONTEXT_SENTINEL, exactResult: (r) => { assert.deepEqual(r, CONTEXT_SENTINEL); } },
+    { fn: 'logout', args: [], method: 'POST', path: '/api/auth/logout', status: 204, expectedIdentity: undefined, exactResult: (r) => { assert.equal(r, undefined); } },
+    { fn: 'listSites', args: [], method: 'GET', path: '/api/console/sites', response: SITE_LIST_RESPONSE, expectedIdentity: SITE_LIST_RESPONSE.sites, exactResult: (r) => { assert.deepEqual(r[0], SITE_SENTINEL); assert.equal(r.length, 1); } },
+    { fn: 'getSite', args: ['site / ž'], method: 'GET', path: '/api/console/sites/site%20%2F%20%C5%BE', response: SITE_RESPONSE, expectedIdentity: SITE_SENTINEL, exactResult: (r) => { assert.deepEqual(r, SITE_SENTINEL); assert.equal(r.id, 'site-sentinel'); } },
+    { fn: 'createSite', args: [{ name: 'S' }], method: 'POST', path: '/api/console/sites', hasBody: true, expectedBody: { name: 'S' }, response: SITE_RESPONSE, expectedIdentity: SITE_SENTINEL, exactResult: (r) => { assert.deepEqual(r, SITE_SENTINEL); assert.equal(r.id, 'site-sentinel'); } },
+    { fn: 'listWidgets', args: ['site / ž'], method: 'GET', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets', response: WIDGET_LIST_RESPONSE, expectedIdentity: WIDGET_LIST_RESPONSE.widgets, exactResult: (r) => { assert.deepEqual(r[0], WIDGET_SENTINEL); assert.equal(r.length, 1); } },
+    { fn: 'createWidget', args: ['site / ž', { name: 'W' }], method: 'POST', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets', hasBody: true, expectedBody: { name: 'W' }, response: WIDGET_RESPONSE, expectedIdentity: WIDGET_SENTINEL, exactResult: (r) => { assert.deepEqual(r, WIDGET_SENTINEL); assert.equal(r.id, 'widget-sentinel'); } },
+    { fn: 'getWidgetSettings', args: ['site / ž', 'widget / 漢'], method: 'GET', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/settings', response: SETTINGS_SENTINEL, expectedIdentity: SETTINGS_SENTINEL, exactResult: (r) => { assert.deepEqual(r, SETTINGS_SENTINEL); } },
+    { fn: 'updateWidgetSettings', args: ['site / ž', 'widget / 漢', { name: 'N' }], method: 'PATCH', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/settings', hasBody: true, expectedBody: { name: 'N' }, response: SETTINGS_SENTINEL, expectedIdentity: SETTINGS_SENTINEL, exactResult: (r) => { assert.deepEqual(r, SETTINGS_SENTINEL); } },
+    { fn: 'listWidgetDomains', args: ['site / ž', 'widget / 漢'], method: 'GET', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/domains', response: DOMAIN_LIST_RESPONSE, expectedIdentity: DOMAIN_LIST_RESPONSE.domains, exactResult: (r) => { assert.deepEqual(r[0], DOMAIN_SENTINEL); assert.equal(r.length, 1); } },
+    { fn: 'createWidgetDomain', args: ['site / ž', 'widget / 漢', { domain: 'x.com' }], method: 'POST', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/domains', hasBody: true, expectedBody: { domain: 'x.com' }, response: DOMAIN_RESPONSE, expectedIdentity: DOMAIN_SENTINEL, exactResult: (r) => { assert.deepEqual(r, DOMAIN_SENTINEL); assert.equal(r.id, 'domain-sentinel'); } },
+    { fn: 'deleteWidgetDomain', args: ['site / ž', 'widget / 漢', 'domain / ü'], method: 'DELETE', path: '/api/console/sites/site%20%2F%20%C5%BE/widgets/widget%20%2F%20%E6%BC%A2/domains/domain%20%2F%20%C3%BC', status: 204, expectedIdentity: undefined, exactResult: (r) => { assert.equal(r, undefined); } },
   ];
 
-  for (const { fn, args, method, path, hasBody, expectedBody, status, response, exactResult } of table) {
+  for (const { fn, args, method, path, hasBody, expectedBody, status, response, expectedIdentity, exactResult } of table) {
     test(`console-api ${fn}: exact request, result, 404, and browser-state isolation`, async () => {
       installTraps();
       try {
@@ -330,7 +349,7 @@ describe('console-api request contracts via fake fetch', { concurrency: false },
           assert.deepEqual(JSON.parse(calls[0].body), expectedBody);
         } else {
           assert.equal(calls[0].body, undefined, `${fn}: no body`);
-          if (method !== 'GET') assert.ok(!calls[0].headers['content-type'], `${fn}: no content-type`);
+          assert.equal(calls[0].headers['content-type'], undefined, `${fn}: no content-type`);
         }
         exactResult(result);
         // 404
@@ -339,6 +358,11 @@ describe('console-api request contracts via fake fetch', { concurrency: false },
           assert.ok(err instanceof apiMod.ApiError); assert.equal(err.status, 404); return true;
         });
         assert.equal(calls404.length, 1, `${fn} 404: exactly 1 fetch`);
+        // Identity-only control: still a native Response, with only instance json() shadowed.
+        const identityCalls = installIdentityFakeFetch(response ?? {}, status ?? 200);
+        const identityResult = await apiMod[fn](...args);
+        assert.equal(identityCalls.length, 1, `${fn} identity: exactly 1 fetch`);
+        assert.equal(identityResult, expectedIdentity, `${fn}: exact result identity`);
       } finally { restoreTraps(); }
     });
   }

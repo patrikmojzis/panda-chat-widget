@@ -6,7 +6,7 @@
  * S4 deletes this entire file and the wrapper.
  */
 
-.widget-settings-legacy-compat {
+.widget-settings-legacy-compat > .content-section {
   min-width: 0;
   width: min(100%, 940px);
   display: grid;

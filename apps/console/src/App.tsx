@@ -174,7 +174,7 @@ function SetupScreen({ onReady }: { onReady: ReadyHandler }) {
       <Card className="w-full max-w-[440px]">
         <CardHeader className="space-y-2">
           <p className="text-xs font-extrabold uppercase tracking-wider text-primary">First owner setup</p>
-          <CardTitle className="text-2xl">Create your workspace</CardTitle>
+          <h1 className="font-semibold leading-none tracking-tight text-2xl">Create your workspace</h1>
           <CardDescription>Set up the first owner account for this self-hosted Panda Chat Widget console.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -255,7 +255,7 @@ function LoginScreen({ onReady }: { onReady: ReadyHandler }) {
       <Card className="w-full max-w-[440px]">
         <CardHeader className="space-y-2">
           <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Owner login</p>
-          <CardTitle className="text-2xl">Sign in to your console</CardTitle>
+          <h1 className="font-semibold leading-none tracking-tight text-2xl">Sign in to your console</h1>
           <CardDescription>Use your owner account to manage this workspace.</CardDescription>
         </CardHeader>
         <CardContent>
