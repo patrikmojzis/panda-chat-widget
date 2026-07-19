@@ -8,7 +8,6 @@ const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf
 const mainSource = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const indexCss = await readFile(new URL('../src/index.css', import.meta.url), 'utf8');
-const compatCss = await readFile(new URL('../src/compat/widget-settings-legacy-compat.css', import.meta.url), 'utf8');
 const viteConfigSource = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
 const utilsSource = await readFile(new URL('../src/lib/utils.ts', import.meta.url), 'utf8');
 
@@ -87,20 +86,10 @@ test('old styles.css is deleted', async () => {
   catch (error) { assert.equal(error.code, 'ENOENT'); }
 });
 
-test('compat settings direct child owns preserved top-level layout', () => {
-  const directOwnerRules = [...compatCss.matchAll(/^\.widget-settings-legacy-compat > \.content-section\s*\{([^}]*)\}/gm)];
-  assert.equal(directOwnerRules.length, 1, 'exactly one rooted direct-child owner');
-  const declarations = directOwnerRules[0][1].split(';').map((declaration) => declaration.trim()).filter(Boolean);
-  assert.deepEqual(declarations, [
-    'min-width: 0',
-    'width: min(100%, 940px)',
-    'display: grid',
-    'gap: 18px',
-  ]);
-
-  const rootRule = compatCss.match(/^\.widget-settings-legacy-compat\s*\{([^}]*)\}/m);
-  if (rootRule) assert.doesNotMatch(rootRule[1], /(?:min-width|width|display|gap)\s*:/);
-  assert.doesNotMatch(compatCss, /^\.content-section\s*\{/m);
+test('legacy compat layer is deleted and unreferenced', async () => {
+  try { await readdir(new URL('../src/compat', import.meta.url)); assert.fail('src/compat should be deleted'); }
+  catch (error) { assert.equal(error.code, 'ENOENT'); }
+  assert.doesNotMatch([appSource, mainSource].join('\n'), /compat/i);
 });
 
 test('setup and login titles are native h1 headings', () => {

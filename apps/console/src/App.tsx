@@ -28,7 +28,7 @@ import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
-import { WidgetSettingsLegacyCompatibility } from '@/compat/widget-settings-legacy-compat';
+import { WidgetSettingsPage } from './widget-settings';
 import { AlertCircle, Globe, Menu } from 'lucide-react';
 
 type AppState =
@@ -461,7 +461,7 @@ export function ConsoleRouteView({ onNavigate, route }: { onNavigate: NavigateHa
   if (route.page === 'createWidget') return <CreateWidgetPage onNavigate={onNavigate} siteId={route.siteId} />;
   if (route.page === 'widgetDetail') {
     return (
-      <WidgetSettingsLegacyCompatibility
+      <WidgetSettingsPage
         key={JSON.stringify([route.siteId, route.widgetId])}
         onNavigate={onNavigate}
         siteId={route.siteId}

@@ -7,7 +7,7 @@ import { rmSync } from 'node:fs';
 
 const CACHE_DIR = '/tmp/pcw-r6-vite-test-cache-' + process.pid;
 let vite;
-let appMod, apiMod, compatMod, localReplyMod;
+let appMod, apiMod, helpersMod, localReplyMod;
 
 before(async () => {
   vite = await createServer({
@@ -20,7 +20,7 @@ before(async () => {
   });
   appMod = await vite.ssrLoadModule('/src/App.tsx');
   apiMod = await vite.ssrLoadModule('/src/console-api.ts');
-  compatMod = await vite.ssrLoadModule('/src/compat/widget-settings-legacy-compat.tsx');
+  helpersMod = await vite.ssrLoadModule('/src/widget-settings-helpers.ts');
   localReplyMod = await vite.ssrLoadModule('/src/local-manual-reply-command.ts');
 });
 
@@ -113,7 +113,7 @@ describe('submitCreateWidgetPage', () => {
 // ═══════════════════════════════════════════════════════════════
 // ConsoleRouteView: exact key and all props across three tuples
 // ═══════════════════════════════════════════════════════════════
-describe('ConsoleRouteView: exact compatibility key and props across two-dimensional tuples', () => {
+describe('ConsoleRouteView: exact widget-settings key and props across two-dimensional tuples', () => {
   const callback = () => {};
   test('widget-detail produces exact key and props', () => {
     const el1 = appMod.ConsoleRouteView({ route: { page: 'widgetDetail', siteId: 'site-a', widgetId: 'widget-shared' }, onNavigate: callback });
@@ -162,14 +162,14 @@ describe('localManualReplyStateForScope with real fixtures', () => {
   test('same scope preserves identity', () => {
     const scope = { siteId: 's1', widgetId: 'w1', candidateId: 'c1' };
     const dirty = makeDirtySuccessState(scope);
-    assert.equal(compatMod.localManualReplyStateForScope(dirty, scope), dirty);
+    assert.equal(helpersMod.localManualReplyStateForScope(dirty, scope), dirty);
   });
   test('site change returns exact real defaults', () => {
     const dirty = makeDirtySuccessState({ siteId: 's1', widgetId: 'w1', candidateId: 'c1' });
     assert.ok(dirty.copiedCommand !== null, 'precondition: dirty has copiedCommand');
     assert.ok(dirty.latestCopyRequestId !== null, 'precondition: dirty has latestCopyRequestId');
     const newScope = { siteId: 's2', widgetId: 'w1', candidateId: 'c1' };
-    const result = compatMod.localManualReplyStateForScope(dirty, newScope);
+    const result = helpersMod.localManualReplyStateForScope(dirty, newScope);
     assert.notEqual(result, dirty);
     assert.deepEqual(result, localReplyMod.createLocalManualReplyState(newScope));
     assert.equal(result.copiedCommand, null); assert.equal(result.copyErrorCommand, null);
@@ -178,14 +178,14 @@ describe('localManualReplyStateForScope with real fixtures', () => {
     const dirty = makeDirtyFailureState({ siteId: 's1', widgetId: 'w1', candidateId: 'c1' });
     assert.ok(dirty.copyErrorCommand !== null, 'precondition: dirty has copyErrorCommand');
     const newScope = { siteId: 's1', widgetId: 'w2', candidateId: 'c1' };
-    const result = compatMod.localManualReplyStateForScope(dirty, newScope);
+    const result = helpersMod.localManualReplyStateForScope(dirty, newScope);
     assert.notEqual(result, dirty);
     assert.deepEqual(result, localReplyMod.createLocalManualReplyState(newScope));
   });
   test('candidate change returns exact real defaults', () => {
     const dirty = makeDirtySuccessState({ siteId: 's1', widgetId: 'w1', candidateId: 'c1' });
     const newScope = { siteId: 's1', widgetId: 'w1', candidateId: 'c2' };
-    const result = compatMod.localManualReplyStateForScope(dirty, newScope);
+    const result = helpersMod.localManualReplyStateForScope(dirty, newScope);
     assert.notEqual(result, dirty);
     const expected = localReplyMod.createLocalManualReplyState(newScope);
     assert.deepEqual(result, expected);
@@ -205,7 +205,7 @@ describe('subscribeLocalManualReplyCopy: exact coordinator callback and returned
     const sentinelUnsub = () => { unsubCalls++; };
     const fakeCoordinator = { subscribe(d) { subscribeCalls.push(d); return sentinelUnsub; } };
     const dispatch = () => {};
-    const unsub = compatMod.subscribeLocalManualReplyCopy(dispatch, fakeCoordinator);
+    const unsub = helpersMod.subscribeLocalManualReplyCopy(dispatch, fakeCoordinator);
     assert.equal(subscribeCalls.length, 1);
     assert.equal(subscribeCalls[0], dispatch);
     assert.equal(unsub, sentinelUnsub);
@@ -229,7 +229,7 @@ describe('copyLocalManualReplyCommand: exact command/getter call and returned Pr
       },
     };
     const getClipboard = () => { getterCount++; return sentinelClipboard; };
-    const result = compatMod.copyLocalManualReplyCommand('test-cmd', getClipboard, fakeCoordinator);
+    const result = helpersMod.copyLocalManualReplyCommand('test-cmd', getClipboard, fakeCoordinator);
     assert.equal(result, sentinelPromise, 'must return exact coordinator promise');
     assert.equal(copyCalls.length, 1, 'coordinator.copy called exactly once');
     assert.equal(copyCalls[0].cmd, 'test-cmd');
@@ -396,11 +396,11 @@ describe('console-api request contracts via fake fetch', { concurrency: false },
 });
 
 // ═══════════════════════════════════════════════════════════════
-// Compat: DTO fields, candidate details, diagnostics
+// Widget settings helpers: DTO fields, candidate details, diagnostics
 // ═══════════════════════════════════════════════════════════════
 describe('NEXT_LOCAL_REPLY_CANDIDATE_FIELDS exact tuple', () => {
   test('exactly 7 frozen fields in order', () => {
-    assert.deepEqual([...compatMod.NEXT_LOCAL_REPLY_CANDIDATE_FIELDS], ['id', 'status', 'conversationId', 'visitorMessageId', 'clientMessageId', 'createdAt', 'claimedAt']);
+    assert.deepEqual([...helpersMod.NEXT_LOCAL_REPLY_CANDIDATE_FIELDS], ['id', 'status', 'conversationId', 'visitorMessageId', 'clientMessageId', 'createdAt', 'claimedAt']);
   });
 });
 
@@ -414,7 +414,7 @@ describe('nextLocalReplyCandidateDetails via throwing Proxy', () => {
         return key === 'claimedAt' ? null : `val-${String(key)}`;
       },
     });
-    const details = compatMod.nextLocalReplyCandidateDetails(candidate);
+    const details = helpersMod.nextLocalReplyCandidateDetails(candidate);
     assert.equal(details.length, 6);
     assert.deepEqual(details.map(d => d.label), ['status','conversationId','visitorMessageId','clientMessageId','createdAt','claimedAt']);
     assert.equal(details[5].value, 'not claimed yet');
@@ -438,17 +438,17 @@ describe('loadLocalDiagnostics', () => {
       },
     });
     const calls = [];
-    const r = await compatMod.loadLocalDiagnostics('s1', 'w1', 'old-c', { getWidgetSettings: async (s, w) => { calls.push([s,w]); return response; }, isCurrent: () => true });
+    const r = await helpersMod.loadLocalDiagnostics('s1', 'w1', 'old-c', { getWidgetSettings: async (s, w) => { calls.push([s,w]); return response; }, isCurrent: () => true });
     assert.deepEqual(calls, [['s1','w1']]); assert.equal(r.status, 'ready'); assert.equal(r.localDelivery, localDelivery); assert.equal(r.candidateChanged, true);
   });
   test('candidateChanged false', async () => {
     const ld = { nextLocalReplyCandidate: { id: 'same' }, queuedIntentCount: 0, claimedIntentCount: 0, appliedLocalReplyCount: 0, lastQueuedAt: null, lastClaimedAt: null, lastAppliedLocalReplyAt: null };
-    const r = await compatMod.loadLocalDiagnostics('s1', 'w1', 'same', { getWidgetSettings: async () => ({ connection: { localDelivery: ld } }), isCurrent: () => true });
+    const r = await helpersMod.loadLocalDiagnostics('s1', 'w1', 'same', { getWidgetSettings: async () => ({ connection: { localDelivery: ld } }), isCurrent: () => true });
     assert.equal(r.candidateChanged, false);
   });
-  test('stale success', async () => { assert.deepEqual(await compatMod.loadLocalDiagnostics('s1','w1',null,{ getWidgetSettings: async () => ({ connection: { localDelivery: { nextLocalReplyCandidate: null } } }), isCurrent: () => false }), { status: 'stale' }); });
-  test('stale error', async () => { assert.deepEqual(await compatMod.loadLocalDiagnostics('s1','w1',null,{ getWidgetSettings: async () => { throw new Error('net'); }, isCurrent: () => false }), { status: 'stale' }); });
-  test('generic error when current', async () => { assert.deepEqual(await compatMod.loadLocalDiagnostics('s1','w1',null,{ getWidgetSettings: async () => { throw new Error('net'); }, isCurrent: () => true }), { status: 'error' }); });
+  test('stale success', async () => { assert.deepEqual(await helpersMod.loadLocalDiagnostics('s1','w1',null,{ getWidgetSettings: async () => ({ connection: { localDelivery: { nextLocalReplyCandidate: null } } }), isCurrent: () => false }), { status: 'stale' }); });
+  test('stale error', async () => { assert.deepEqual(await helpersMod.loadLocalDiagnostics('s1','w1',null,{ getWidgetSettings: async () => { throw new Error('net'); }, isCurrent: () => false }), { status: 'stale' }); });
+  test('generic error when current', async () => { assert.deepEqual(await helpersMod.loadLocalDiagnostics('s1','w1',null,{ getWidgetSettings: async () => { throw new Error('net'); }, isCurrent: () => true }), { status: 'error' }); });
 });
 
 describe('mergeLocalDiagnostics preserves unrelated identities', () => {
@@ -460,10 +460,10 @@ describe('mergeLocalDiagnostics preserves unrelated identities', () => {
     const od = Object.freeze({ nextLocalReplyCandidate: null, queuedIntentCount: 0, claimedIntentCount: 0, appliedLocalReplyCount: 0, lastQueuedAt: null, lastClaimedAt: null, lastAppliedLocalReplyAt: null });
     const state = { status: 'ready', settings: { widget: sw, config: sc, install: si, connection: { status: 'configured_placeholder', routeHandle: 'r', localDelivery: od } }, domains };
     const nd = Object.freeze({ nextLocalReplyCandidate: { id: 'new' }, queuedIntentCount: 1, claimedIntentCount: 0, appliedLocalReplyCount: 0, lastQueuedAt: null, lastClaimedAt: null, lastAppliedLocalReplyAt: null });
-    const m = compatMod.mergeLocalDiagnostics(state, nd);
+    const m = helpersMod.mergeLocalDiagnostics(state, nd);
     assert.equal(m.settings.widget, sw); assert.equal(m.settings.config, sc); assert.equal(m.settings.install, si);
     assert.equal(m.settings.connection.status, 'configured_placeholder'); assert.equal(m.settings.connection.routeHandle, 'r');
     assert.equal(m.settings.connection.localDelivery, nd); assert.equal(m.domains, domains);
   });
-  test('non-ready unchanged', () => { const s = { status: 'loading' }; assert.equal(compatMod.mergeLocalDiagnostics(s, {}), s); });
+  test('non-ready unchanged', () => { const s = { status: 'loading' }; assert.equal(helpersMod.mergeLocalDiagnostics(s, {}), s); });
 });
