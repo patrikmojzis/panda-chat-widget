@@ -7,6 +7,7 @@ const componentsJson = JSON.parse(await readFile(new URL('../components.json', i
 const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const mainSource = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const widgetSettingsSource = await readFile(new URL('../src/widget-settings.tsx', import.meta.url), 'utf8');
 const indexCss = await readFile(new URL('../src/index.css', import.meta.url), 'utf8');
 const viteConfigSource = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
 const utilsSource = await readFile(new URL('../src/lib/utils.ts', import.meta.url), 'utf8');
@@ -28,23 +29,27 @@ test('components.json targets New York/neutral/Lucide', () => {
   assert.equal(componentsJson.aliases.ui, '@/components/ui');
 });
 
-test('exactly 10 ui primitives with no extras', () => {
-  const expected = ['alert.tsx','button.tsx','card.tsx','empty.tsx','input.tsx','label.tsx','separator.tsx','sheet.tsx','skeleton.tsx','spinner.tsx'];
+test('requested local ui primitives are present with no extras', () => {
+  const expected = ['alert.tsx','badge.tsx','button.tsx','card.tsx','dialog.tsx','empty.tsx','field.tsx','form.tsx','input.tsx','label.tsx','select.tsx','separator.tsx','sheet.tsx','skeleton.tsx','sonner.tsx','spinner.tsx','table.tsx','tabs.tsx','textarea.tsx'];
   assert.deepEqual(uiFiles, expected);
 });
 
-test('console package has exact S3 runtime and dev dependencies', () => {
+test('console package has exact runtime and dev dependencies', () => {
   const deps = packageJson.dependencies;
   assert.equal(deps['@radix-ui/react-dialog'], '1.1.15');
   assert.equal(deps['@radix-ui/react-label'], '2.1.8');
+  assert.equal(deps['@radix-ui/react-select'], '2.2.6');
   assert.equal(deps['@radix-ui/react-separator'], '1.1.8');
   assert.equal(deps['@radix-ui/react-slot'], '1.2.4');
+  assert.equal(deps['@radix-ui/react-tabs'], '1.1.13');
   assert.equal(deps['class-variance-authority'], '0.7.1');
   assert.equal(deps.clsx, '2.1.1');
   assert.equal(deps['lucide-react'], '0.545.0');
+  assert.equal(deps['react-hook-form'], '7.75.0');
+  assert.equal(deps.sonner, '2.0.7');
   assert.equal(deps['tailwind-merge'], '3.5.0');
   assert.equal(deps['tw-animate-css'], '1.4.0');
-  assert.equal(Object.keys(deps).length, 11);
+  assert.equal(Object.keys(deps).length, 15);
   const devDeps = packageJson.devDependencies;
   assert.equal(devDeps['@tailwindcss/vite'], '4.2.4');
   assert.equal(devDeps.tailwindcss, '4.2.4');
@@ -68,7 +73,7 @@ test('index.css: tailwindcss + tw-animate-css, no dark/fonts, system stack', () 
 
 test('no forbidden frameworks in console sources', () => {
   const all = [appSource, mainSource, indexCss].join('\n');
-  assert.doesNotMatch(all, /shadcn\/tailwind|radix-vega|react-router|recharts|tanstack|react-hook-form|\bzod\b/);
+  assert.doesNotMatch(all, /shadcn\/tailwind|radix-vega|react-router|recharts|tanstack|\bzod\b/);
 });
 
 test('console Vite scripts, HTML entry, React root', () => {
@@ -79,6 +84,21 @@ test('console Vite scripts, HTML entry, React root', () => {
   assert.match(viteConfigSource, /port: 5174/);
   assert.match(viteConfigSource, /proxy/);
   assert.match(viteConfigSource, /tailwindcss/);
+});
+
+
+test('SalesPanda UI patterns stay local and are wired into existing journeys', () => {
+  const allSources = [appSource, mainSource, widgetSettingsSource].join('\n');
+  assert.doesNotMatch(allSources, /\/tmp\/salespanda-fe/);
+  assert.match(appSource, /<Table aria-label="Workspace sites"/);
+  assert.match(appSource, /<Badge variant=\{site\.enabled/);
+  assert.match(mainSource, /<Toaster \/>/);
+  assert.match(widgetSettingsSource, /<FieldGroup/);
+  assert.match(widgetSettingsSource, /<Select value=\{form\.colorMode\}/);
+  assert.match(widgetSettingsSource, /<Textarea id="widget-settings-subtitle"/);
+  assert.match(widgetSettingsSource, /<Tabs defaultValue="copy">/);
+  assert.match(widgetSettingsSource, /<Dialog open=\{domainPendingDeleteId === domain\.id\}/);
+  assert.match(widgetSettingsSource, /toast\.success\('Widget settings saved'\)/);
 });
 
 test('old styles.css is deleted', async () => {

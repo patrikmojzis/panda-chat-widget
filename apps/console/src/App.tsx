@@ -19,6 +19,7 @@ import {
 } from './console-api';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty';
@@ -28,6 +29,7 @@ import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { WidgetSettingsPage } from './widget-settings';
 import { AlertCircle, Globe, Menu } from 'lucide-react';
 
@@ -515,13 +517,29 @@ function SiteListPage({ onNavigate }: { onNavigate: NavigateHandler }) {
         <Empty><EmptyTitle>No sites yet</EmptyTitle><EmptyDescription>Create your first site to start organizing widgets for this workspace.</EmptyDescription><Button variant="secondary" onClick={() => onNavigate('/console/sites/new')}>Create site</Button></Empty>
       ) : null}
       {state.status === 'ready' && state.sites.length > 0 ? (
-        <Card className="overflow-hidden" aria-label="Workspace sites">
-          {state.sites.map((site, i) => (
-            <button className={`flex w-full items-center justify-between gap-4 p-4 text-left transition-colors hover:bg-muted min-w-0 ${i < state.sites.length - 1 ? 'border-b' : ''}`} key={site.id} type="button" onClick={() => onNavigate(`/console/sites/${site.id}`)}>
-              <span className="min-w-0"><strong className="block break-words">{site.name}</strong><small className="text-muted-foreground text-xs">Created {formatDate(site.createdAt)}</small></span>
-              <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">Open</span>
-            </button>
-          ))}
+        <Card className="overflow-hidden">
+          <Table aria-label="Workspace sites" className="table-fixed">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[30%]">Name</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Updated</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {state.sites.map((site) => (
+                <TableRow key={site.id}>
+                  <TableCell className="whitespace-normal break-words font-medium">{site.name}</TableCell>
+                  <TableCell><Badge variant={site.enabled ? 'secondary' : 'outline'}>{site.enabled ? 'Enabled' : 'Disabled'}</Badge></TableCell>
+                  <TableCell className="whitespace-normal text-muted-foreground tabular-nums">{formatDate(site.createdAt)}</TableCell>
+                  <TableCell className="whitespace-normal text-muted-foreground tabular-nums">{formatDate(site.updatedAt)}</TableCell>
+                  <TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => onNavigate(`/console/sites/${site.id}`)}>View site</Button></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </Card>
       ) : null}
     </section>
