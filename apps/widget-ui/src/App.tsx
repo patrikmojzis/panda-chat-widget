@@ -1,4 +1,4 @@
-import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   applyWidgetChatMessage,
   createWidgetChatMessagesState,
@@ -18,6 +18,13 @@ import {
   type WidgetBootstrapResponse,
 } from './widget-bootstrap';
 import { resolveWidgetComposerKeyAction } from './widget-composer';
+import {
+  WidgetComposer,
+  WidgetEmptyConversation,
+  WidgetHeader,
+  WidgetMessageList,
+  WidgetStateMessage,
+} from './widget-chat-view';
 import type { WidgetPublicKeyState } from './widget-public-key';
 import { resolveWidgetTheme } from './widget-theme';
 import { getOrCreateWidgetVisitorKey } from './widget-visitor-identity';
@@ -81,7 +88,6 @@ export function App({ widgetPublicKey, bootstrapBaseHref }: AppProps) {
 
   return (
     <main className="widget-shell" aria-label="Panda chat widget" data-state={bootstrapState.status}>
-      <p className="widget-shell__eyebrow">Panda Chat Widget</p>
       <BootstrapPlaceholder state={bootstrapState} bootstrapBaseHref={bootstrapBaseHref} />
     </main>
   );
@@ -90,14 +96,6 @@ export function App({ widgetPublicKey, bootstrapBaseHref }: AppProps) {
 type BootstrapPlaceholderProps = {
   state: WidgetBootstrapLoadState;
   bootstrapBaseHref: string;
-};
-
-type WidgetStateMessageProps = {
-  tone: 'loading' | 'empty' | 'error';
-  title: string;
-  body: string;
-  role?: 'status' | 'alert';
-  action?: ReactNode;
 };
 
 function BootstrapPlaceholder({ state, bootstrapBaseHref }: BootstrapPlaceholderProps) {
@@ -116,19 +114,6 @@ function BootstrapPlaceholder({ state, bootstrapBaseHref }: BootstrapPlaceholder
   return <WelcomeState bootstrap={state.bootstrap} bootstrapBaseHref={bootstrapBaseHref} />;
 }
 
-function WidgetStateMessage({ tone, title, body, role = 'status', action }: WidgetStateMessageProps) {
-  return (
-    <section className={`widget-state widget-state--${tone}`}>
-      <div key={role} className="widget-state__content" role={role} aria-live={role === 'alert' ? 'assertive' : 'polite'}>
-        <span className="widget-state__icon" aria-hidden="true" />
-        <h2>{title}</h2>
-        <p>{body}</p>
-      </div>
-      {action}
-    </section>
-  );
-}
-
 type WelcomeStateProps = {
   bootstrap: WidgetBootstrapResponse;
   bootstrapBaseHref: string;
@@ -140,16 +125,20 @@ function WelcomeState({ bootstrap, bootstrapBaseHref }: WelcomeStateProps) {
 
   return (
     <section
-      className={`widget-welcome ${theme.className}`}
+      className={`widget-panel ${theme.className}`}
       aria-label={`${assistant.displayName} chat`}
       data-color-mode={theme.colorMode}
       data-accent={theme.accent}
       data-radius={theme.radius}
     >
-      <p className="widget-welcome__assistant">{assistant.displayName}</p>
-      <h1>{welcome.title}</h1>
-      <p>{welcome.subtitle}</p>
-      <WidgetChat publicKey={bootstrap.widget.publicKey} baseHref={bootstrapBaseHref} assistantName={assistant.displayName} />
+      <WidgetHeader assistantName={assistant.displayName} />
+      <WidgetChat
+        publicKey={bootstrap.widget.publicKey}
+        baseHref={bootstrapBaseHref}
+        assistantName={assistant.displayName}
+        welcomeTitle={welcome.title}
+        welcomeSubtitle={welcome.subtitle}
+      />
     </section>
   );
 }
@@ -158,9 +147,11 @@ type WidgetChatProps = {
   publicKey: string;
   baseHref: string;
   assistantName: string;
+  welcomeTitle: string;
+  welcomeSubtitle: string;
 };
 
-function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
+function WidgetChat({ publicKey, baseHref, assistantName, welcomeTitle, welcomeSubtitle }: WidgetChatProps) {
   const [chatState, setChatState] = useState<WidgetChatState>({ status: 'loading' });
   const [initializationAttempt, setInitializationAttempt] = useState(0);
   const [draftMessage, setDraftMessage] = useState('');
@@ -409,6 +400,17 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
     request.textarea.focus({ preventScroll: true });
   }, [composerFocusSettleTick]);
 
+  useLayoutEffect(() => {
+    const textarea = composerTextareaRef.current;
+
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+  }, [draftMessage]);
+
   async function submitDraftMessage() {
     if (sendInFlightRef.current || chatState.status !== 'ready') {
       return;
@@ -572,13 +574,6 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
 
   const isSending = chatState.sendStatus === 'sending';
   const canSend = !isSending && draftMessage.trim().length > 0;
-  const composerStatus = isSending
-    ? 'Sending your message…'
-    : chatState.sendStatus === 'error'
-      ? 'Couldn’t send. Try again.'
-      : 'Press Enter to send. Shift+Enter for a new line.';
-  const composerStatusRole = chatState.sendStatus === 'error' ? 'alert' : 'status';
-
   return (
     <div className="widget-chat" aria-label={`${assistantName} conversation`}>
       <div className="widget-chat__message-region">
@@ -589,16 +584,9 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
           onScroll={handleMessageScroll}
         >
           {chatState.messageState.messages.length === 0 ? (
-            <WidgetStateMessage tone="empty" title="No messages yet" body="Send a message below to start the conversation." />
+            <WidgetEmptyConversation title={welcomeTitle} subtitle={welcomeSubtitle} />
           ) : (
-            <ol className="widget-chat__message-list">
-              {chatState.messageState.messages.map((message) => (
-                <li key={message.id} className="widget-chat__message" data-sender={message.sender}>
-                  <strong>{message.sender === 'visitor' ? 'You' : assistantName}</strong>
-                  <p>{message.body}</p>
-                </li>
-              ))}
-            </ol>
+            <WidgetMessageList assistantName={assistantName} messages={chatState.messageState.messages} />
           )}
         </div>
         {showJumpToLatest ? (
@@ -607,38 +595,20 @@ function WidgetChat({ publicKey, baseHref, assistantName }: WidgetChatProps) {
           </button>
         ) : null}
       </div>
-      <form
-        className="widget-chat__composer"
+      <WidgetComposer
+        canSend={canSend}
+        draftMessage={draftMessage}
+        isSending={isSending}
+        sendStatus={chatState.sendStatus}
+        textareaRef={composerTextareaRef}
+        onChange={(event) => {
+          pendingSendAttemptRef.current = null;
+          draftMessageRef.current = event.target.value;
+          setDraftMessage(event.target.value);
+        }}
+        onKeyDown={handleComposerKeyDown}
         onSubmit={handleSubmit}
-        data-send-status={chatState.sendStatus}
-        aria-busy={isSending}
-      >
-        <label className="widget-chat__composer-field" htmlFor="widget-chat-message-input">
-          <span>Message</span>
-          <textarea
-            ref={composerTextareaRef}
-            id="widget-chat-message-input"
-            rows={3}
-            value={draftMessage}
-            onChange={(event) => {
-              pendingSendAttemptRef.current = null;
-              draftMessageRef.current = event.target.value;
-              setDraftMessage(event.target.value);
-            }}
-            onKeyDown={handleComposerKeyDown}
-            placeholder="Type your message…"
-            autoComplete="off"
-            aria-describedby="widget-chat-composer-status"
-            disabled={isSending}
-          />
-        </label>
-        <button type="submit" disabled={!canSend} aria-label={isSending ? 'Sending message' : 'Send message'}>
-          {isSending ? 'Sending…' : 'Send'}
-        </button>
-        <p id="widget-chat-composer-status" className="widget-chat__composer-status" role={composerStatusRole}>
-          {composerStatus}
-        </p>
-      </form>
+      />
     </div>
   );
 }

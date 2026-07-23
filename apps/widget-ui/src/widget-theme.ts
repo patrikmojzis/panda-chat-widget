@@ -13,17 +13,17 @@ const DEFAULT_WIDGET_THEME = {
 } as const satisfies WidgetBootstrapConfig['theme'];
 
 const COLOR_MODE_CLASS_NAMES = {
-  light: 'widget-welcome--mode-light',
-  dark: 'widget-welcome--mode-dark',
-  system: 'widget-welcome--mode-system',
+  light: 'widget-panel--mode-light',
+  dark: 'widget-panel--mode-dark',
+  system: 'widget-panel--mode-system',
 } as const satisfies Record<WidgetBootstrapConfig['theme']['colorMode'], string>;
 
 const ACCENT_CLASS_NAMES = {
-  blue: 'widget-welcome--accent-blue',
+  blue: 'widget-panel--accent-blue',
 } as const satisfies Record<WidgetBootstrapConfig['theme']['accent'], string>;
 
 const RADIUS_CLASS_NAMES = {
-  md: 'widget-welcome--radius-md',
+  md: 'widget-panel--radius-md',
 } as const satisfies Record<WidgetBootstrapConfig['theme']['radius'], string>;
 
 function isToken<T extends string>(value: unknown, tokenMap: Record<T, string>): value is T {

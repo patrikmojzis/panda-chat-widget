@@ -1,4 +1,4 @@
-import { type FormEvent, type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
   createSite,
@@ -25,13 +25,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { WidgetSettingsPage } from './widget-settings';
-import { AlertCircle, Globe, Menu } from 'lucide-react';
+import { ConsoleNavigation, PageHeader } from './console-presentation';
+import { AlertCircle, ArrowLeft, ArrowRight, Menu, Plus, Sparkles } from 'lucide-react';
 
 type AppState =
   | { status: 'loading' }
@@ -102,7 +102,7 @@ export function App() {
       <AuthPage>
         <Card className="w-full max-w-[440px]" role="status" aria-live="polite">
           <CardHeader className="space-y-2">
-            <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Panda Chat Console</p>
+            <p className="text-xs font-medium text-muted-foreground">Console</p>
             <CardTitle className="text-2xl">Loading console…</CardTitle>
             <CardDescription>Checking your workspace session.</CardDescription>
           </CardHeader>
@@ -119,7 +119,7 @@ export function App() {
       <AuthPage>
         <Card className="w-full max-w-[440px]" role="alert" aria-live="assertive">
           <CardHeader className="space-y-2">
-            <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Panda Chat Console</p>
+            <p className="text-xs font-medium text-muted-foreground">Console</p>
             <CardTitle className="text-2xl">Console unavailable</CardTitle>
             <CardDescription>{state.message}</CardDescription>
           </CardHeader>
@@ -144,8 +144,14 @@ export type NavigateHandler = (path: string) => void;
 
 function AuthPage({ children }: { children: ReactNode }) {
   return (
-    <main className="grid min-h-dvh min-w-0 place-items-center p-6 bg-background">
-      {children}
+    <main className="console-auth grid min-h-dvh min-w-0 place-items-center p-6">
+      <div className="grid w-full max-w-[440px] gap-5">
+        <div className="flex items-center justify-center gap-2 text-sm font-semibold tracking-tight">
+          <span className="grid size-8 place-items-center rounded-xl bg-primary text-primary-foreground" aria-hidden="true"><Sparkles className="size-4" /></span>
+          Panda Chat
+        </div>
+        {children}
+      </div>
     </main>
   );
 }
@@ -175,7 +181,7 @@ function SetupScreen({ onReady }: { onReady: ReadyHandler }) {
     <AuthPage>
       <Card className="w-full max-w-[440px]">
         <CardHeader className="space-y-2">
-          <p className="text-xs font-extrabold uppercase tracking-wider text-primary">First owner setup</p>
+          <p className="text-xs font-medium text-muted-foreground">First owner setup</p>
           <h1 className="font-semibold leading-none tracking-tight text-2xl">Create your workspace</h1>
           <CardDescription>Set up the first owner account for this self-hosted Panda Chat Widget console.</CardDescription>
         </CardHeader>
@@ -256,7 +262,7 @@ function LoginScreen({ onReady }: { onReady: ReadyHandler }) {
     <AuthPage>
       <Card className="w-full max-w-[440px]">
         <CardHeader className="space-y-2">
-          <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Owner login</p>
+          <p className="text-xs font-medium text-muted-foreground">Owner login</p>
           <h1 className="font-semibold leading-none tracking-tight text-2xl">Sign in to your console</h1>
           <CardDescription>Use your owner account to manage this workspace.</CardDescription>
         </CardHeader>
@@ -318,48 +324,6 @@ function FormStatus({ error, id, state }: { error: string; id: string; state: Su
   return <p className="min-h-5" aria-hidden="true">&nbsp;</p>;
 }
 
-function SidebarContent({
-  context,
-  onLogout,
-  onNavigate,
-  sitesActive,
-}: {
-  context: CurrentContext;
-  onLogout: () => void;
-  onNavigate: (path: string) => void;
-  sitesActive: boolean;
-}) {
-  return (
-    <>
-      <div className="flex items-center gap-2.5 min-w-0">
-        <span className="inline-grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground font-black text-sm" aria-hidden="true">P</span>
-        <div className="min-w-0">
-          <p className="truncate font-extrabold text-sm">Panda Chat</p>
-          <span className="truncate text-xs text-muted-foreground block">Console</span>
-        </div>
-      </div>
-      <nav className="grid gap-1 mt-4" aria-label="Main navigation">
-        <a
-          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${sitesActive ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}
-          href="/console/sites"
-          aria-current={sitesActive ? 'page' : undefined}
-          onClick={(event) => handleNavigationClick(event, '/console/sites', onNavigate)}
-        >
-          <Globe className="size-4" />
-          Sites
-        </a>
-      </nav>
-      <div className="mt-auto pt-4">
-        <Separator className="mb-4" />
-        <div className="grid gap-2 min-w-0">
-          <span className="truncate text-xs text-muted-foreground">{context.user.email}</span>
-          <Button variant="outline" size="sm" onClick={onLogout}>Log out</Button>
-        </div>
-      </div>
-    </>
-  );
-}
-
 function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLoggedOut: () => void }) {
   const [route, setRoute] = useState<ConsoleRoute>(() => parseConsoleRoute(window.location.pathname));
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -417,13 +381,13 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
   const sitesActive = route.page === 'sites' || route.page === 'createSite' || route.page === 'siteDetail' || route.page === 'createWidget' || route.page === 'widgetDetail';
 
   return (
-    <div className="grid min-h-dvh min-w-0 md:grid-cols-[16rem_minmax(0,1fr)]">
-      <aside className="hidden md:flex md:flex-col border-r bg-card p-4 min-w-0" aria-label="Console navigation">
-        <SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigate} sitesActive={sitesActive} />
+    <div className="grid min-h-dvh min-w-0 bg-background md:grid-cols-[16rem_minmax(0,1fr)]">
+      <aside className="sticky top-0 hidden h-dvh min-w-0 flex-col border-r bg-sidebar p-3 md:flex" aria-label="Console navigation">
+        <ConsoleNavigation context={context} onLogout={handleLogoutClick} onNavigate={navigate} sitesActive={sitesActive} />
       </aside>
 
       <main className="flex flex-col min-w-0">
-        <header className="sticky top-0 z-40 flex items-center gap-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 min-w-0">
+        <header className="sticky top-0 z-40 flex h-16 min-w-0 items-center gap-3 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <Sheet open={sheetOpen} onOpenChange={handleSheetOpenChange}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open navigation menu">
@@ -434,21 +398,20 @@ function ConsoleShell({ context, onLoggedOut }: { context: CurrentContext; onLog
               <SheetTitle>Panda Chat Console</SheetTitle>
               <SheetDescription>Navigation and workspace controls.</SheetDescription>
               <div className="flex flex-col flex-1 mt-4">
-                <SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigateFromSheet} sitesActive={sitesActive} />
+                <ConsoleNavigation context={context} onLogout={handleLogoutClick} onNavigate={navigateFromSheet} sitesActive={sitesActive} />
               </div>
             </SheetContent>
           </Sheet>
 
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Workspace</p>
-            <h1 className="text-lg font-bold truncate md:text-xl">{context.workspace.name}</h1>
+            <p className="truncate text-sm font-semibold tracking-tight">{context.workspace.name}</p>
+            <span className="block truncate text-xs text-muted-foreground md:hidden">Widget console</span>
           </div>
-          <div className="hidden sm:block max-w-[min(42vw,360px)] truncate rounded-full border px-3 py-1.5 text-xs text-muted-foreground" title={context.user.email}>
-            {context.user.email}
-          </div>
+          <span className="hidden max-w-[min(42vw,360px)] truncate text-xs text-muted-foreground sm:block" title={context.user.email}>{context.user.email}</span>
+          <div className="pointer-events-none absolute inset-x-0 -bottom-2 h-2 bg-gradient-to-b from-background to-transparent" />
         </header>
 
-        <div className="flex-1 overflow-x-hidden p-4 md:p-6">
+        <div className="mx-auto w-full max-w-6xl flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-8">
           <ConsoleRouteView route={route} onNavigate={navigate} />
         </div>
       </main>
@@ -499,12 +462,12 @@ function SiteListPage({ onNavigate }: { onNavigate: NavigateHandler }) {
   }, []);
 
   return (
-    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="sites-title">
+    <section className="grid min-w-0 w-full gap-6" aria-labelledby="sites-title">
       <PageHeader
-        eyebrow="Sites"
+        eyebrow="Workspace"
         title="Sites"
         body="Create a site for each web property that will use a chat widget."
-        action={<Button onClick={() => onNavigate('/console/sites/new')}>Create site</Button>}
+        action={<Button variant="outline" onClick={() => onNavigate('/console/sites/new')}><Plus className="size-4" />New site</Button>}
         titleId="sites-title"
       />
       {state.status === 'loading' ? (
@@ -517,14 +480,14 @@ function SiteListPage({ onNavigate }: { onNavigate: NavigateHandler }) {
         <Empty><EmptyTitle>No sites yet</EmptyTitle><EmptyDescription>Create your first site to start organizing widgets for this workspace.</EmptyDescription><Button variant="secondary" onClick={() => onNavigate('/console/sites/new')}>Create site</Button></Empty>
       ) : null}
       {state.status === 'ready' && state.sites.length > 0 ? (
-        <Card className="overflow-hidden">
-          <Table aria-label="Workspace sites" className="table-fixed">
+        <Card className="overflow-hidden shadow-none">
+          <Table aria-label="Workspace sites">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[30%]">Name</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Updated</TableHead>
+                <TableHead className="hidden md:table-cell">Created</TableHead>
+                <TableHead className="hidden lg:table-cell">Updated</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -533,9 +496,9 @@ function SiteListPage({ onNavigate }: { onNavigate: NavigateHandler }) {
                 <TableRow key={site.id}>
                   <TableCell className="whitespace-normal break-words font-medium">{site.name}</TableCell>
                   <TableCell><Badge variant={site.enabled ? 'secondary' : 'outline'}>{site.enabled ? 'Enabled' : 'Disabled'}</Badge></TableCell>
-                  <TableCell className="whitespace-normal text-muted-foreground tabular-nums">{formatDate(site.createdAt)}</TableCell>
-                  <TableCell className="whitespace-normal text-muted-foreground tabular-nums">{formatDate(site.updatedAt)}</TableCell>
-                  <TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => onNavigate(`/console/sites/${site.id}`)}>View site</Button></TableCell>
+                  <TableCell className="hidden whitespace-normal text-muted-foreground tabular-nums md:table-cell">{formatDate(site.createdAt)}</TableCell>
+                  <TableCell className="hidden whitespace-normal text-muted-foreground tabular-nums lg:table-cell">{formatDate(site.updatedAt)}</TableCell>
+                  <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => onNavigate(`/console/sites/${site.id}`)}>Open <ArrowRight className="size-4" /></Button></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -568,9 +531,9 @@ function CreateSitePage({ onNavigate }: { onNavigate: NavigateHandler }) {
   const hasError = submitState === 'error';
 
   return (
-    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="create-site-title">
+    <section className="grid min-w-0 w-full gap-6" aria-labelledby="create-site-title">
       <PageHeader eyebrow="Sites" title="Create site" body="Add a site to this workspace." titleId="create-site-title" />
-      <Card className="max-w-[560px]">
+      <Card className="max-w-[640px] shadow-none">
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} aria-busy={submitState === 'submitting'} className="grid gap-4">
             <div className="grid gap-2">
@@ -580,7 +543,7 @@ function CreateSitePage({ onNavigate }: { onNavigate: NavigateHandler }) {
             <FormStatus id={errorId} state={submitState} error="Site could not be created. Check the name and try again." />
             <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={submitState === 'submitting' || !name.trim()}>Create site</Button>
-              <Button variant="outline" type="button" onClick={() => onNavigate('/console/sites')}>Cancel</Button>
+              <Button variant="ghost" type="button" onClick={() => onNavigate('/console/sites')}><ArrowLeft className="size-4" />Cancel</Button>
             </div>
           </form>
         </CardContent>
@@ -671,15 +634,15 @@ function SiteDetailPage({ onNavigate, siteId }: { onNavigate: NavigateHandler; s
   }
 
   return (
-    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="site-detail-title">
+    <section className="grid min-w-0 w-full gap-6" aria-labelledby="site-detail-title">
       <PageHeader
         eyebrow="Site detail"
         title={state.site.name}
         body="Create and review widgets for this site."
         action={
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/new`)}>Create widget</Button>
-            <Button variant="outline" onClick={() => onNavigate('/console/sites')}>Back to sites</Button>
+            <Button variant="outline" onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/new`)}><Plus className="size-4" />New widget</Button>
+            <Button variant="ghost" onClick={() => onNavigate('/console/sites')}><ArrowLeft className="size-4" />All sites</Button>
           </div>
         }
         titleId="site-detail-title"
@@ -687,11 +650,12 @@ function SiteDetailPage({ onNavigate, siteId }: { onNavigate: NavigateHandler; s
       {state.widgets.length === 0 ? (
         <Empty><EmptyTitle>No widgets yet</EmptyTitle><EmptyDescription>Create a widget for this site to generate its public key.</EmptyDescription><Button variant="secondary" onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/new`)}>Create widget</Button></Empty>
       ) : (
-        <Card className="overflow-hidden" aria-label="Site widgets">
+        <Card className="overflow-hidden shadow-none" aria-label="Site widgets">
           {state.widgets.map((widget, i) => (
-            <button className={`flex w-full items-center justify-between gap-4 p-4 text-left transition-colors hover:bg-muted min-w-0 ${i < state.widgets.length - 1 ? 'border-b' : ''}`} key={widget.id} type="button" onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/${widget.id}`)}>
-              <span className="min-w-0"><strong className="block break-words">{widget.name}</strong><small className="text-muted-foreground text-xs break-all">Public key</small></span>
-              <code className="min-w-0 max-w-full rounded-md bg-muted px-2 py-1 text-xs font-mono break-all">{widget.publicKey}</code>
+            <button className={`flex min-w-0 w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted/60 ${i < state.widgets.length - 1 ? 'border-b' : ''}`} key={widget.id} type="button" onClick={() => onNavigate(`/console/sites/${state.site.id}/widgets/${widget.id}`)}>
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted" aria-hidden="true"><Sparkles className="size-4" /></span>
+              <span className="min-w-0 flex-1"><strong className="block break-words text-sm font-medium">{widget.name}</strong><code className="block truncate text-xs text-muted-foreground">{widget.publicKey}</code></span>
+              <ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             </button>
           ))}
         </Card>
@@ -747,9 +711,9 @@ function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler;
   const hasError = submitState === 'error';
 
   return (
-    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="create-widget-title">
+    <section className="grid min-w-0 w-full gap-6" aria-labelledby="create-widget-title">
       <PageHeader eyebrow="Widgets" title="Create widget" body={`Add a widget for ${state.site.name}.`} titleId="create-widget-title" />
-      <Card className="max-w-[560px]">
+      <Card className="max-w-[640px] shadow-none">
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} aria-busy={submitState === 'submitting'} className="grid gap-4">
             <div className="grid gap-2">
@@ -759,7 +723,7 @@ function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler;
             <FormStatus id={errorId} state={submitState} error="Widget could not be created. Check the name and try again." />
             <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={submitState === 'submitting' || !name.trim()}>Create widget</Button>
-              <Button variant="outline" type="button" onClick={() => onNavigate(`/console/sites/${siteId}`)}>Cancel</Button>
+              <Button variant="ghost" type="button" onClick={() => onNavigate(`/console/sites/${siteId}`)}><ArrowLeft className="size-4" />Cancel</Button>
             </div>
           </form>
         </CardContent>
@@ -769,19 +733,6 @@ function CreateWidgetPage({ onNavigate, siteId }: { onNavigate: NavigateHandler;
 }
 
 /* ---------- Shared ---------- */
-
-function PageHeader({ action, body, eyebrow, title, titleId }: { action?: ReactNode; body: string; eyebrow: string; title: string; titleId: string }) {
-  return (
-    <div className="flex flex-col gap-4 min-w-0 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <p className="text-xs font-extrabold uppercase tracking-wider text-primary">{eyebrow}</p>
-        <h2 id={titleId} className="text-xl font-bold md:text-2xl break-words" tabIndex={-1}>{title}</h2>
-        <p className="text-sm text-muted-foreground">{body}</p>
-      </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
 
 function NotFoundPage({ onNavigate }: { onNavigate: NavigateHandler }) {
   return (
@@ -806,11 +757,6 @@ export function parseConsoleRoute(pathname: string): ConsoleRoute {
   if (segments.length === 5 && segments[2] && segments[3] === 'widgets' && segments[4] === 'new') return { page: 'createWidget', siteId: segments[2] };
   if (segments.length === 5 && segments[2] && segments[3] === 'widgets' && segments[4]) return { page: 'widgetDetail', siteId: segments[2], widgetId: segments[4] };
   return { page: 'notFound' };
-}
-
-function handleNavigationClick(event: MouseEvent<HTMLAnchorElement>, path: string, navigate: NavigateHandler) {
-  event.preventDefault();
-  navigate(path);
 }
 
 function decodePathSegment(segment: string): string {

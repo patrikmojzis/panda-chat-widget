@@ -14,7 +14,7 @@ const PANEL_ID = 'panda-chat-widget-panel';
 const PANEL_CLASS = 'panda-chat-widget-panel';
 const PANEL_CLOSE_BUTTON_CLASS = 'panda-chat-widget-panel-close';
 const IFRAME_CLASS = 'panda-chat-widget-frame';
-const LAUNCHER_LABEL = 'Chat';
+const LAUNCHER_LABEL = 'Open chat';
 const LAUNCHER_OPEN_LABEL = 'Hide chat';
 const PANEL_LABEL = 'Chat widget';
 const IFRAME_TITLE = 'Panda chat widget';
@@ -33,86 +33,141 @@ function buildWidgetIframeUrl(publicKey: string, baseUrl: string): string {
 const STYLE_CSS = `
 #${LAUNCHER_CONTAINER_ID} {
   position: fixed;
-  right: max(16px, env(safe-area-inset-right, 0px));
-  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
   z-index: 2147483647;
-  max-width: calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
-  max-height: calc(100vh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 12px;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLASS} {
   box-sizing: border-box;
-  width: min(380px, calc(100vw - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
-  height: min(640px, calc(100vh - 104px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
-  min-height: min(360px, calc(100vh - 104px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  border-radius: 18px;
+  position: relative;
+  width: min(400px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  height: min(680px, calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
+  min-height: min(360px, calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)));
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 24px;
   background: #ffffff;
-  color: #0f172a;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  color: #111827;
+  box-shadow: 0 24px 64px rgba(17, 24, 39, 0.2), 0 4px 16px rgba(17, 24, 39, 0.08);
   overflow: hidden;
-  padding: 10px;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLASS}[hidden] {
   display: none;
 }
 #${LAUNCHER_CONTAINER_ID} .${IFRAME_CLASS} {
   border: 0;
-  border-radius: 12px;
+  border-radius: inherit;
   display: block;
-  flex: 1 1 0;
-  min-height: 0;
-  min-width: 0;
+  height: 100%;
   width: 100%;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS} {
-  align-self: flex-end;
   appearance: none;
-  border: 1px solid rgba(15, 23, 42, 0.14);
-  border-radius: 9999px;
-  background: #ffffff;
-  color: #0f172a;
+  box-sizing: border-box;
+  position: absolute;
+  top: 16px;
+  right: 14px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b7280;
   cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1;
-  padding: 8px 12px;
+  font-size: 0;
+  padding: 0;
   user-select: none;
-  white-space: nowrap;
+  transition: color 140ms ease, background 140ms ease;
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS}::before,
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS}::after {
+  position: absolute;
+  top: 15px;
+  left: 9px;
+  width: 14px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS}::before {
+  transform: rotate(45deg);
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS}::after {
+  transform: rotate(-45deg);
+}
+#${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS}:hover {
+  color: #111827;
+  background: #f3f4f6;
 }
 #${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS} {
   appearance: none;
+  box-sizing: border-box;
+  position: relative;
+  width: 52px;
+  height: 52px;
+  overflow: hidden;
   border: 0;
-  border-radius: 9999px;
-  background: #2563eb;
+  border-radius: 999px;
+  background: #111827;
   color: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.24);
+  box-shadow: 0 10px 28px rgba(17, 24, 39, 0.24);
   cursor: pointer;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-  min-height: 48px;
-  max-width: 100%;
-  min-width: 64px;
-  padding: 14px 18px;
+  font-size: 0;
+  padding: 0;
   user-select: none;
-  white-space: nowrap;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+#${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS}::before {
+  box-sizing: border-box;
+  position: absolute;
+  top: 15px;
+  left: 14px;
+  width: 24px;
+  height: 20px;
+  border: 2px solid currentColor;
+  border-radius: 8px;
+  content: "";
+}
+#${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS}::after {
+  position: absolute;
+  top: 31px;
+  left: 19px;
+  width: 7px;
+  height: 7px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  background: #111827;
+  content: "";
+  transform: skewY(-35deg);
+}
+#${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS}:hover {
+  box-shadow: 0 14px 34px rgba(17, 24, 39, 0.3);
+  transform: translateY(-1px);
+}
+#${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS}:active {
+  transform: scale(0.96);
 }
 #${LAUNCHER_CONTAINER_ID}[data-state="open"] .${LAUNCHER_BUTTON_CLASS} {
-  background: #0f172a;
+  display: none;
 }
 #${LAUNCHER_CONTAINER_ID} .${PANEL_CLOSE_BUTTON_CLASS}:focus-visible,
 #${LAUNCHER_CONTAINER_ID} .${LAUNCHER_BUTTON_CLASS}:focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline: 3px solid rgba(17, 24, 39, 0.24);
   outline-offset: 3px;
+}
+@media (max-width: 480px) {
+  #${LAUNCHER_CONTAINER_ID} .${PANEL_CLASS} {
+    border-radius: 20px;
+  }
 }
 `;
 

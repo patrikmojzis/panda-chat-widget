@@ -8,6 +8,7 @@ const indexHtml = await readFile(new URL('../index.html', import.meta.url), 'utf
 const mainSource = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const widgetSettingsSource = await readFile(new URL('../src/widget-settings.tsx', import.meta.url), 'utf8');
+const presentationSource = await readFile(new URL('../src/console-presentation.tsx', import.meta.url), 'utf8');
 const indexCss = await readFile(new URL('../src/index.css', import.meta.url), 'utf8');
 const viteConfigSource = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
 const utilsSource = await readFile(new URL('../src/lib/utils.ts', import.meta.url), 'utf8');
@@ -96,7 +97,7 @@ test('SalesPanda UI patterns stay local and are wired into existing journeys', (
   assert.match(widgetSettingsSource, /<FieldGroup/);
   assert.match(widgetSettingsSource, /<Select value=\{form\.colorMode\}/);
   assert.match(widgetSettingsSource, /<Textarea id="widget-settings-subtitle"/);
-  assert.match(widgetSettingsSource, /<Tabs defaultValue="copy">/);
+  assert.match(widgetSettingsSource, /<Tabs className="min-w-0" defaultValue="copy">/);
   assert.match(widgetSettingsSource, /<Dialog open=\{domainPendingDeleteId === domain\.id\}/);
   assert.match(widgetSettingsSource, /toast\.success\('Widget settings saved'\)/);
 });
@@ -120,8 +121,9 @@ test('setup and login titles are native h1 headings', () => {
 });
 
 test('widget public key uses min-w-0, not shrink-0', () => {
-  assert.doesNotMatch(appSource, /shrink-0[^"]*break-all/);
-  assert.match(appSource, /min-w-0[^"]*break-all/);
+  const publicKeySurfaces = [appSource, widgetSettingsSource].join('\n');
+  assert.doesNotMatch(publicKeySurfaces, /shrink-0[^"]*break-all/);
+  assert.match(publicKeySurfaces, /min-w-0[^"]*break-all/);
 });
 
 test('no storage or dark mode in app or main', () => {
@@ -134,10 +136,12 @@ test('no fix-round markers in production source', () => {
 });
 
 test('responsive shell structure', () => {
-  assert.match(appSource, /hidden md:flex/);
+  assert.match(appSource, /sticky top-0 hidden h-dvh[^"]*md:flex/);
   assert.match(appSource, /md:grid-cols-\[16rem/);
   assert.match(appSource, /SheetTrigger/);
   assert.match(appSource, /setSheetOpen\(false\)/);
+  assert.match(appSource, /mx-auto w-full max-w-6xl/);
+  assert.match(presentationSource, /Sites &amp; widgets/);
 });
 
 test('mobile Sheet navigation focus is one-shot, consumer-scoped, and timer-free', () => {
@@ -149,12 +153,23 @@ test('mobile Sheet navigation focus is one-shot, consumer-scoped, and timer-free
   assert.match(appSource, /<Sheet open=\{sheetOpen\} onOpenChange=\{handleSheetOpenChange\}>/);
   assert.match(appSource, /<SheetContent side="left" className="flex flex-col w-\[min\(20rem,85vw\)\] p-4" onCloseAutoFocus=\{handleSheetCloseAutoFocus\}>/);
 
-  const desktopNavigation = '<SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigate} sitesActive={sitesActive} />';
-  const mobileNavigation = '<SidebarContent context={context} onLogout={handleLogoutClick} onNavigate={navigateFromSheet} sitesActive={sitesActive} />';
+  const desktopNavigation = '<ConsoleNavigation context={context} onLogout={handleLogoutClick} onNavigate={navigate} sitesActive={sitesActive} />';
+  const mobileNavigation = '<ConsoleNavigation context={context} onLogout={handleLogoutClick} onNavigate={navigateFromSheet} sitesActive={sitesActive} />';
   assert.equal(appSource.split(desktopNavigation).length - 1, 1);
   assert.equal(appSource.split(mobileNavigation).length - 1, 1);
   assert.match(appSource, /<ConsoleRouteView route=\{route\} onNavigate=\{navigate\} \/>/);
   assert.doesNotMatch(appSource, /\bsetTimeout\b|\brequestAnimationFrame\b/);
+});
+
+test('console presentation follows the SalesPanda page hierarchy without duplicate title labels', () => {
+  assert.match(presentationSource, /text-2xl font-semibold leading-tight tracking-tight sm:text-3xl/);
+  assert.match(appSource, /eyebrow="Workspace"\s+title="Sites"/);
+  assert.match(appSource, /hidden md:table-cell/);
+  assert.match(appSource, /hidden lg:table-cell/);
+  assert.match(widgetSettingsSource, /<Tabs className="min-w-0" defaultValue="copy">/);
+  assert.match(widgetSettingsSource, /TabsList variant="line" className="h-auto w-full max-w-full/);
+  assert.match(widgetSettingsSource, /<LocalDeliveryOverview/);
+  assert.doesNotMatch(widgetSettingsSource, />Connection placeholder</);
 });
 
 test('Alert primitive ref types match rendered elements', async () => {

@@ -40,7 +40,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { AlertCircle } from 'lucide-react';
+import { PageHeader } from './console-presentation';
+import { AlertCircle, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
 type SubmitState = 'idle' | 'submitting' | 'error';
@@ -206,7 +207,7 @@ export function WidgetSettingsPage({
 
       setConnectionDraft(settings.connection.routeHandle ?? '');
       setConnectionSubmitState('idle');
-      toast.success('Connection placeholder saved');
+      toast.success('Route handle saved');
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setState({ status: 'notFound' });
@@ -229,7 +230,7 @@ export function WidgetSettingsPage({
 
       setConnectionDraft('');
       setConnectionSubmitState('idle');
-      toast.success('Connection placeholder cleared');
+      toast.success('Route handle cleared');
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setState({ status: 'notFound' });
@@ -372,44 +373,37 @@ export function WidgetSettingsPage({
   const localManualReplyCommand = localManualReply.command;
 
   return (
-    <section className="grid gap-4 min-w-0 w-full max-w-[940px]" aria-labelledby="widget-settings-title">
-      <div className="flex flex-col gap-4 min-w-0 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Widget settings</p>
-          <h2 id="widget-settings-title" className="text-xl font-bold md:text-2xl break-words" tabIndex={-1}>{state.settings.widget.name}</h2>
-          <p className="text-sm text-muted-foreground">Manage safe widget copy, allowed domains, and the install snippet for this public key.</p>
+    <section className="grid min-w-0 w-full gap-6" aria-labelledby="widget-settings-title">
+      <PageHeader
+        eyebrow="Widget settings"
+        title={state.settings.widget.name}
+        body="Manage the assistant copy, allowed domains, connection, and install snippet."
+        action={<Button variant="ghost" type="button" onClick={() => onNavigate(`/console/sites/${siteId}`)}><ArrowLeft className="size-4" />Back to site</Button>}
+        titleId="widget-settings-title"
+      />
+
+      <div className="flex min-w-0 flex-col gap-2 rounded-xl border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between" aria-label="Widget public key">
+        <div>
+          <p className="text-sm font-medium">Public key</p>
+          <p className="text-xs text-muted-foreground">Safe to publish through the loader on allowed domains.</p>
         </div>
-        <div className="shrink-0">
-          <Button variant="outline" type="button" onClick={() => onNavigate(`/console/sites/${siteId}`)}>Back to site</Button>
-        </div>
+        <code className="min-w-0 max-w-full rounded-md bg-background px-2.5 py-1.5 text-xs font-mono break-all ring-1 ring-border">{state.settings.widget.publicKey}</code>
       </div>
 
-      <Card aria-labelledby="widget-public-key-title">
-        <CardHeader className="space-y-2">
-          <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Public key</p>
-          <h3 id="widget-public-key-title" className="font-semibold leading-none tracking-tight">Server-owned key</h3>
-          <CardDescription>Use this public key only in the loader snippet. It is safe to publish on allowed domains.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <code className="block min-w-0 max-w-full rounded-md bg-muted px-2 py-1 text-xs font-mono break-all">{state.settings.widget.publicKey}</code>
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue="copy">
-        <TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit sm:grid-cols-4" aria-label="Widget settings sections">
-          <TabsTrigger value="copy">Copy</TabsTrigger>
-          <TabsTrigger value="connection">Connection</TabsTrigger>
-          <TabsTrigger value="domains">Domains</TabsTrigger>
-          <TabsTrigger value="install">Install</TabsTrigger>
+      <Tabs className="min-w-0" defaultValue="copy">
+        <TabsList variant="line" className="h-auto w-full max-w-full justify-start overflow-x-auto border-b" aria-label="Widget settings sections">
+          <TabsTrigger className="flex-none px-3" value="copy">Design</TabsTrigger>
+          <TabsTrigger className="flex-none px-3" value="connection">Connection</TabsTrigger>
+          <TabsTrigger className="flex-none px-3" value="domains">Domains</TabsTrigger>
+          <TabsTrigger className="flex-none px-3" value="install">Install</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="copy">
-          <Card>
+        <TabsContent className="pt-4" value="copy">
+          <Card className="shadow-none">
             <form onSubmit={handleSettingsSubmit} aria-busy={submitState === 'submitting'}>
               <CardHeader className="space-y-2">
-                <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Safe config</p>
-                <h3 className="font-semibold leading-none tracking-tight">Widget copy</h3>
-                <CardDescription>Only plain text and existing theme tokens are supported here.</CardDescription>
+                <h3 className="font-semibold leading-none tracking-tight">Appearance and welcome copy</h3>
+                <CardDescription>Customize the safe text and theme tokens shown to visitors.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4">
                 <FieldGroup className="gap-4 sm:grid sm:grid-cols-2">
@@ -456,20 +450,18 @@ export function WidgetSettingsPage({
           </Card>
         </TabsContent>
 
-        <TabsContent value="connection">
-          <Card aria-labelledby="panda-connection-title" aria-busy={diagnosticsRefreshState === 'submitting'}>
+        <TabsContent className="pt-4" value="connection">
+          <Card className="shadow-none" aria-labelledby="panda-connection-title" aria-busy={diagnosticsRefreshState === 'submitting'}>
             <CardHeader className="space-y-2">
-              <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Panda connection</p>
-              <h3 id="panda-connection-title" className="font-semibold leading-none tracking-tight">Connection placeholder</h3>
-              <CardDescription>Owner-only local deterministic fake reply diagnostic. It shows queued and claimed local future-dispatch intents plus fake reply rows applied locally; Gateway/CLI dispatch is not connected yet, so visitor messages still use the local fake reply loop.</CardDescription>
-              <CardDescription>Manual local/demo-only diagnostics refreshes re-fetch the owner widget settings endpoint without saving drafts or reloading the page.</CardDescription>
+              <h3 id="panda-connection-title" className="font-semibold leading-none tracking-tight">Panda connection</h3>
+              <CardDescription>Inspect the local delivery queue and configure the placeholder route used by the current development flow.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
-              <div className="grid gap-1">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">{formatConnectionStatus(state.settings.connection.status)}</Badge>
                 <small className="text-xs text-muted-foreground">{state.settings.connection.routeHandle ? 'A placeholder route handle is saved.' : 'No route handle is saved yet.'}</small>
-                <small className="text-xs text-muted-foreground">{formatLocalDeliveryStatus(state.settings.connection.localDelivery)}</small>
               </div>
+              <LocalDeliveryOverview localDelivery={state.settings.connection.localDelivery} />
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" type="button" onClick={() => void handleLocalDiagnosticsRefresh()} disabled={diagnosticsRefreshState === 'submitting'}>
                   {diagnosticsRefreshState === 'submitting' ? <><Spinner /> Refreshing local diagnostics…</> : 'Refresh local diagnostics'}
@@ -477,10 +469,10 @@ export function WidgetSettingsPage({
               </div>
               <FormStatus id="widget-diagnostics-error" state={diagnosticsRefreshState} error="Local diagnostics could not be refreshed. Unsaved widget copy and route handle drafts were kept; try again." />
               {nextLocalReplyCandidate ? (
-                <div className="grid gap-4 rounded-lg border p-4 min-w-0" aria-label="Next local manual reply target">
+                <div className="grid min-w-0 gap-4 rounded-xl border bg-muted/20 p-4" aria-label="Next local manual reply target">
                   <div className="flex flex-wrap items-center justify-between gap-4 min-w-0">
                     <span className="grid gap-1 min-w-0">
-                      <strong className="text-sm">next manual reply target ID</strong>
+                      <strong className="text-sm">Next manual reply target</strong>
                       <code className="min-w-0 max-w-full rounded-md bg-muted px-2 py-1 text-xs font-mono break-all">{nextLocalReplyCandidate.id}</code>
                       <small className="text-xs text-muted-foreground">Local-only targetIntentId for local-panda:reply-manual.</small>
                     </span>
@@ -531,10 +523,9 @@ export function WidgetSettingsPage({
           </Card>
         </TabsContent>
 
-        <TabsContent value="domains">
-          <Card aria-labelledby="allowed-domains-title">
+        <TabsContent className="pt-4" value="domains">
+          <Card className="shadow-none" aria-labelledby="allowed-domains-title">
             <CardHeader className="space-y-2">
-              <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Allowed domains</p>
               <h3 id="allowed-domains-title" className="font-semibold leading-none tracking-tight">Allowed domains</h3>
               <CardDescription>Add each hostname where this widget may bootstrap. Ports are ignored for schemeful origins.</CardDescription>
             </CardHeader>
@@ -587,10 +578,9 @@ export function WidgetSettingsPage({
           </Card>
         </TabsContent>
 
-        <TabsContent value="install">
-          <Card aria-labelledby="install-snippet-title">
+        <TabsContent className="pt-4" value="install">
+          <Card className="shadow-none" aria-labelledby="install-snippet-title">
             <CardHeader className="space-y-2">
-              <p className="text-xs font-extrabold uppercase tracking-wider text-primary">Install snippet</p>
               <h3 id="install-snippet-title" className="font-semibold leading-none tracking-tight">Copy loader snippet</h3>
               <CardDescription>The snippet appears after at least one allowed domain exists.</CardDescription>
             </CardHeader>
@@ -631,6 +621,26 @@ function NextLocalReplyCandidateDetails({ candidate }: { candidate: ConsoleWidge
   );
 }
 
+function LocalDeliveryOverview({ localDelivery }: { localDelivery: ConsoleWidgetSettings['connection']['localDelivery'] }) {
+  const metrics = [
+    { label: 'Queued', value: localDelivery.queuedIntentCount, date: localDelivery.lastQueuedAt },
+    { label: 'Claimed locally', value: localDelivery.claimedIntentCount, date: localDelivery.lastClaimedAt },
+    { label: 'Replies applied', value: localDelivery.appliedLocalReplyCount, date: localDelivery.lastAppliedLocalReplyAt },
+  ];
+
+  return (
+    <dl className="grid gap-3 sm:grid-cols-3" aria-label="Local delivery summary">
+      {metrics.map((metric) => (
+        <div className="rounded-xl border bg-background p-4" key={metric.label}>
+          <dt className="text-xs font-medium text-muted-foreground">{metric.label}</dt>
+          <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{metric.value}</dd>
+          <span className="mt-1 block text-xs text-muted-foreground">{metric.date ? formatDate(metric.date) : 'No activity yet'}</span>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function FormStatus({ error, id, state }: { error: string; id: string; state: SubmitState }) {
   if (state === 'submitting') {
     return <p className="min-h-5 text-sm text-muted-foreground" role="status">Working…</p>;
@@ -651,16 +661,6 @@ function FormStatus({ error, id, state }: { error: string; id: string; state: Su
 
 function formatConnectionStatus(status: ConsoleWidgetSettings['connection']['status']): string {
   return status === 'configured_placeholder' ? 'Configured placeholder' : 'Not configured';
-}
-
-function formatLocalDeliveryStatus(localDelivery: ConsoleWidgetSettings['connection']['localDelivery']): string {
-  const queued = localDelivery.queuedIntentCount === 1 ? '1 queued intent' : `${localDelivery.queuedIntentCount} queued intents`;
-  const claimed = localDelivery.claimedIntentCount === 1 ? '1 intent claimed locally' : `${localDelivery.claimedIntentCount} intents claimed locally`;
-  const applied = localDelivery.appliedLocalReplyCount === 1 ? '1 fake reply application' : `${localDelivery.appliedLocalReplyCount} fake reply applications`;
-  const lastQueued = localDelivery.lastQueuedAt ? `last queued ${formatDate(localDelivery.lastQueuedAt)}` : 'last queued never';
-  const lastClaimed = localDelivery.lastClaimedAt ? `last claimed locally ${formatDate(localDelivery.lastClaimedAt)}` : localDelivery.claimedIntentCount > 0 ? 'last claimed timestamp unavailable' : 'last claimed locally never';
-  const lastApplied = localDelivery.lastAppliedLocalReplyAt ? `last applied locally ${formatDate(localDelivery.lastAppliedLocalReplyAt)}` : localDelivery.appliedLocalReplyCount > 0 ? 'last applied timestamp unavailable' : 'last applied locally never';
-  return `Local deterministic fake reply diagnostic. Local future-dispatch queue: ${queued}; ${lastQueued}. Claimed locally: ${claimed}; ${lastClaimed}. Applied locally: ${applied}; ${lastApplied}.`;
 }
 
 function formFromSettings(settings: ConsoleWidgetSettings): WidgetSettingsForm {
